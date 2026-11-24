@@ -33,7 +33,7 @@ test('tooltip shows a bound account name when its provider has multiple accounts
 test('tooltip labels the effective default account when unbound and provider has multiple accounts', () => {
   assert.deepEqual(agentTooltipInfo(node(), providers(),
     accounts(['claude/primary', 'claude-1']) as never), {
-    title: 'Claude Opus 5.5 · max · default',
+    title: 'Claude Opus 5.5 · max · default account',
   })
 })
 

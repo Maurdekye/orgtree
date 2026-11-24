@@ -18,6 +18,9 @@ import {
   setOpenChatOnReply,
 } from '../src/mailboxpref'
 import { resetLocalReads } from '../src/mailread'
+import { resetComposerDrafts } from '../src/composerdrafts'
+import { DeskChat } from '../src/canvas/desk'
+import type { CanvasNode } from '../src/canvas/shared'
 import { syncFastModes } from '../src/canvas/fastmode'
 import { OPEN_SETTINGS_AT_EVENT } from '../src/canvas/settingskit'
 import { withoutMailTransfers } from './mailtransfers.fixture'
@@ -55,10 +58,17 @@ interface World {
   audiences?: unknown[]; requests?: unknown[]
   /** a mail the by-id lookup knows, outside the loaded window */
   byId?: Record<string, unknown>
+  /** the engine refuses every message */
+  refuse?: boolean
+  /** older history, a page per entry: the first read says there is more, and
+   *  `before=<n>` returns page n (1-based) */
+  older?: { delivered?: unknown[]; sent?: unknown[] }[]
 }
 
 function engine(world: World) {
   const calls: Call[] = []
+  /** every history page asked for: `<folder>:<before>` */
+  const pages: string[] = []
   const json = (body: unknown, status = 200) =>
     new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } })
   const fetcher = withoutMailTransfers((async (url: RequestInfo | URL, init?: RequestInit) => {
@@ -88,15 +98,36 @@ function engine(world: World) {
       const found = world.byId?.[decodeURIComponent(byId[1]!)] ?? null
       return json({ found: !!found, mail: found })
     }
-    if (/\/nodes\/[^/]+\/message$/.test(path)) return json({ accepted: true, id: 'm-new', ref: '@mail:m-new' })
+    if (/\/nodes\/[^/]+\/message$/.test(path)) return world.refuse ? json({ error: 'the agent is not taking mail' }, 500)
+      : json({ accepted: true, id: 'm-new', ref: '@mail:m-new' })
+    // a desk's own chat read (the desk box mounted beside the chats' box)
+    if (/\/nodes\/[^/]+\/chat(\?|$)/.test(path)) return json({ messages: [], live: [], pending_mail: [], busy: false, responding: false,
+      windowed: true, has_older: false, before: null, draft_epoch: 'synthetic:0' })
     if (/\/nodes\/[^/]+\/batch$/.test(path)) return json({ resolved: 'ok' })
     if (/\/nodes\/[^/]+\/scope$/.test(path)) return json({ ok: true })
     if (/\/inbox(\?|$)/.test(path)) {
-      return json({ pending: world.pending ?? [], delivered: world.delivered ?? [], sent: world.sent ?? [], next_cursor: null })
+      const q = new URL(path, 'http://x').searchParams
+      const older = world.older ?? []
+      const ids = q.get('ids')
+      if (ids) {
+        // the reader re-reads the rows it holds: every one of them, as it stands
+        const want = JSON.parse(ids) as string[]
+        const all = [...(world.delivered ?? []), ...older.flatMap(p => p.delivered ?? [])] as { id: string }[]
+        const mine = [...(world.sent ?? []), ...older.flatMap(p => p.sent ?? [])] as { id: string }[]
+        return json({ pending: [], delivered: all.filter(m => want.includes(m.id)), sent: mine.filter(m => want.includes(m.id)), refreshed_ids: want })
+      }
+      const before = q.get('before')
+      if (before) {
+        pages.push(`${q.get('folder')}:${before}`)
+        const page = older[Number(before) - 1] ?? {}
+        return json({ pending: [], delivered: page.delivered ?? [], sent: page.sent ?? [],
+          next_cursor: Number(before) < older.length ? String(Number(before) + 1) : null })
+      }
+      return json({ pending: world.pending ?? [], delivered: world.delivered ?? [], sent: world.sent ?? [], next_cursor: older.length ? '1' : null })
     }
     return json({})
   }) as typeof fetch)
-  return { calls, fetcher }
+  return { calls, pages, fetcher }
 }
 
 async function setup(t: TestContext, world: World, opts: {
@@ -114,15 +145,23 @@ async function setup(t: TestContext, world: World, opts: {
   window.localStorage.removeItem(OPEN_CHAT_ON_REPLY_KEY)
   window.sessionStorage.clear()
   resetLocalReads()
-  const state = { closed: 0, focused: [] as string[], toasts: [] as string[] }
+  resetComposerDrafts()
+  const state = { closed: 0, focused: [] as string[], toasts: [] as string[], opened: [] as unknown[] }
   const panel = (o = opts) => (
     <CurrentOrg.Provider value="mine">
       <UserMailbox slug="mine" tree={o.tree ?? opts.tree ?? tree()} toast={(lines) => { state.toasts.push(...lines) }}
         close={() => { state.closed++ }} jumpTo={o.jumpTo ?? null} jumpSeq={o.jumpTo ? 1 : null}
-        openChat={o.openChat ?? null} onFocusAgent={(id) => { state.focused.push(id) }} />
+        openChat={o.openChat ?? null} onFocusAgent={(id) => { state.focused.push(id) }}
+        onOpenMail={(ref) => { state.opened.push(ref) }} />
     </CurrentOrg.Provider>
   )
-  const view = await mountView(panel(), el => el)
+  let view = await mountView(panel(), el => el)
+  /** close the panel and open it again, as closing and reopening the inbox does */
+  const remount = async () => {
+    await view.unmount()
+    view = await mountView(panel(), el => el)
+    await inAct(async () => { await flush(12) })
+  }
   t.after(async () => {
     await view.unmount()
     globalThis.fetch = oldFetch
@@ -142,7 +181,7 @@ async function setup(t: TestContext, world: World, opts: {
   const row = (peer: string) => rows().find(r => r.dataset.dmChat === peer)
   const openChat = async (peer: string) => { await click(row(peer), `the chat row of ${peer}`) }
   const type = async (text: string) => {
-    const ta = document.querySelector('.dm-compose .mail-reply textarea') as HTMLTextAreaElement
+    const ta = document.querySelector('.dm-compose textarea') as HTMLTextAreaElement
     assert.ok(ta, 'the message box is on screen')
     await inAct(async () => {
       Object.getOwnPropertyDescriptor(W.HTMLTextAreaElement.prototype, 'value')?.set?.call(ta, text)
@@ -151,7 +190,9 @@ async function setup(t: TestContext, world: World, opts: {
     })
   }
   const send = async () => { await click(document.querySelector('.dm-compose .mail-reply-send'), 'the send button') }
-  return { view, state, server, confirms, all, click, rows, row, openChat, type, send, rerender: (o: typeof opts) => view.render(panel({ ...opts, ...o })) }
+  const draft = () => (document.querySelector('.dm-compose textarea') as HTMLTextAreaElement | null)?.value ?? null
+  return { get view() { return view }, state, server, confirms, all, click, rows, row, openChat, type, send, draft, remount,
+    rerender: (o: typeof opts) => view.render(panel({ ...opts, ...o })) }
 }
 
 const posts = (calls: Call[], re: RegExp) => calls.filter(c => c.method === 'POST' && re.test(c.path))
@@ -256,7 +297,9 @@ test('New chat is the agents list itself; picking an agent without an audience g
   await s.click(document.querySelector('.dm-list-head .dm-new'), 'New chat')
   const picker = document.querySelector('.dm-newchat')
   assert.ok(picker, 'the picker opened')
-  assert.equal(picker!.querySelector('.tray') !== null, true, 'it is the shared agents list')
+  assert.equal(picker!.parentElement?.classList.contains('dm-list'), true, 'over the chat list, in its column')
+  assert.equal(picker!.classList.contains('tray-panel'), true, 'in the canvas agents list\'s own panel box')
+  assert.equal(picker!.querySelector(':scope > .tray') !== null, true, 'it is the shared agents list')
   assert.equal(picker!.querySelector('input.tray-filter') !== null, true, 'with its filter box')
   assert.equal(document.querySelector('input[aria-label="Only active agents"]') !== null, true, 'and its active-only switch')
   assert.deepEqual(s.all<HTMLElement>('.dm-newchat .tray-row').map(r => r.dataset.dmPick), ['lead', 'worker', 'helper', 'solo'],
@@ -396,7 +439,7 @@ test('the message box has the agent\'s fast mode and effort, saved through the d
   t.after(() => syncFastModes([]))
   const s = await setup(t, { audiences: [grant('worker')] }, { active: false })
   await s.openChat('worker')
-  const controls = document.querySelector('.dm-compose .mail-reply .mail-reply-controls')
+  const controls = document.querySelector('.dm-compose .cc-composer .cc-controls')
   assert.equal(controls !== null, true, 'the controls sit in the message box')
   const fast = controls!.querySelector<HTMLButtonElement>('button.cc-fast')
   assert.equal(fast?.getAttribute('aria-label'), 'Fast mode')
@@ -420,7 +463,7 @@ test('the message box has the agent\'s fast mode and effort, saved through the d
 test('Orgtree\'s own chat and a project\'s chat have no agent controls in the message box', async (t) => {
   const s = await setup(t, { delivered: [mail('sys1', '@system', '2026-11-20T10:00:00Z')] }, { active: false })
   await s.openChat('@system')
-  assert.equal(document.querySelector('.dm-compose .mail-reply-controls') === null, true)
+  assert.equal(document.querySelector('.dm-compose .cc-controls :is(.cc-fast, .cc-eff)') === null, true)
   assert.equal(document.querySelector('.dm-head .dm-gear') === null, true, 'and no gear: it is no agent')
 })
 
@@ -439,7 +482,8 @@ test('the chat header: the name is the agent link, and the gear asks for that ag
   const gear = document.querySelector<HTMLButtonElement>('.dm-head .dm-gear')
   assert.equal(gear?.getAttribute('aria-label'), "Open worker's settings")
   await s.click(gear, 'the gear')
-  assert.deepEqual(asks, [{ scope: 'agent', org: 'mine', agentId: 'worker' }], 'the existing settings request, for this agent')
+  assert.deepEqual(asks, [{ scope: 'agent', org: 'mine', agentId: 'worker', over: true }],
+    'the existing settings request, for this agent, to open over the chat')
 })
 
 test('a message typed in the panel says it came from there; a reply does not, and names what it answers', async (t) => {
@@ -613,10 +657,13 @@ test('in a narrow panel the chat list is the overlay the other two-pane panels u
   assert.deepEqual(posts(s.server.calls, /\/audiences$/).map(c => c.body), [{ action: 'revoke', node: 'worker' }])
   assert.equal(box.classList.contains('narrow-list-open'), true, 'the list stays open')
 
-  // New chat steps out of the list, so the chat it opens is not behind it
+  // New chat sweeps out over the list, inside the overlay; the agent picked there closes it
   await s.click(document.querySelector('.dm-list-head .dm-new'), 'New chat')
-  assert.equal(document.querySelector('.dm-newchat') !== null, true)
-  assert.equal(box.classList.contains('narrow-list-open'), false)
+  assert.equal(document.querySelector('.dm-list > .dm-newchat') !== null, true)
+  assert.equal(box.classList.contains('narrow-list-open'), true, 'the list overlay stays up: the sweep is in it')
+  await s.click(s.all<HTMLElement>('.dm-newchat .tray-row').find(r => r.dataset.dmPick === 'solo'), 'solo\'s row')
+  assert.equal(document.querySelector('.dm-head')?.getAttribute('data-dm-peer'), 'solo')
+  assert.equal(box.classList.contains('narrow-list-open'), false, 'and gives way to the chat that was picked')
 })
 
 test('a chat row\'s preview reads as plain words, without the mail\'s markdown marks', async (t) => {
@@ -876,7 +923,7 @@ test('a project\'s silent agents are listed under it, last; opening one is an em
   await s.openChat('page')
   assert.equal(document.querySelector('.dm-head')?.getAttribute('data-dm-peer'), 'page')
   assert.equal(document.querySelectorAll('.dm-msg').length, 0, 'nothing has been written')
-  assert.equal(document.querySelector('.dm-compose .mail-reply textarea') !== null, true, 'and it can be written to')
+  assert.equal(document.querySelector('.dm-compose textarea') !== null, true, 'and it can be written to')
   assert.equal(posts(s.server.calls, /\/audiences$/).length, 0, 'opening it grants nothing: it already reaches the user through its project')
   await s.openChat('lead')
   await s.click(s.row('office')!.querySelector('.dm-fold'), 'the fold arrow')
@@ -961,4 +1008,401 @@ test('an agent listed under a project has "Acquire audience" at the top of its r
   assert.equal(s.row('aide')!.dataset.dmParent, undefined)
   await s.openChat('aide')
   assert.match(document.querySelector('.dm-head .dm-via-projects')?.textContent ?? '', /^\(and via\s*office\)$/)
+})
+
+// ============================================================ 4.7.0-alpha.1
+// The user's feedback on the installed alpha (USER 2026-11-24 m15c78be3a1db
+// and the messages after it), one test per point.
+
+test('alpha.1 point 1: a grant of a name the tree does not hold makes no row', async (t) => {
+  const s = await setup(t, { audiences: [grant('worker'), grant('accept-field'), grant('account-card'), grant('argon-hi')] }, { active: false })
+  assert.deepEqual(s.rows().map(r => r.dataset.dmChat).sort(), ['lead', 'solo', 'worker'])
+})
+
+const deskNode = (id: string) => ({ ...node(id), tier: 'opus', model_id: 'opus', configured_scope: { tools: {}, add_dirs: [] } }) as unknown as CanvasNode
+/** what a message box is made of, in order: the element kinds and the classes that style them */
+const boxShape = (box: Element) => ({
+  columns: [...box.children].filter(e => !e.classList.contains('mention-menu')).map(e => e.tagName.toLowerCase() + (e.classList[0] ? '.' + e.classList[0] : '')),
+  left: [...box.querySelectorAll(':scope > .cc-btnstack > *')].map(e => e.classList[0]),
+  rows: [...box.querySelectorAll(':scope > .cc-controls > *')].map(e => e.classList[0]),
+  fast: [...box.querySelectorAll('.cc-fast-row > *')].map(e => e.classList[0]),
+  primary: [...box.querySelectorAll('.cc-primary-row > *')].map(e => e.classList[0]),
+  send: box.querySelector('.cc-send svg')?.getAttribute('data-testid') ?? null,
+})
+
+test('alpha.1 point 2: the chat\'s message box is the desk\'s: the same parts, classes, order and send glyph', async (t) => {
+  syncFastModes([{ tiers: [{ tier: 'opus', fast_mode: true }] }] as unknown as Parameters<typeof syncFastModes>[0])
+  t.after(() => syncFastModes([]))
+  const s = await setup(t, { audiences: [grant('worker')] }, { active: false })
+  await s.openChat('worker')
+  const worker = deskNode('worker')
+  const desk = await mountView(<DeskChat node={worker} map={new Map([[worker.id, worker]])} slug="mine" op={async () => ({})} toast={() => {}} bare />, el => el)
+  t.after(() => desk.unmount())
+  await inAct(async () => { await flush(8) })
+  const theirs = desk.el.querySelector('.cc-composer'), mine = document.querySelector('.dm-compose .cc-composer')
+  assert.ok(theirs, 'POSITIVE CONTROL: the desk drew its message box')
+  assert.ok(mine, 'the chat\'s box is a .cc-composer: every rule that styles the desk\'s box styles it')
+  assert.deepEqual(boxShape(mine!), boxShape(theirs!))
+  assert.deepEqual(boxShape(theirs!).primary, ['eff-wrap', 'cc-send'], 'POSITIVE CONTROL: effort, then the round send')
+  assert.deepEqual(boxShape(theirs!).rows, ['cc-fast-row', 'cc-primary-row'], 'POSITIVE CONTROL: fast mode over effort and send')
+  assert.equal(document.querySelector('.dm-compose .mail-reply') === null, true, 'not the mail reader\'s reply box')
+  assert.equal(document.querySelector('.dm-compose .mail-reply-controls') === null, true)
+  const { readFileSync } = await import('node:fs')
+  const { default: path } = await import('node:path')
+  const css = readFileSync(path.join(__SRC_DIR__, 'dm', 'dm.css'), 'utf8')
+  assert.doesNotMatch(css, /\.dm-compose \.(mail-reply|cc-)/, 'and the chats restyle nothing of it')
+  assert.equal(document.querySelector('.dm-compose .cc-send')?.getAttribute('aria-label'), 'send', 'the glyph\'s name is the word it replaced')
+})
+
+test('alpha.1 point 3: each chat keeps its typed text, its files and what it answers; they are there after another chat and after the panel was closed', async (t) => {
+  const s = await setup(t, { audiences: [grant('worker')], delivered: [mail('m1', 'worker', '2026-11-20T10:00:00Z')] })
+  await s.openChat('worker')
+  await s.type('half a thought for worker')
+  await s.click(s.all<HTMLElement>('.dm-msg').find(m => m.dataset.dmEntry === 'm1')!.querySelector('.dm-actions button[title="Reply"]'), 'the bubble\'s Reply')
+  await s.openChat('solo')
+  assert.equal(s.draft(), '', 'another chat starts with an empty box')
+  await s.type('for solo')
+  await s.openChat('worker')
+  assert.equal(s.draft(), 'half a thought for worker')
+  assert.match(document.querySelector('.dm-replybar')?.textContent ?? '', /body of m1/, 'and it still answers m1')
+  await s.openChat('solo')
+  assert.equal(s.draft(), 'for solo')
+  // closing the panel and opening it again: kept for the app session
+  await s.remount()
+  await s.openChat('worker')
+  assert.equal(s.draft(), 'half a thought for worker', 'the draft outlives the panel')
+  // files: listed again when the chat is opened again
+  await s.openChat('solo')
+  const { writeComposerDraft, readComposerDraft } = await import('../src/composerdrafts')
+  const { dmDraftKey } = await import('../src/dm/DmPanel')
+  writeComposerDraft(dmDraftKey('mine', 'lead'), { text: 'see the file', attached: [{ name: 'notes.txt', path: 'uploads/notes.txt', bytes: 12 }] })
+  await s.openChat('lead')
+  assert.match(document.querySelector('.dm-compose .attach-chip')?.textContent ?? '', /notes\.txt/, 'the attached file is back with the text')
+  await s.openChat('worker')
+  await s.openChat('lead')
+  assert.match(document.querySelector('.dm-compose .attach-chip')?.textContent ?? '', /notes\.txt/)
+  // sending empties the box, and nothing comes back
+  await s.send()
+  assert.deepEqual(posts(s.server.calls, /\/nodes\/lead\/message$/).map(c => c.body!.attachments), [['uploads/notes.txt']])
+  assert.equal(readComposerDraft(dmDraftKey('mine', 'lead')), null)
+  await s.openChat('worker')
+  await s.openChat('lead')
+  assert.equal(s.draft(), '')
+  assert.equal(document.querySelector('.dm-compose .attach-chip') === null, true)
+})
+
+const quote = (id: string, from: string, at: string, extra: Record<string, unknown> = {}) =>
+  ({ id, from, at, gist: `body of ${id}`, ...extra })
+const quoteCard = (s: { all: <T extends Element>(sel: string) => T[] }, entry: string) =>
+  s.all<HTMLElement>('.dm-msg').find(m => m.dataset.dmEntry === entry)?.querySelector<HTMLElement>('.reply-preview') ?? null
+
+test('alpha.1 point 6: the user replies to an agent\'s mail in that agent\'s chat: the quote is not "unavailable", and its click shows the original in the chat', async (t) => {
+  const s = await setup(t, {
+    audiences: [grant('worker')],
+    delivered: [mail('m1', 'worker', '2026-11-20T10:00:00Z'),
+      // the agent's answer quotes the user's message, which lives in the AGENT's mailbox
+      mail('m2', 'worker', '2026-11-20T10:10:00Z', { reply_to: quote('s1', USER, '2026-11-20T10:05:00Z', { kind: 'mail', org: 'mine', box: 'node', node: 'worker' }) })],
+    // the user's reply quotes the agent's mail; an older snapshot names no mailbox at all
+    sent: [sent('s1', 'worker', '2026-11-20T10:05:00Z', { reply_to: quote('m1', 'worker', '2026-11-20T10:00:00Z') }),
+      sent('s2', 'worker', '2026-11-20T10:15:00Z', { reply_to: quote('m2', 'worker', '2026-11-20T10:10:00Z', { kind: 'mail', org: 'mine', box: 'user' }) })],
+  }, { active: false })
+  await s.openChat('worker')
+  for (const [bubble, original] of [['s1', 'm1'], ['m2', 's1'], ['s2', 'm2']] as const) {
+    const card = quoteCard(s, bubble)
+    assert.ok(card, `${bubble} shows what it answers`)
+    assert.doesNotMatch(card!.textContent ?? '', /unavailable/i, `${bubble}: the original is right there`)
+    assert.equal(card!.getAttribute('role'), 'link', `${bubble}: the quote can be followed`)
+    await s.click(card, `the quote on ${bubble}`)
+    assert.deepEqual(s.all<HTMLElement>('.dm-msg.flash').map(m => m.dataset.dmEntry), [original], `${bubble}: the original is shown in this chat`)
+    assert.equal(document.querySelector('.dm-head')?.getAttribute('data-dm-peer'), 'worker', 'and the chat stays')
+  }
+  assert.deepEqual(s.state.focused, [], 'nothing navigated away')
+  assert.equal(s.state.closed, 0)
+})
+
+test('alpha.1 points 6 and 9: a quote of an older message loads history until it is in, then shows it', async (t) => {
+  const s = await setup(t, {
+    audiences: [grant('worker')],
+    delivered: [mail('m9', 'worker', '2026-11-20T10:00:00Z', { reply_to: quote('s-old', USER, '2026-10-01T10:00:00Z', { kind: 'mail', org: 'mine', box: 'node', node: 'worker' }) })],
+    // three pages hold nothing of this chat, so the chat does not read on by itself; the fourth holds the original
+    older: [{ delivered: [mail('x1', 'lead', '2026-10-20T10:00:00Z')] }, { delivered: [mail('x2', 'lead', '2026-10-15T10:00:00Z')] },
+      { delivered: [mail('x3', 'lead', '2026-10-10T10:00:00Z')] }, { sent: [sent('s-old', 'worker', '2026-10-01T10:00:00Z')] }],
+  }, { active: false })
+  // a full view: the chat stops asking after pages that hold nothing of it
+  const tall = { scrollHeight: Object.getOwnPropertyDescriptor(W.Element.prototype, 'scrollHeight'), clientHeight: Object.getOwnPropertyDescriptor(W.Element.prototype, 'clientHeight') }
+  Object.defineProperty(W.Element.prototype, 'scrollHeight', { configurable: true, get() { return (this as Element).classList.contains('dm-timeline') ? 5000 : 0 } })
+  Object.defineProperty(W.Element.prototype, 'clientHeight', { configurable: true, get() { return (this as Element).classList.contains('dm-timeline') ? 600 : 0 } })
+  t.after(() => { Object.defineProperty(W.Element.prototype, 'scrollHeight', tall.scrollHeight!); Object.defineProperty(W.Element.prototype, 'clientHeight', tall.clientHeight!) })
+  await s.openChat('worker')
+  await inAct(async () => { await flush(40) })
+  assert.equal(s.all('.dm-msg').some(m => (m as HTMLElement).dataset.dmEntry === 's-old'), false, 'POSITIVE CONTROL: the original is not loaded')
+  const card = quoteCard(s, 'm9')
+  assert.doesNotMatch(card?.textContent ?? '', /unavailable/i, 'an older message of this chat is not "unavailable"')
+  await s.click(card, 'the quote')
+  await inAct(async () => { await flush(60) })
+  assert.equal(s.server.pages.includes('sent:4'), true, 'the history was read on to the page that holds it')
+  assert.deepEqual(s.all<HTMLElement>('.dm-msg.flash').map(m => m.dataset.dmEntry), ['s-old'], 'and the original is shown')
+})
+
+test('alpha.1 point 7: a typed reply has no "Context" fold in a chat; the classic mailbox keeps it', async (t) => {
+  const typed = mail('m2', 'worker', '2026-11-20T10:10:00Z', { body: 'the typed answer', ev: {
+    v: 1, variant: 'reply.mail', actor: { kind: 'agent', id: 'worker' }, engine_authored: false, body: 'the typed answer',
+    object: { kind: 'mail', org: 'mine', box: 'node', node: 'worker', id: 's1', sender: USER, at: '2026-11-20T10:05:00Z' },
+    quote: { from: USER, at: '2026-11-20T10:05:00Z', gist: 'body of s1' } } })
+  const s = await setup(t, { audiences: [grant('worker')], delivered: [typed], sent: [sent('s1', 'worker', '2026-11-20T10:05:00Z')] }, { active: false })
+  await s.openChat('worker')
+  const bubble = s.all<HTMLElement>('.dm-msg').find(m => m.dataset.dmEntry === 'm2')
+  assert.match(bubble?.textContent ?? '', /the typed answer/, 'POSITIVE CONTROL: the typed reply is drawn')
+  assert.equal(bubble!.querySelector('details.event-context') === null, true, 'no Context fold under it')
+  assert.match(bubble!.querySelector('.reply-preview')?.textContent ?? '', /body of s1/, 'the quote card says what it answers')
+  t.after(() => setClassicMailbox(false))
+  await inAct(async () => { setClassicMailbox(true); await flush(12) })
+  await s.click(s.all<HTMLElement>('.mailrow').find(r => /typed answer/.test(r.textContent ?? '')) ?? document.querySelector('.mailrow'), 'the mail in the classic list')
+  assert.equal(document.querySelector('.mailer-read details.event-context') !== null, true, 'POSITIVE CONTROL: the classic reader still has it')
+})
+
+/** jsdom lays nothing out: a timeline of rows 100px tall, the first at the top of the content */
+function layOut(t: TestContext, height = { scroll: 5000, client: 600 }) {
+  const original = W.HTMLElement.prototype.getBoundingClientRect
+  const olds = { scrollHeight: Object.getOwnPropertyDescriptor(W.Element.prototype, 'scrollHeight'), clientHeight: Object.getOwnPropertyDescriptor(W.Element.prototype, 'clientHeight') }
+  W.HTMLElement.prototype.getBoundingClientRect = function (this: HTMLElement) {
+    const scroller = this.closest('.dm-timeline') as HTMLElement | null
+    if (scroller && this !== scroller && this.dataset.dmEntry) {
+      const at = [...scroller.querySelectorAll('[data-dm-entry]')].indexOf(this)
+      const top = at * 100 - scroller.scrollTop
+      return { top, bottom: top + 100, left: 0, right: 100, width: 100, height: 100, x: 0, y: top } as DOMRect
+    }
+    return original.call(this)
+  }
+  Object.defineProperty(W.Element.prototype, 'scrollHeight', { configurable: true, get() { return (this as Element).classList.contains('dm-timeline') ? height.scroll : 0 } })
+  Object.defineProperty(W.Element.prototype, 'clientHeight', { configurable: true, get() { return (this as Element).classList.contains('dm-timeline') ? height.client : 0 } })
+  t.after(() => {
+    W.HTMLElement.prototype.getBoundingClientRect = original
+    Object.defineProperty(W.Element.prototype, 'scrollHeight', olds.scrollHeight!); Object.defineProperty(W.Element.prototype, 'clientHeight', olds.clientHeight!)
+  })
+  return height
+}
+const scrollTo = async (top: number) => {
+  const el = document.querySelector('.dm-timeline') as HTMLElement
+  await inAct(async () => { el.scrollTop = top; el.dispatchEvent(new W.Event('scroll', { bubbles: true })); await flush(20) })
+}
+const topOf = (entry: string) => [...document.querySelectorAll<HTMLElement>('.dm-msg')].find(m => m.dataset.dmEntry === entry)!.getBoundingClientRect().top
+const many = (n: number, from = 0) => Array.from({ length: n }, (_, i) =>
+  mail(`h${String(from + i).padStart(4, '0')}`, 'worker', new Date(Date.UTC(2026, 9, 1, 0, from + i)).toISOString()))
+
+test('alpha.1 point 9: there is no "Load older" button; older mail comes when the top is near, a page at a time, and the message in view does not move', async (t) => {
+  layOut(t)
+  const s = await setup(t, {
+    audiences: [grant('worker')], delivered: many(6, 100),
+    older: [{ delivered: many(5, 50) }, { delivered: many(5, 0) }],
+  }, { active: false })
+  await s.openChat('worker')
+  await scrollTo(4400)
+  assert.equal(document.querySelector('button.dm-older') === null, true, 'no button to press')
+  assert.doesNotMatch(document.querySelector('.dm-timeline')?.textContent ?? '', /Load older/)
+  assert.deepEqual(s.server.pages, [], 'at the newest message nothing older is asked for')
+  // the reader scrolls up: the second row is cut by the top edge
+  await scrollTo(150)
+  assert.deepEqual([...new Set(s.server.pages.map(p => p.split(':')[1]))], ['1'], 'the next page, and only that one')
+  assert.equal(s.all('.dm-msg').length, 11, 'its five messages are in')
+  assert.equal(topOf('h0101'), -50, 'the message that was in view is exactly where it was: 0 px')
+  assert.equal((document.querySelector('.dm-timeline') as HTMLElement).scrollTop, 650, 'POSITIVE CONTROL: the view was moved by the five new rows')
+  await inAct(async () => { await flush(30) })
+  assert.deepEqual([...new Set(s.server.pages.map(p => p.split(':')[1]))], ['1'], 'away from the top it does not read on')
+})
+
+test('alpha.1 point 9: a chat that does not fill its view when it opens loads older mail until it does, or the history ends', async (t) => {
+  const height = layOut(t, { scroll: 300, client: 600 })
+  const s = await setup(t, {
+    audiences: [grant('worker')], delivered: many(3, 100),
+    older: [{ delivered: many(2, 50) }, { delivered: many(2, 40) }, { delivered: many(2, 30) }, { delivered: many(2, 20) }],
+  }, { active: false })
+  await s.openChat('worker')
+  await inAct(async () => { await flush(60) })
+  assert.equal(document.querySelector('button.dm-older') === null, true)
+  assert.equal(s.all('.dm-msg').length, 11, 'every page was read: the view never filled')
+  assert.equal(height.scroll < height.client, true, 'POSITIVE CONTROL: this view does not overflow')
+})
+
+test('alpha.1 point 14: a long chat draws its newest 50 messages; scrolling up draws 50 more of what is loaded, with nothing moving, before any page is asked for', async (t) => {
+  layOut(t, { scroll: 50000, client: 600 })
+  const s = await setup(t, { audiences: [grant('worker')], delivered: many(130), older: [{ delivered: [mail('older', 'worker', '2026-09-01T00:00:00Z')] }] }, { active: false })
+  await s.openChat('worker')
+  await scrollTo(49400)
+  const drawn = () => s.all<HTMLElement>('.dm-msg').map(m => m.dataset.dmEntry)
+  assert.equal(drawn().length, 50)
+  assert.deepEqual([drawn()[0], drawn()[49]], ['h0080', 'h0129'], 'the newest fifty')
+  await scrollTo(250)
+  assert.equal(drawn().length, 100, 'fifty more of what the mailbox already holds')
+  assert.equal(topOf('h0082'), -50, 'and the message in view did not move')
+  assert.deepEqual(s.server.pages, [], 'no page was asked for: the loaded mail came first')
+})
+
+test('alpha.1 point 10: the chats fill their frame in the modal, pinned and popped out: no padding around the panes and no inner frame', async () => {
+  const { readFileSync } = await import('node:fs')
+  const { default: path } = await import('node:path')
+  const css = readFileSync(path.join(__SRC_DIR__, 'dm', 'dm.css'), 'utf8')
+  const rule = css.match(/\n\.settings\.dm-panel \{([^}]*)\}/)?.[1] ?? ''
+  assert.match(rule, /padding: 0;/, 'in every presentation: the rule names none')
+  assert.match(rule, /--panel-pad-y: 0px; --panel-pad-x: 0px;/, 'the published pair a window\'s title bar cancels, so that bar stays flush')
+  assert.match(css, /\n\.dm-panel \.mailer \{ border: 0; border-radius: 0; \}/, 'no frame inside the frame')
+  assert.match(css, /\.settings\.dm-panel:not\(\.modalpin-win\):not\(\.modalpin-detached\) > \.modalpin-bar \{ position: absolute;/,
+    'the modal keeps its controls, in its title row')
+  assert.match(css.match(/\.popout-mount \.settings\.dm-panel \{([^}]*)\}/)?.[1] ?? '', /border: 0; border-radius: 0;/, 'popped out, the window\'s own frame is the only one')
+})
+
+test('alpha.1 point 11: nothing is written under the box, after a send or after a refused one; a refused send is a toast, with the text back', async (t) => {
+  const world: World = { audiences: [grant('worker')] }
+  const s = await setup(t, world)
+  await s.openChat('worker')
+  await s.type('hello')
+  await s.send()
+  assert.equal(posts(s.server.calls, /\/nodes\/worker\/message$/).length, 1, 'POSITIVE CONTROL: it was sent')
+  assert.equal(document.querySelector('.dm-compose .mail-reply-state') === null, true, 'no "sent to worker" line')
+  world.refuse = true
+  await s.type('this one fails')
+  await s.send()
+  assert.equal(document.querySelector('.dm-compose .mail-reply-state') === null, true, 'no "not sent" line either')
+  assert.equal(s.state.toasts.some(line => /error: .*not taking mail/.test(line)), true, 'the app\'s toast says why')
+  assert.equal(s.draft(), 'this one fails', 'and the text is back in the box')
+  const box = document.querySelector('.dm-compose .cc-composer')
+  assert.equal(box?.nextElementSibling ?? null, null, 'the box is the last thing in its area')
+})
+
+test('alpha.1 points 12 and 13: New chat sweeps out over the chat list; its close and Escape take only the sweep away, and the open chat stays', async (t) => {
+  const s = await setup(t, { audiences: [grant('worker')], delivered: [mail('m1', 'worker', '2026-11-20T10:00:00Z')] }, { active: false })
+  await s.openChat('worker')
+  const open = async () => { await s.click(document.querySelector('.dm-list-head .dm-new'), 'New chat') }
+  await open()
+  const sweep = document.querySelector<HTMLElement>('.dm-list > .dm-newchat')
+  assert.ok(sweep, 'it is inside the chat list\'s column')
+  assert.equal(sweep!.getAttribute('role'), 'dialog'); assert.equal(sweep!.getAttribute('aria-label'), 'New chat')
+  assert.equal(sweep!.querySelector('.modalpin-bar') === null, true, 'no window bar of its own: nothing to pin, pop out or close as a window')
+  assert.equal(document.querySelectorAll('.overlay').length, 1, 'and no second surface: the inbox is still the only one')
+  assert.equal(document.querySelector('.dm-list-rows')?.hasAttribute('inert'), true, 'the rows under it are out of reach')
+  assert.equal(document.querySelector('.dm-head')?.getAttribute('data-dm-peer'), 'worker', 'the open chat stays beside it')
+  await s.click(sweep!.querySelector('.dm-newchat-close'), 'the sweep\'s close')
+  assert.equal(document.querySelector('.dm-newchat') === null, true, 'the sweep is gone')
+  assert.equal(s.state.closed, 0, 'and the inbox was not closed')
+  await open()
+  await inAct(async () => { window.dispatchEvent(new W.KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })); await flush(8) })
+  assert.equal(document.querySelector('.dm-newchat') === null, true, 'Escape takes the sweep away')
+  assert.equal(s.state.closed, 0, 'and only the sweep')
+  assert.equal(document.querySelector('.dm-head')?.getAttribute('data-dm-peer'), 'worker')
+  assert.equal(document.querySelector('.dm-list-rows')?.hasAttribute('inert'), false)
+  const { readFileSync } = await import('node:fs')
+  const { default: path } = await import('node:path')
+  const css = readFileSync(path.join(__SRC_DIR__, 'dm', 'dm.css'), 'utf8')
+  const rule = css.match(/\.dm-list > \.tray-panel\.dm-newchat \{([^}]*)\}/)?.[1] ?? ''
+  assert.match(rule, /position: absolute; inset: 0;/, 'it fills the list\'s column, so it is never taller than the inbox')
+  assert.match(rule, /font: 13px\/1\.5 var\(--sans\);/, 'in the page\'s type size, as the list on the canvas is')
+  assert.match(css, /prefers-reduced-motion: reduce\) \{\s*\.dm-list > \.tray-panel\.dm-newchat[^}]*animation: none;/, 'no slide when motion is reduced')
+})
+
+test('alpha.1 point 15: a bubble\'s menu has "View in @agent\'s inbox", for mail in both directions, through the panel\'s own route', async (t) => {
+  const s = await setup(t, { audiences: [grant('worker')], delivered: [mail('m1', 'worker', '2026-11-20T10:00:00Z'), mail('sys1', '@system', '2026-11-20T09:00:00Z')],
+    sent: [sent('s1', 'worker', '2026-11-20T10:05:00Z')] }, { active: false })
+  await s.openChat('worker')
+  const menuOf = async (entry: string) => {
+    const bubble = s.all<HTMLElement>('.dm-msg').find(m => m.dataset.dmEntry === entry)!.querySelector('.dm-bubble')!
+    await inAct(async () => { bubble.dispatchEvent(new W.MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 10, clientY: 10 })); await flush(6) })
+    return [...document.querySelectorAll<HTMLElement>('.ctx-menu [role="menuitem"], .ctxmenu [role="menuitem"], [role="menu"] [role="menuitem"]')]
+  }
+  for (const entry of ['m1', 's1']) {
+    const item = (await menuOf(entry)).find(i => /View in @worker\u2019s inbox/.test(i.textContent ?? ''))
+    assert.ok(item, `${entry}: the entry is in the bubble's menu`)
+    await s.click(item, 'View in @worker\'s inbox')
+  }
+  assert.deepEqual(s.state.opened, [{ kind: 'mail', org: 'mine', box: 'node', node: 'worker', id: 'm1' }, { kind: 'mail', org: 'mine', box: 'node', node: 'worker', id: 's1' }],
+    'the agent\'s mailbox, at that message')
+  await s.openChat('@system')
+  assert.equal((await menuOf('sys1')).some(i => /View in @/.test(i.textContent ?? '')), false, 'Orgtree\'s own mail is in no agent\'s mailbox')
+})
+
+test('alpha.1 point 16: the gear asks for the settings window OVER the chat; the chat, and what was typed in it, stay', async (t) => {
+  const s = await setup(t, { audiences: [grant('worker')], delivered: [mail('m1', 'worker', '2026-11-20T10:00:00Z')] }, { active: false })
+  await s.openChat('worker')
+  await s.type('still writing this')
+  const asks: unknown[] = []
+  const hear = (e: Event) => { asks.push((e as CustomEvent).detail) }
+  window.addEventListener(OPEN_SETTINGS_AT_EVENT, hear)
+  t.after(() => window.removeEventListener(OPEN_SETTINGS_AT_EVENT, hear))
+  await s.click(document.querySelector('.dm-head .dm-gear'), 'the gear')
+  assert.deepEqual(asks, [{ scope: 'agent', org: 'mine', agentId: 'worker', over: true }])
+  assert.equal(s.state.closed, 0, 'the inbox is not closed')
+  assert.equal(document.querySelector('.dm-head')?.getAttribute('data-dm-peer'), 'worker')
+  assert.equal(s.draft(), 'still writing this')
+  const { readFileSync } = await import('node:fs')
+  const { default: path } = await import('node:path')
+  const app = readFileSync(path.join(__SRC_DIR__, 'App.tsx'), 'utf8')
+  const handler = app.match(/onAgentSettings=\{\(id\) => \{([\s\S]*?)\n\s*\}\}/)?.[1] ?? ''
+  assert.match(handler, /openSettingsAt\(\{ scope: 'agent', org: slug, agentId: id, over: true \}\)/, 'the shell asks the same way')
+  assert.doesNotMatch(handler, /closeIfCentred|setShowInbox\(false\)/, 'and no longer closes a centred inbox for it')
+  const canvas = readFileSync(path.join(__SRC_DIR__, 'canvas', 'OrgCanvas.tsx'), 'utf8')
+  assert.match(canvas, /over \? <ModalOverPins>\{children\}<\/ModalOverPins>/, 'the canvas draws a window asked for that way in the band over open panels')
+})
+
+test('alpha.1 point 21: anywhere on a chat row the hover is the agent link\'s: the row carries it, and no part of the row has a tooltip of its own', async (t) => {
+  const s = await setup(t, { audiences: [grant('worker')], delivered: [mail('m1', 'worker', '2026-11-20T10:00:00Z')] }, { active: false })
+  const { agentTooltipProps } = await import('../src/canvas/agentnav')
+  const row = s.row('worker')!
+  for (const [name, value] of Object.entries(agentTooltipProps('worker'))) {
+    if (typeof value === 'string') assert.equal(row.getAttribute(name), value, `the row has the agent link's ${name}`)
+  }
+  assert.equal(row.querySelector('.dm-row-name')?.hasAttribute('title'), false, 'the name has no tooltip of its own')
+  assert.equal(row.querySelector('.dm-row-name')?.getAttribute('aria-label'), 'Open the chat with worker', 'it keeps its name for a screen reader')
+  assert.equal(row.hasAttribute('title'), false)
+  const { readFileSync } = await import('node:fs')
+  const { default: path } = await import('node:path')
+  assert.match(readFileSync(path.join(__SRC_DIR__, 'dm', 'dm.css'), 'utf8'), /\.dm-row > \.dm-av \{ pointer-events: none; \}/,
+    'the picture\'s own model tooltip gives way to the row\'s')
+})
+
+test('alpha.1 point 22: Up and Down in the chat\'s box walk what was sent to that agent, the desk\'s own history, and the draft comes back', async (t) => {
+  const { readHistory, recordSent, clearStash } = await import('../src/composerhistory')
+  window.localStorage.clear()
+  t.after(() => { clearStash('mine', 'worker'); window.localStorage.clear() })
+  // one message went out from worker's DESK before: the chat recalls it too
+  recordSent('mine', 'worker', 'sent from the desk')
+  const s = await setup(t, { audiences: [grant('worker')] })
+  await s.openChat('worker')
+  await s.type('sent from the chat')
+  await s.send()
+  assert.deepEqual(readHistory('mine', 'worker').map(e => e.text), ['sent from the desk', 'sent from the chat'], 'the chat records into the desk\'s history')
+  const key = async (name: string) => {
+    const ta = document.querySelector('.dm-compose textarea') as HTMLTextAreaElement
+    await inAct(async () => { ta.dispatchEvent(new W.KeyboardEvent('keydown', { key: name, bubbles: true, cancelable: true })); await flush(4) })
+  }
+  await s.type('a draft in progress')
+  await key('ArrowUp')
+  assert.equal(s.draft(), 'sent from the chat', 'Up: the newest message')
+  assert.match(document.querySelector('.dm-compose .composer-history-note')?.textContent ?? '', /return to your draft/, 'the desk\'s own note')
+  await key('ArrowUp')
+  assert.equal(s.draft(), 'sent from the desk', 'Up again: the one before, sent from the desk')
+  await key('ArrowDown')
+  assert.equal(s.draft(), 'sent from the chat')
+  await key('ArrowDown')
+  assert.equal(s.draft(), 'a draft in progress', 'Down past the newest: the draft is back')
+  assert.equal(document.querySelector('.dm-compose .composer-history-note') === null, true)
+  await key('ArrowUp')
+  await key('Escape')
+  assert.equal(s.draft(), 'a draft in progress', 'Escape puts the draft back too')
+  assert.equal(s.state.closed, 0, 'and does not close the inbox')
+})
+
+test('alpha.1 point 1: a retired agent that held an audience is not listed; its chat can still be opened, is listed while open, and leaves when another is selected', async (t) => {
+  const withRetired = { ...tree(), roots: [node('lead', [node('worker'), node('gone', [], { state: 'archived' })]), node('solo')] } as unknown as TreePayload
+  const s = await setup(t, { audiences: [grant('worker'), grant('gone')], delivered: [mail('g1', 'gone', '2026-11-10T10:00:00Z')] },
+    { active: false, tree: withRetired })
+  assert.equal(s.row('gone'), undefined, 'not in the list by default')
+  await inAct(async () => { s.rerender({ openChat: { peer: 'gone', seq: 1 } }); await flush(12) })
+  assert.equal(document.querySelector('.dm-head')?.getAttribute('data-dm-peer'), 'gone', 'its chat opens')
+  assert.equal(s.row('gone')?.classList.contains('sel'), true, 'and is listed while it is open, as the selected row')
+  assert.match(document.querySelector('.dm-head .dm-who-l1')?.textContent ?? '', /retired/, 'marked retired')
+  assert.deepEqual(s.all<HTMLElement>('.dm-msg').map(m => m.dataset.dmEntry), ['g1'], 'its history can be read')
+  assert.equal(document.querySelector('.dm-compose textarea') === null, true, 'it cannot be written to')
+  assert.match(document.querySelector('.dm-nowrite')?.textContent ?? '', /gone is retired and cannot be written to/)
+  await s.openChat('worker')
+  assert.equal(s.row('gone'), undefined, 'the row is gone as soon as another chat is selected')
+  assert.equal(posts(s.server.calls, /\/audiences$/).length, 0, 'and nothing was revoked')
 })

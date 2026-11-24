@@ -252,13 +252,28 @@ test('a project holding the user audience is a chat of kind project', () => {
   assert.equal(dmClose(crew).can, true)
 })
 
-test('a retired grant holder is listed last and dim, and not at all when retired agents are hidden', () => {
+// USER 2026-11-24 m15c78be3a1db: "theres a bunch of agents that say not in this
+// organization yet in your list". The audiences read keeps the grants of
+// retired agents and of names the tree no longer holds; a grant alone made a row.
+test('a grant makes a chat only for a live agent of this tree: not for a retired one, and not for a name the tree does not hold', () => {
   const nodes = dmNodes({ slug: 'mine', roots: [node('lead', [node('gone', [], { state: 'archived' })])] } as unknown as TreePayload)
-  const input = { nodes, grants: [grant('gone')], box: box(), openAsks: [], doneAsks: [] }
-  const shown = dmChats(input)
-  assert.deepEqual(names(shown), ['lead', 'gone'])
-  assert.equal(chat(shown, 'gone').live, false)
-  assert.deepEqual(names(dmChats({ ...input, hideRetired: true })), ['lead'])
+  const input = { nodes, grants: [grant('gone'), grant('accept-field'), grant('account-card')], box: box(), openAsks: [], doneAsks: [] }
+  assert.deepEqual(names(dmChats(input)), ['lead'], 'neither the retired holder nor the two unknown names has a row')
+  // unread mail is never hidden, whoever sent it
+  const waiting = dmChats({ ...input, box: box({ pending: [mail('m1', 'gone', '2026-11-20T10:00:00Z')] }) })
+  assert.deepEqual(names(waiting), ['lead', 'gone'])
+  assert.equal(chat(waiting, 'gone').live, false)
+  // read mail of such a sender is history, not a chat
+  assert.deepEqual(names(dmChats({ ...input, box: box({ delivered: [mail('m1', 'gone', '2026-11-20T10:00:00Z')] }) })), ['lead'])
+  // the chat on screen stays listed
+  assert.deepEqual(names(dmChats({ ...input, selected: 'gone' })), ['lead', 'gone'])
+  // an audience request from a name the tree does not hold is not a chat either
+  assert.deepEqual(names(dmChats({ ...input, requests: [{ from: 'ghost', reason: 'x', at: '2026-11-20T10:00:00Z' }] })), ['lead'])
+})
+
+test('a paused grant is not in effect: its holder has no audience chat', () => {
+  const list = chats({ grants: [{ ...grant('worker'), paused: true } as AudienceGrant, grant('helper')] })
+  assert.deepEqual(names(list), ['lead', 'helper', 'solo', 'member'], 'helper holds one; the grant of worker is paused')
 })
 
 test('a retired top-level agent has no chat of its own', () => {
