@@ -465,7 +465,7 @@ pub fn view(it: &Item, ctx: &Ctx, detail: Option<(&[Value], &[Value])>) -> Value
     };
     let mut v = json!({
         "slug": it.slug,
-        "ref": format!("@item:{}/{}", ctx.org, it.slug),
+        "ref": item_ref(&ctx.org, &it.slug),
         "rev": it.rev,
         "kind": it.kind,
         "title": it.title,
@@ -643,14 +643,44 @@ pub async fn user_list(engine: &Engine, org: &OrgHandle, with_archived: bool, wi
     Ok(out)
 }
 
+/// A slug as a caller wrote it: bare, or as the ticket's reference with or without its org.
+#[nolog]
+pub(crate) fn written_slug(slug: &str) -> &str {
+    let slug = slug.trim().trim_start_matches("@item:");
+    slug.rsplit('/').next().unwrap_or(slug)
+}
+
+#[cfg(test)]
+mod written_slug_tests {
+    use super::*;
+
+    /// USER 2026-11-24 mc6e8d9a7dab7: @ticket: is the way to mention a ticket, and @item: keeps working.
+    #[test]
+    fn a_slug_may_be_handed_in_bare_or_as_either_reference_form() {
+        for written in ["fix-login", " fix-login ", "@item:acme/fix-login", "@item:fix-login", "@ticket:acme/fix-login", "@ticket:fix-login", "acme/fix-login"] {
+            assert_eq!(written_slug(written), "fix-login", "{written:?}");
+        }
+    }
+
+    #[test]
+    fn the_reference_an_item_carries_is_the_ticket_form() {
+        assert_eq!(item_ref("acme", "fix-login"), "@ticket:acme/fix-login");
+    }
+}
+
+/// The reference an item's reads carry, for an agent to write.
+#[nolog]
+pub(crate) fn item_ref(org: &str, slug: &str) -> String {
+    format!("@item:{org}/{slug}")
+}
+
 #[logged]
 async fn load(client: &impl GenericClient, org_id: i64, slug: &str, lock: bool) -> Result<Item> {
     let sql = format!(
         "SELECT {COLS} FROM ot.work_items WHERE org_id = $1 AND slug = $2{}",
         if lock { " FOR UPDATE" } else { "" }
     );
-    let slug = slug.trim().trim_start_matches("@item:");
-    let slug = slug.rsplit('/').next().unwrap_or(slug);
+    let slug = written_slug(slug);
     match client.query_opt(&sql, &[&org_id, &slug]).await? {
         Some(r) => {
             let it = item_of(&r);
@@ -2563,8 +2593,7 @@ fn edit_distance(a: &str, b: &str) -> usize {
 /// covers unarchived items only, so it does not grow with inactive history.
 #[logged]
 pub(crate) async fn closest_readable_slug(engine: &Engine, org: &OrgHandle, who: &Who, missing: &str) -> Result<Option<String>> {
-    let missing = missing.trim().trim_start_matches("@item:");
-    let missing = missing.rsplit('/').next().unwrap_or(missing).to_lowercase();
+    let missing = written_slug(missing).to_lowercase();
     if missing.is_empty() {
         return Ok(None);
     }

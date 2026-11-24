@@ -1544,7 +1544,7 @@ mod trim_tests {
 
     #[test]
     fn mentions_rule_is_exact_and_unconditional_on_every_profile() {
-        let expected = "MENTIONS: whenever you name an agent, project, docket item or presentation in text a person or agent will read (your replies, mail, docket descriptions, presentations), write @name, @item:<org>/<slug> or @doc:<org>/<slug> as plain text, never in backticks or code spans. A bare name is wrong. Point the user at an app or one of its panels with @app:<org>/<slug> or @panel:<org>/<slug>. Point at a mail with @mail:<org>/<box>/<id>: <id> is the id of a mail you sent or received, <box> its mailbox (user, org or node/<agent>).";
+        let expected = "MENTIONS: whenever you name an agent, project, docket item or presentation in text a person or agent will read (your replies, mail, docket descriptions, presentations), write @name, @ticket:<org>/<slug> (the older @item:<org>/<slug> still works) or @doc:<org>/<slug> as plain text, never in backticks or code spans. A bare name is wrong. Point the user at an app or one of its panels with @app:<org>/<slug> or @panel:<org>/<slug>. Point at a mail with @mail:<org>/<box>/<id>: <id> is the id of a mail you sent or received, <box> its mailbox (user, org or node/<agent>).";
         for lane in [Lane::Claude, Lane::Codex, Lane::Antigravity, Lane::Muse, Lane::OpenCode] {
             for top in [false, true] {
                 for trim in [false, true] {
@@ -1567,7 +1567,7 @@ mod trim_tests {
                     let text = render(&all_on(), *lane, top, trim);
                     assert_eq!(text.matches(expected).count(), 1, "{lane:?} top={top} trim={trim}");
                     assert!(!text.contains("`@user`"), "{lane:?}: examples must notify when copied");
-                    assert!(!text.contains("`@name`") && !text.contains("`@item:<org>/<slug>`"),
+                    assert!(!text.contains("`@name`") && !text.contains("`@item:<org>/<slug>`") && !text.contains("`@ticket:<org>/<slug>`"),
                         "{lane:?}: examples must render as mentions when copied");
                 }
             }

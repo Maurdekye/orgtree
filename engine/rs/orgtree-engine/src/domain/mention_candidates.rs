@@ -255,6 +255,15 @@ mod status_tests;
 mod tests {
     use super::*;
 
+    /// USER 2026-11-24 mc6e8d9a7dab7: @ticket: is the way to mention a ticket, and @item: keeps working.
+    #[test]
+    fn scan_reads_a_ticket_by_either_form_as_the_same_ticket() {
+        assert_eq!(scan("Old @item:acme/weekly-plan, new @ticket:acme/fix-login and again @Ticket:acme/weekly-plan.", "acme"),
+            vec![("item", "fix-login".to_string()), ("item", "weekly-plan".to_string())]);
+        // another org's ticket is its own, a longer path is no token, and a look-alike kind is none
+        assert_eq!(scan("@ticket:other/x @ticket:acme/a/b @tickets:acme/x x@ticket:acme/y", "acme"), vec![]);
+    }
+
     #[test]
     fn scan_finds_this_orgs_tokens_and_bare_names_at_boundaries_only() {
         let body = "See @item:acme/fix-login, @doc:acme/weekly-status and @app:acme/caption-board \
