@@ -70,9 +70,10 @@ export default async function (rig) {
     const res = await fetch(rig.url + route, { method, headers: { [TOKEN_HEADER]: rig.token }, body, signal: AbortSignal.timeout(120000) })
     return { ok: res.ok, status: res.status, buf: Buffer.from(await res.arrayBuffer()) }
   }
-  // an OpenCode seat's own store, and the sessions the scripted CLI keeps in it (one record a session)
+  // an OpenCode seat's own store, and the sessions the scripted CLI keeps in it (one record a session;
+  // beside them the database that says which working folder each session belongs to, as the real CLI's does)
   const store = (org, a) => path.join(rig.data, 'profiles', 'opencode', String(org), String(a.id), String(a.generation))
-  const kept = (org, a) => { try { return fs.readdirSync(path.join(store(org, a), 'data')).sort() } catch { return [] } }
+  const kept = (org, a) => { try { return fs.readdirSync(path.join(store(org, a), 'data')).filter(n => n.endsWith('.json')).sort() } catch { return [] } }
   // the session each start of the CLI ran on, from its own receipt in the agent's folder
   const ranOn = a => {
     try { return fs.readFileSync(path.join(a.scratch_dir, 'acp-observed.jsonl'), 'utf8').trim().split(/\r?\n/).filter(Boolean).map(l => JSON.parse(l).session) } catch { return [] }

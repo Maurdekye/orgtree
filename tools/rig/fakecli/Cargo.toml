@@ -12,6 +12,8 @@ path = "src/main.rs"
 
 [dependencies]
 serde_json = { version = "1", features = ["preserve_order"] }
+# the scripted OpenCode keeps a session's working folder where the real one does
+rusqlite = { version = "0.37", features = ["bundled"] }
 
 # its own workspace: never part of engine/rs
 [workspace]

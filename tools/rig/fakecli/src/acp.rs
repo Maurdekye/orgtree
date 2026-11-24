@@ -65,6 +65,25 @@ impl Drop for Bridge {
     }
 }
 
+/// The database the real CLI keeps its sessions in, under the `data` part of its store.
+fn session_db(data:&std::path::Path)->PathBuf {data.join("opencode").join("opencode.db")}
+
+/// The working folder a session was made in, when the store's database knows the session.
+fn session_folder(data:&std::path::Path,session:&str)->Option<String> {
+    let path=session_db(data);
+    if !path.is_file() {return None;}
+    let db=rusqlite::Connection::open(path).ok()?;
+    db.query_row("SELECT directory FROM session_v2 WHERE id = ?1",[session],|row|row.get::<_,String>(0)).ok()
+}
+
+fn keep_session_folder(data:&std::path::Path,session:&str,folder:&str) {
+    let path=session_db(data);
+    if let Some(parent)=path.parent() {let _=std::fs::create_dir_all(parent);}
+    let Ok(db)=rusqlite::Connection::open(path) else{return};
+    let _=db.execute("CREATE TABLE IF NOT EXISTS session_v2 (id TEXT PRIMARY KEY, directory TEXT NOT NULL, version TEXT NOT NULL)",[]);
+    let _=db.execute("INSERT OR REPLACE INTO session_v2 (id, directory, version) VALUES (?1, ?2, '2.0.28')",[session,folder]);
+}
+
 pub fn run()->i32 {
     let peer=Arc::new(Peer{out:Mutex::new(std::io::stdout()),waiters:Mutex::new(HashMap::new()),next:AtomicU64::new(1),cancelled:AtomicBool::new(false)});
     let config:Value=std::env::var("OPENCODE_CONFIG_CONTENT").ok().and_then(|s|serde_json::from_str(&s).ok()).unwrap_or(Value::Null);
@@ -83,8 +102,21 @@ pub fn run()->i32 {
                 session=if load {params["sessionId"].as_str().unwrap_or("").into()} else{format!("rig-acp-{}-{}",std::process::id(),super::now_ms())};
                 let record=data.join(format!("{session}.json"));
                 if load && !record.is_file() {peer.send(json!({"jsonrpc":"2.0","id":id,"error":{"code":-32001,"message":"missing session"}}));continue;}
+                // As the real CLI (measured on 2.0.28, 2026-11-24): a session belongs to the working
+                // folder it was made in, kept in `session_v2.directory` of `opencode/opencode.db`
+                // with forward slashes, and a load from another folder is refused.
+                let folder=params["cwd"].as_str().unwrap_or("").replace('\\',"/");
+                if load {
+                    if let Some(kept)=session_folder(&data,&session) {
+                        if kept!=folder {
+                            peer.send(json!({"jsonrpc":"2.0","id":id,"error":{"code":-32602,
+                                "message":format!("Invalid params: session {session} does not belong to cwd: {}",params["cwd"].as_str().unwrap_or(""))}}));
+                            continue;
+                        }
+                    }
+                }
                 let _=std::fs::create_dir_all(&data);
-                if !load {let _=std::fs::write(record,b"{}");}
+                if !load {let _=std::fs::write(record,b"{}"); keep_session_folder(&data,&session,&folder);}
                 bridge=Bridge::start(&config).map(|b|Arc::new(Mutex::new(b)));
                 if load {peer.update(&session,json!({"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"REPLAY_MUST_NOT_APPEAR"}}));}
                 peer.result(id,json!({"sessionId":session}));
