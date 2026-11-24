@@ -534,6 +534,10 @@ mod queue_tests;
 #[path = "orginbox_relay_tests.rs"]
 mod relay_tests;
 
+#[cfg(test)]
+#[path = "orginbox_weak_tests.rs"]
+mod weak_tests;
+
 /// Who gets inbound outside mail (decision 59): the holders who can run;
 /// while none can, the first top-level agent who can (no grant: the
 /// audience stays with the holders). With nobody able to run it goes to the
