@@ -1917,6 +1917,11 @@ test('stream privacy: an outside sender\u2019s name is a hidden field in the cha
   assert.equal(head.getAttribute('data-dm-peer'), OUT)
   assert.equal(field(head.querySelector('[data-hub-address]')), 'external', 'POSITIVE CONTROL: the header\u2019s chip was a hidden field already')
   assert.equal(field(head.querySelector('.dm-av')), 'external', 'the header\u2019s picture')
+  // a bubble is matched whole: its quote card names who is quoted and repeats their words, and neither is in the message's own text
+  const bubble = document.querySelector('[data-dm-entry="n1"] .dm-bubble')!
+  assert.equal(bubble.matches(STREAMER_ZONES.freeform), true, 'the bubble, with its quote card')
+  assert.equal(bubble.querySelector('.dm-meta')?.matches(STREAMER_ZONES.structured), true, 'its time row is structure, not text to match')
+  assert.equal(document.querySelector('.dm-nowrite')?.matches(STREAMER_ZONES.freeform), true, 'the line that says the sender cannot be written to names it')
   const bar = document.createElement('span'); bar.className = 'dm-replybar-text'
   assert.equal(bar.matches(STREAMER_ZONES.freeform), true, 'the staged reply\u2019s excerpt is matched')
 })
