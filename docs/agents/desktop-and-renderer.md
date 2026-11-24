@@ -19,8 +19,20 @@ are a second view over the same reads and calls.
   `MailReplyBox`, `InboxAskCard` with `layout="messages"` (`BatchAsk` draws one `.ask-message` per tab and ONE
   submit; the card layout is unchanged), `AgentTray`/`trayRows`/`ActiveAgentsFilter` for New chat, and
   `scopeItemLabel`.
+- THE CHATS AFTER 4.7.0-alpha.1 (USER 2026-11-24 m15c78be3a1db and after): the message box is `MailReplyBox`
+  with `desk` (the desk composer's own classes and order; `.settings` generic control rules exclude
+  `.cc-composer *` and `.dm-newchat *` through `:where()`), `draftKey` (composerdrafts.ts, in memory for the app
+  session), `history` (composerhistorynav.ts, the desk's own store) and `quietSent`. A chat draws a window
+  (`DM_PAGE` 50, trimmed 300 to 100 at the newest message); older rows come by `older()` with Hubchat's
+  first-row-in-view anchor, the mailbox's next page only after the loaded mail is drawn, and at most three pages
+  in a row that held nothing of the chat. `MailReplyPreview locateMail` lets a surface that shows the quoted mail
+  find it by id (a quote's stored box is the sender's copy). New chat is a sweep inside `.dm-list`, never a
+  PinFrame. The gear asks `openSettingsAt({ over: true })`; OrgCanvas draws that window in `ModalOverPins`.
+  Captures: tests/dm-panel-visual.mjs and tests/dm-alpha1-visual.mjs.
 - LIST RULE (`dmChats`): every live top-level agent (no AGENT ancestor; projects are transparent); every
-  explicit holder of a user audience, agent or project (retired ones last, dropped under Hide retired agents);
+  LIVE explicit holder of a user audience in this tree, agent or project (a grant alone is not a chat: the audiences
+  read also lists paused grants of retired agents and grants of names the tree no longer holds; a retired holder
+  is listed only while its chat is on screen or mail of its is unread);
   an agent with a project-inherited audience once it has entries; `@system` as one chat named Orgtree; any other
   sender only while something of theirs is unread or open, or while it is the selected chat. Grants come from
   the audiences read; the tree's `audiences_*` fields are the fallback until it arrives.
