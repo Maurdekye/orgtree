@@ -127,8 +127,12 @@ test('W5 the drag setting: make it the holder (default), ask as before, or add a
   const already = inboxDropAction({ ...single, weak: ['scout'] }, 'scout', 'agent', 'weak')
   assert.equal(already.kind, 'noop')
   assert.match((already as { why: string }).why, /scout already has a weak link/)
-  // a project (weak links are agents only) and an engine without weak links keep today's drop under "weak"
-  assert.deepEqual(inboxDropAction(single, 'intake', 'project', 'weak'), inboxDropAction(single, 'intake', 'project', 'ask'))
+  // a project keeps today's drop in EVERY mode (the scope: "projects dropped on the mailbox keep today's behaviour";
+  // bounced by @integ-sol-c ma5977cbd7e87: the default mode replaced a project's holder without the question)
+  for (const mode of ['holder', 'ask', 'weak'] as const) {
+    assert.deepEqual(inboxDropAction(single, 'intake', 'project', mode), { kind: 'ask', current: 'front', multi: false, weakOk: false }, mode)
+  }
+  // an engine without weak links keeps today's drop under "weak"
   const older = { holders: ['front'], multi_holder_enabled: false }
   assert.deepEqual(inboxDropAction(older, 'scout', 'agent', 'weak'), inboxDropAction(older, 'scout', 'agent', 'ask'))
 })
@@ -145,7 +149,7 @@ test('W6 while an agent is dragged over the mailbox, the tile says what the drop
   assert.equal(inboxDropHint(none, 'scout', 'agent', 'weak'), 'Drop: scout becomes the holder')
   assert.equal(inboxDropHint(single, 'front', 'agent', 'weak'), 'front already holds the org mailbox')
   assert.equal(inboxDropHint({ ...single, weak: ['scout'] }, 'scout', 'agent', 'weak'), 'scout already has a weak link to the org mailbox')
-  assert.equal(inboxDropHint(single, 'intake', 'project', 'ask'), 'Drop to choose: intake replaces front')
+  for (const mode of ['holder', 'ask', 'weak'] as const) assert.equal(inboxDropHint(single, 'intake', 'project', mode), 'Drop to choose: intake replaces front', mode)
 })
 
 test('W7 App settings > Org mailbox: the drag setting, "Make it the holder" by default, saved through native preferences', async () => {
