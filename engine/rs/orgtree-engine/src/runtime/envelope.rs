@@ -783,10 +783,10 @@ pub fn mail_block(mail: &[&Mail], rels: &HashMap<String, String>, turn_start: bo
         }
         // typed as a new message in the user's chats (the DM panel of the user
         // mailbox), which show only mail (user 2026-11-23 m79c022311f95; wording
-        // accepted m034b5c83b8f2). Never on a notice, and only on the user's own mail.
+        // accepted m034b5c83b8f2; shortened USER 2026-11-25 14:50:16Z mc6794469e5e7). Never on a notice,
+        // and only on the user's own mail.
         if m.dm_panel && !m.notice && m.sender == "@user" {
-            b.push_str("\n↳ Sent from the user's DM panel, which shows only mail. Always answer with at least one \
-                        orgtree_message to user; a reply only in your turn's text does not appear there.");
+            b.push_str("\n↳ Sent from the chats panel, reply with mail.");
         }
         // someone over the mail hub reads only what is sent to them (user 2026-10-09)
         if !m.notice && m.sender.starts_with("@net:") {
