@@ -35,6 +35,7 @@ import { RefMark, hasRefMark } from './refmarks'
 import { splitInlineCodeSpans } from './shared'
 import { useHistoricalWorkReferences } from './workrefresolve'
 import { openAppRef } from './apprefs'
+import { useAgentLinkChat } from './agentnav'
 import './itemrefs'
 import './docrefs'
 import './mailrefs'
@@ -366,6 +367,11 @@ export function useAgentOutcome(org: string, agents: ReadonlyMap<string, unknown
   }, [org, agents, view, answers])   // eslint-disable-line react-hooks/exhaustive-deps
 }
 
+/** An agent reference of this organization, written as an agent (not `@project:`): the agent-link rule
+ *  decides (true when its chat took the click). */
+export const agentChat = (r: ResolvedRef, org: string, chat: (id: string) => boolean): boolean =>
+  r.ref.kind === 'agent' && r.ref.as !== 'project' && r.ref.org.toLowerCase() === org.toLowerCase() && chat(r.ref.id)
+
 export function useRefRoutes(org: string, agents: ReadonlyMap<string, unknown> | null,
   routes: {
     onOpenItem?: (itemSlug: string) => void
@@ -421,6 +427,9 @@ export function useRefRoutes(org: string, agents: ReadonlyMap<string, unknown> |
     }
   }, [org, agents, onOpenItem, onFocusAgent, onOpenDoc, onOpenMail,
     destination, effectiveTierOf, agentOutcome, refName])
+  // an @agent chip in written text is an agent link too: its chat first, when the agent holds a user
+  // audience (mailboxpref.ts `agentLinkChat`; USER 2026-11-25 m1038dab63302 clicked one in prose)
+  const chat = useAgentLinkChat()
   const onOpen = useCallback((r: ResolvedRef) => {
     // ⚠ THE DESTINATION IS NOT A ROUTE. A chip at its own desk renders inert,
     // but a click can still arrive — a keyboard, an old chip, a caller that
@@ -428,11 +437,11 @@ export function useRefRoutes(org: string, agents: ReadonlyMap<string, unknown> |
     // in the renderer.
     if (r.atDestination) return
     if (r.ref.kind === 'item') onOpenItem?.(r.ref.id)
-    else if (r.ref.kind === 'agent') onFocusAgent?.(r.ref.id)
+    else if (r.ref.kind === 'agent') { if (!agentChat(r, org, chat)) onFocusAgent?.(r.ref.id) }
     else if (r.ref.kind === 'doc') onOpenDoc?.(r.ref.id)
     else if (r.ref.kind === 'mail') onOpenMail?.(r.ref)
     else if (r.ref.kind === 'app' || r.ref.kind === 'panel') openAppRef(org, r.ref)
-  }, [org, onOpenItem, onFocusAgent, onOpenDoc, onOpenMail])
+  }, [org, onOpenItem, onFocusAgent, onOpenDoc, onOpenMail, chat])
   // ⚠ CALLERS PASS INLINE ARROWS, so `routes` is a fresh object each render
   // and this memo recomputes with it. Downstream compares by rendered
   // OUTCOME, so a new world object costs no rebuild; pinning the identity

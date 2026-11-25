@@ -43,7 +43,7 @@ import {
   req, agentReferences,
 } from '../api'
 import { AttachIcon, CloseIcon, DocketIcon, DownloadIcon, TuneIcon } from '../icons'
-import { agentNavProps, useAgentNavRegistry } from './agentnav'
+import { agentNavProps, useAgentLinkChat, useAgentNavRegistry } from './agentnav'
 import { objectTooltipProps } from './objecttooltip'
 import { AttachThumb, fmtBytes, isImg } from './img'
 import { AskCard } from './asks'
@@ -65,7 +65,7 @@ import { useWorkItems, useSelectedWork } from './useworkitems'
 import { fmtAge, fmtFull } from '../timefmt'
 import { buildMentionIndex } from './workrefs'
 import type { MentionIndex } from './workrefs'
-import { ForegroundViewContext, refToken, resolveRef, useAgentOutcome } from './reflinks'
+import { ForegroundViewContext, agentChat, refToken, resolveRef, useAgentOutcome } from './reflinks'
 import { DocketDescription } from './docketdesc'
 import { useContextMenu } from './contextmenu'
 import { useRowCopy } from './rowcopy'
@@ -1346,9 +1346,11 @@ export function DocketModal({ slug, toast, close, tree, onFocusAgent,
    *
    *  ⚠ THE `mail` ARM IS GUARDED BY THE SAME CALLBACK THAT PUT `mail` IN
    *  `handles`, so the two cannot disagree: no callback, no chip, no arm. */
+  const linkChat = useAgentLinkChat()
   const openRef = useCallback((r: ResolvedRef) => {
     if (r.ref.kind === 'item') goToItem(r.ref.id)
-    else if (r.ref.kind === 'agent') onFocusAgent?.(r.ref.id)
+    // an agent with a user audience: its chat, as every agent link (reflinks.tsx `agentChat`)
+    else if (r.ref.kind === 'agent') { if (!agentChat(r, slug, linkChat)) onFocusAgent?.(r.ref.id) }
     // Already in a popped-out window? Surface THAT one. The docket's reader is
     // a second reader surface beside the canvas's, so without this a document
     // the canvas already has in a window gets a duplicate window here — see
@@ -1359,7 +1361,7 @@ export function DocketModal({ slug, toast, close, tree, onFocusAgent,
     }
     else if (r.ref.kind === 'mail') onOpenMail?.(r.ref)
     else if (r.ref.kind === 'app' || r.ref.kind === 'panel') openAppRef(slug, r.ref)
-  }, [goToItem, onFocusAgent, onOpenMail, onOpenDoc, slug])
+  }, [goToItem, onFocusAgent, onOpenMail, onOpenDoc, slug, linkChat])
 
   // the flash is a hint, not a state: it clears itself and never survives to
   // confuse the next visit
