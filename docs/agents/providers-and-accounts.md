@@ -87,9 +87,10 @@ Neon (`neon`, model/version `gemini-4-neon` / `4`, letter N) is added ahead of
 availability, directly after Krypton. It copies Krypton's conditional gate:
 only the account's confirmed model list can offer it in hiring, staffing and
 model switching. A missing entry hides it; adding Neon to the code does not
-establish provider access. Hydrogen stays unconditional. The 2-credit seat is
-inferred and speculative, by analogy to Argon/Krypton; no API price or real
-model turn was measured. Context is the same 1,000,000-token placeholder.
+establish provider access. Hydrogen stays unconditional. The seat costs 3
+credits by the user's ruling (2026-11-25 meb8ff6987262 "neon should cost 3");
+it was an inferred 2 before. Seats hired at 2 keep it until rehired or
+switched to another model. No API price or real model turn was measured. Context is the same 1,000,000-token placeholder.
 Latest resolves to version 4, and version 4 may be pinned. Neon offers low,
 medium, high and xhigh like Hydrogen. Antigravity's acceptance of Neon's
 effort levels is inferred from Hydrogen's mapping.

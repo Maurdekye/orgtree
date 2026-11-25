@@ -52,7 +52,7 @@ Terra left this setting in 4.4.6 (user 2026-10-26): it is a current Codex tier a
 
 Gemini Neon is prepared speculatively ahead of provider availability. Like Krypton,
 it appears only after the account model list reports `gemini-4-neon`. Its N
-tier has an inferred 2-credit seat and offers low, medium, high and xhigh like
+tier costs 3 credits (the user's ruling, 2026-11-25) and offers low, medium, high and xhigh like
 Hydrogen. See the Runtime legacy-model rules above.
 
 Claude Mythos is listed under Claude only while a signed-in Claude account provides it

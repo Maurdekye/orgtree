@@ -2689,6 +2689,8 @@ and speculative, not measured. The generic low/high effort mapping is retained
 Krypton. Availability still requires its exact model ID in the account catalog.
 Neon changes no legacy rule. No real Neon turn or provider access is claimed.
 See the current [provider notes](../agents/providers-and-accounts.md#speculative-gemini-neon-2026-11-18-463).
+SEAT 3 (USER 2026-11-25 20:56:36Z meb8ff6987262 "neon should cost 3 btw"): supersedes the inferred seat 2
+above. Seats are priced at hire, rehire and model switch, so seats hired at 2 keep it until then.
 
 ### Claude Mythos, per login (USER 2026-11-19, 4.6.5)
 
