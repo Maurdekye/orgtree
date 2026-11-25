@@ -103,7 +103,7 @@ import { sendLinkedReply, sendPanelMessage } from '../events/reply'
 import type { ReplyTarget } from '../generated/events'
 import type { SelectionTarget } from '../replySelection'
 import {
-  CampaignIcon, ChatBubbleIcon, CheckIcon, ChipIcon, CloseIcon, CopyIcon, HearingIcon, NewChatIcon, ReplyIcon, ScheduleIcon,
+  ArrowDownIcon, CampaignIcon, ChatBubbleIcon, CheckIcon, ChipIcon, CloseIcon, CopyIcon, HearingIcon, NewChatIcon, ReplyIcon, ScheduleIcon,
   SettingsIcon,
 } from '../icons'
 import { fmtDay, fmtFull, fmtHm, fmtStamp, isToday } from '../timefmt'
@@ -879,9 +879,27 @@ function DmConversation({ slug, tree, chat, nodes, toast, refs, onFocusAgent, fl
   }
   useEsc(useCallback(() => setReplyIds([]), []), replyIds.length > 0)
 
-  // pinned to the newest message while the reader is at the bottom
+  // PINNED TO THE NEWEST MESSAGE WHILE THE READER IS AT THE BOTTOM: Hubchat's
+  // sticky logic as it is (USER 2026-11-25 m279ace747448: "use the same sticky
+  // logic that hubchat uses, it just works there"; its
+  // src/components/Conversation.tsx: `pinned`, `far`, `jumpHold`, `toBottom`,
+  // `userMoves`, the layout effect on the messages and the ResizeObserver on
+  // the timeline and its content). Pinned within 80 px of the end; the jump
+  // button from 300 px; whatever makes the content taller while pinned (a
+  // message, the typing row, a picture that loads late) keeps the end in view.
+  // ⚠ The effect runs on the chat's messages (`all`), never on how many rows
+  // are drawn: a long chat draws a fixed window of DM_PAGE rows, so a new
+  // message did not change that number and the view was left behind (measured).
   const scroller = useRef<HTMLDivElement>(null)
   const pinned = useRef(true)
+  /** after a jump to one message the view stays where the jump put it until the reader moves it */
+  const jumpHold = useRef(false)
+  const [far, setFar] = useState(false)
+  const toBottom = () => {
+    const el = scroller.current
+    if (el) { jumpHold.current = false; el.scrollTop = el.scrollHeight; pinned.current = true; setFar(false) }
+  }
+  const userMoves = () => { jumpHold.current = false }
   const count = entries.length
   useLayoutEffect(() => {
     const el = scroller.current
@@ -895,12 +913,22 @@ function DmConversation({ slug, tree, chat, nodes, toast, refs, onFocusAgent, fl
       if (mark) {
         el.scrollTop = Math.max(0, mark.getBoundingClientRect().top - el.getBoundingClientRect().top + el.scrollTop - 80)
         // when everything after it fits, that is the bottom: stay with the newest
-        pinned.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80
+        const gap = el.scrollHeight - el.scrollTop - el.clientHeight
+        pinned.current = gap < 80
+        setFar(gap > 300)
         return
       }
     }
     if (pinned.current) el.scrollTop = el.scrollHeight
-  }, [count, peer, newFrom, replies.length, writing])
+  }, [all, count, peer, newFrom, replies.length, writing])
+  useEffect(() => {
+    const el = scroller.current
+    if (!el || typeof ResizeObserver === 'undefined') return
+    const ro = new ResizeObserver(() => { if (pinned.current) el.scrollTop = el.scrollHeight })
+    ro.observe(el)
+    if (el.firstElementChild) ro.observe(el.firstElementChild)
+    return () => ro.disconnect()
+  }, [peer])
   // OLDER MESSAGES COME BY THEMSELVES AS THE TOP COMES NEAR, a page at a time,
   // and what is on screen stays where it is (USER 2026-11-24 m5004af1477b1:
   // "clicking load older messages at the top makes it immediately jump ...
@@ -996,7 +1024,9 @@ function DmConversation({ slug, tree, chat, nodes, toast, refs, onFocusAgent, fl
   const onScroll = () => {
     const el = scroller.current
     if (!el) return
-    pinned.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80
+    const gap = el.scrollHeight - el.scrollTop - el.clientHeight
+    pinned.current = gap < 80 && !jumpHold.current
+    setFar(gap > 300)
     nearTop(true)
     // back at the newest message, a long scroll-back is let go again (Hubchat's trim)
     if (pinned.current && shown > DM_TRIM_AT && !anchor.current && !seek) setShown(DM_TRIM_KEEP)
@@ -1048,6 +1078,7 @@ function DmConversation({ slug, tree, chat, nodes, toast, refs, onFocusAgent, fl
     if (!el) return
     flashed.current = flash.seq
     pinned.current = false
+    jumpHold.current = true
     el.scrollIntoView?.({ block: 'center' })
   }, [flash, count])
 
@@ -1144,6 +1175,8 @@ function DmConversation({ slug, tree, chat, nodes, toast, refs, onFocusAgent, fl
   const send = (text: string, attachments?: string[], notice?: boolean, cast?: boolean,
     objectTarget?: ReplyTarget, selections?: SelectionTarget[]) => {
     const targets = replies
+    // sending goes to the newest message and stays there while the sent message and its answers come in
+    toBottom()
     const urgency = chat.node?.dnd ? urgent : undefined
     if (urgent) setUrgent(undefined)
     const mailTarget = (m: MailRow) => ({ kind: 'mail' as const, org: slug, box: 'user' as const, id: m.id })
@@ -1320,12 +1353,13 @@ function DmConversation({ slug, tree, chat, nodes, toast, refs, onFocusAgent, fl
           {...closeHoverProps(onCloseHover)}
           onClick={onClose}><CloseIcon fontSize="inherit" /></button>
       </div>
+      <div className="dm-timeline-wrap">
       <div className="dm-timeline" ref={scroller} onScroll={onScroll} role="log" aria-label={`Messages with ${name}`}
         data-dm-drawn={entries.length} data-dm-loaded={all.length}
         /* the keyboard walk (above): focusable for it, never a Tab stop of its own */
-        tabIndex={-1} onKeyDown={walkKeys} onMouseDown={() => { if (hlRef.current) leaveHl() }}
+        tabIndex={-1} onKeyDown={(e) => { userMoves(); walkKeys(e) }} onMouseDown={() => { userMoves(); if (hlRef.current) leaveHl() }} onTouchStart={userMoves}
         onBlur={(e) => { if (hlRef.current && e.currentTarget.ownerDocument.hasFocus() && !e.currentTarget.contains(e.relatedTarget as Node | null)) leaveHl() }}
-        onWheel={(e) => { if (e.deltaY < 0 && (scroller.current?.scrollTop ?? 1) <= 0) older(true) }}>
+        onWheel={(e) => { userMoves(); if (e.deltaY < 0 && (scroller.current?.scrollTop ?? 1) <= 0) older(true) }}>
         <div className="dm-timeline-inner">
           {/* no button: older messages load as the top comes near (`older`) */}
           {loadingMore && <div className="dm-older" role="status">loading older messages…</div>}
@@ -1342,6 +1376,8 @@ function DmConversation({ slug, tree, chat, nodes, toast, refs, onFocusAgent, fl
             <DmTypingDots /><span>{name} is typing…</span>
           </div>}
         </div>
+      </div>
+      {far && <button type="button" className="dm-jump" onClick={toBottom} title="Jump to the newest message" aria-label="Jump to the newest message"><ArrowDownIcon fontSize="inherit" /></button>}
       </div>
       <span className="dm-sr dm-walk-said" role="status" aria-live="polite">{walkSaid}</span>
       <div className="dm-compose" ref={boxRef} onKeyDown={boxKeys}>
