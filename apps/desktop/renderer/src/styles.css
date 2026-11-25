@@ -427,6 +427,11 @@ nav { display: flex; flex-direction: column; gap: 2px; }
 .net-state.stuck { color: var(--bad); }
 .net-state svg { vertical-align: -.125em; }
 .oi-blocked { color: var(--bad); flex: none; }
+/* lockdown (Mail hub 2.6.0): a closed contact shows only the lock; an open one its dot with a small lock in the corner */
+.oi-locked { color: var(--dim); flex: none; }
+.oi-lockbadge { position: relative; display: inline-flex; flex: none; }
+.oi-lockbadge-lock { position: absolute; right: -4px; bottom: -3px; font-size: 0.6em; color: var(--dim); }
+.oi-setaside-body { white-space: pre-wrap; max-height: 16em; overflow: auto; margin: 4px 0; }
 .oi-stuck { color: var(--bad); font-size: 11px; overflow: hidden;
             text-overflow: ellipsis; white-space: nowrap; max-width: 40ch; }
 /* F-06: the mailbox network section (its own TAB since the 2026-08-05

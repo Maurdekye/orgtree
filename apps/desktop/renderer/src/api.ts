@@ -36,7 +36,7 @@ import type {
   AccountRegistryPayload, RegisteredAccountUsage,
   UploadResult, UsagePayload, UsagePeek,
   WorkItemsPayload, WorkItemPayload, WorkItemReplyResult, DismissAttentionResult,
-  WorkItemAttachment, NetBlocks,
+  WorkItemAttachment, NetBlocks, NetLockdown, SetAsidePage, SetAsideLetter,
 } from './types'
 
 /** THE RESTART DETECTOR.
@@ -1674,6 +1674,23 @@ export const getNetBlocks = (slug: string): Promise<NetBlocks> =>
 /** The user blocks (`blocked`) or unblocks a contact for the whole org. */
 export const setNetBlock = (slug: string, address: string, blocked: boolean): Promise<NetBlocks> =>
   req(`/api/orgs/${slug}/net/blocks`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ address, blocked }) })
+/** Mail hub 2.6.0 lockdown: the org mailbox's allow list, setting and hubs. */
+export const getNetLockdown = (slug: string): Promise<NetLockdown> =>
+  req(`/api/orgs/${slug}/net/lockdown`)
+/** The user changes the lockdown: `setting` (org = Org decides, on, off), `on` under Org decides, the list
+ *  (`allow` replaces; `add`/`remove` entries are `@net:` addresses or `{hub, address}`), `set_aside`. */
+export interface NetLockdownChange {
+  setting?: 'org' | 'on' | 'off'; on?: boolean; set_aside?: boolean; rev?: number
+  allow?: (string | { hub: string; address: string })[]
+  add?: (string | { hub: string; address: string })[]
+  remove?: (string | { hub: string; address: string })[]
+}
+export const setNetLockdown = (slug: string, change: NetLockdownChange): Promise<NetLockdown> =>
+  req(`/api/orgs/${slug}/net/lockdown`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(change) })
+export const getSetAside = (slug: string, before?: string | null): Promise<SetAsidePage> =>
+  req(`/api/orgs/${slug}/net/lockdown/set-aside${before ? `?before=${encodeURIComponent(before)}` : ''}`)
+export const readSetAside = (slug: string, id: string): Promise<SetAsideLetter> =>
+  req(`/api/orgs/${slug}/net/lockdown/set-aside/${encodeURIComponent(id)}`)
 // F-06: the network-identity reveal — loopback admin only; the ONE call that
 // returns the org secret (the settings panel's reveal/export)
 export const getOrgNet = (slug: string): Promise<OrgNetReveal> =>

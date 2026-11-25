@@ -30,16 +30,16 @@ import type { CSSProperties, KeyboardEvent, MutableRefObject, ReactNode } from '
 import { mailTagKey, mailTagHue, mailMatchesTags, toggleMailTag } from './mailtags'
 import { MailTagPicker } from './mailtagpicker'
 import type { MailTagPickerProps } from './mailtagpicker'
-import type { InboxPayload, MailQueueState, NetBlocks, OrgInboxEntry, ToastFn, TreePayload } from '../types'
+import type { InboxPayload, MailQueueState, NetBlocks, NetLockdown, OrgInboxEntry, SetAsideLetter, SetAsidePage, ToastFn, TreePayload } from '../types'
 import {
-  audienceAction, fileBase, fileUrl, getMailById, getNetBlocks, getOrgInbox, orgInboxRead,
-  setNetBlock, uploadFile,
+  audienceAction, fileBase, fileUrl, getMailById, getNetBlocks, getNetLockdown, getOrgInbox, getSetAside, orgInboxRead,
+  readSetAside, setNetBlock, setNetLockdown, uploadFile,
 } from '../api'
 import type { MailTransfer } from '../api'
 import { AttachThumb, fmtBytes, isImg } from './img'
 import { fileTransferView, TransferPanel, type TransferSummary } from './transfers'
 import {
-  ArrowUpIcon, AttachIcon, BlockIcon, CampaignIcon, CloseIcon, DownloadIcon, FileIcon, HearingIcon,
+  ArrowUpIcon, AttachIcon, BlockIcon, LockIcon, CampaignIcon, CloseIcon, DownloadIcon, FileIcon, HearingIcon,
   MailIcon, NotificationsIcon, NotificationsOffIcon, PublicIcon, ScheduleIcon,
 } from '../icons'
 import {
@@ -2572,6 +2572,73 @@ export function OrgInboxModal({ inbox, net, map, slug, toast, close, jumpTo,
 }
 
 // ---- F-06: every mailserver, its status, and all clients on each ----
+// The org mailbox lockdown (USER 2026-11-25 13:26Z m0388b64a9372; setting On / Off / Org decides 14:10:49Z): the
+// user always edits it here; set-aside letters are listed as envelopes and opened one at a time (13:37Z Q5).
+function LockdownSection({ slug, lockdown, change }: {
+  slug: string; lockdown: NetLockdown; change: (c: Parameters<typeof setNetLockdown>[1]) => Promise<void>
+}) {
+  const [adding, setAdding] = useState('')
+  const [page, setPage] = useState<SetAsidePage | null>(null)
+  const [open, setOpen] = useState<SetAsideLetter | null>(null)
+  const loadPage = (before?: string | null) => getSetAside(slug, before).then((p) => setPage(before && page
+    ? { ...p, set_aside: [...page.set_aside, ...p.set_aside] } : p)).catch(() => {})
+  const who = (by?: string | null) => !by ? '' : by === '@user' ? 'you' : '@' + by
+  const hubWord: Record<string, string> = { enforced: 'enforced', pending: 'pending', failed: 'failed', unsupported: 'needs an update: suspended while locked' }
+  return (
+    <div className="oi-hub oi-lockdown">
+      <div className="oi-hub-head"><LockIcon fontSize="inherit" /> <b>lockdown</b>
+        <span className="dim"> {lockdown.on ? 'on' : 'off'}{lockdown.setting === 'org' ? ' · Org decides' : lockdown.setting === 'on' ? ' · forced on by you' : ' · forced off by you'}
+          {lockdown.set_by ? ` · last changed by ${who(lockdown.set_by)}` : ''}{lockdown.refused > 0 ? ` · ${lockdown.refused} refused` : ''}</span>
+      </div>
+      {lockdown.setting === 'org' && <div className="pad-s">
+        <button className="link" onClick={() => void change({ on: !lockdown.on })}>{lockdown.on ? 'lift the lockdown' : 'lock down now'}</button>
+      </div>}
+      {lockdown.on && <>
+        {lockdown.hubs.map((h) => (
+          <div key={h.hub} className="dim pad-s">{h.hub_name}: {hubWord[h.state] ?? h.state}{h.detail ? ' — ' + h.detail : ''}</div>
+        ))}
+        {lockdown.allow.length === 0 && <div className="dim pad-s">nobody outside is on the list: only organizations on this computer can reach the org</div>}
+        {lockdown.allow.map((a) => (
+          <div key={a.hub + ':' + a.address} className="oi-peer">
+            <HubContactChip address={'@net:' + a.address} />
+            <span className="dim"> on {a.hub_name} · added by {who(a.added_by)}</span>
+            <button className="link" onClick={() => void change({ remove: [{ hub: a.hub, address: a.address }] })}>unlist</button>
+          </div>
+        ))}
+        <form className="pad-s" onSubmit={(e) => { e.preventDefault(); const a = adding.trim(); if (a) void change({ add: [a] }).then(() => setAdding('')) }}>
+          <input aria-label="Address to allow" placeholder="@net:address" value={adding} onChange={(e) => setAdding(e.target.value)} />
+          <button type="submit" className="link" disabled={!adding.trim()}>allow</button>
+        </form>
+      </>}
+      <label className="pad-s">
+        <input type="checkbox" checked={lockdown.set_aside} onChange={(e) => void change({ set_aside: e.target.checked })} />
+        {' '}set aside mail from addresses not on the list, to read one at a time (otherwise it is refused)
+      </label>
+      <div className="pad-s">
+        {page === null
+          ? <button className="link" onClick={() => void loadPage()}>show set-aside mail</button>
+          : <>
+            <div className="dim">{page.total} set aside · {page.unread} unread
+              {page.top_senders.length > 0 && ' · most from ' + page.top_senders.slice(0, 3).map((s) => `${s.from} (${s.letters})`).join(', ')}</div>
+            {page.set_aside.map((l) => (
+              <div key={l.id} className="oi-peer">
+                <HubContactChip address={l.from} />
+                <span className="dim"> {fmtShort(l.at)} · {l.chars} chars{l.read_by ? ` · read by ${who(l.read_by)}` : ''}</span>
+                <button className="link" onClick={() => readSetAside(slug, l.id).then(setOpen).catch(() => {})}>read</button>
+              </div>
+            ))}
+            {page.next_before && <button className="link" onClick={() => void loadPage(page.next_before)}>more</button>}
+          </>}
+        {open && <div className="oi-setaside-letter" role="region" aria-label={'set-aside letter from ' + open.from}>
+          <div className="dim">{open.from} · {fmtShort(open.at)} · {open.note}</div>
+          <pre className="oi-setaside-body">{open.body}</pre>
+          <button className="link" onClick={() => setOpen(null)}>close</button>
+        </div>}
+      </div>
+    </div>
+  )
+}
+
 // A client's presence wears the Connections lists' dot (USER 2026-10-29
 // m4c84e393768e "thought the gray dot meant offline"): a green dot online, a
 // hollow grey ring offline (m019c9500d23a), never a filled grey bullet.
@@ -2581,7 +2648,18 @@ function NetSection({ net, slug }: { net?: TreePayload['net']; slug: string }) {
   const [blocks, setBlocks] = useState<NetBlocks | null>(null)
   const [asking, setAsking] = useState<string | null>(null)
   const [err, setErr] = useState<string | null>(null)
-  const hubsKey = JSON.stringify((net?.hubs ?? []).map((h) => [h.blocks, h.blocked_by]))
+  const hubsKey = JSON.stringify((net?.hubs ?? []).map((h) => [h.blocks, h.blocked_by, h.locked]))
+  // Mail hub 2.6.0 lockdown (USER 2026-11-25 13:26Z): the org's own allow list; null on an engine without it
+  const [lockdown, setLockdown] = useState<NetLockdown | null>(null)
+  useEffect(() => {
+    let live = true
+    getNetLockdown(slug).then((l) => { if (live && l && Array.isArray(l.allow)) setLockdown(l) }).catch(() => {})
+    return () => { live = false }
+  }, [slug, hubsKey])
+  const lockChange = (change: Parameters<typeof setNetLockdown>[1]) =>
+    setNetLockdown(slug, change).then((l) => { setLockdown(l); setErr(null) })
+      .catch((e: unknown) => setErr(e instanceof Error ? e.message : String(e)))
+  const listed = (hub: string, address: string) => (lockdown?.allow ?? []).some((a) => a.hub === hub && a.address === address)
   // an engine before blocking (or any odd answer) has no lists: read as none
   const lists = (b: unknown): NetBlocks => {
     const o = (b ?? {}) as Partial<NetBlocks>
@@ -2652,9 +2730,21 @@ function NetSection({ net, slug }: { net?: TreePayload['net']; slug: string }) {
                         ? <BlockIcon className="oi-blocked" fontSize="inherit" role="img"
                             aria-label={mine.has(r.slug) ? 'blocked' : 'has blocked this org'}
                             titleAccess={mine.has(r.slug) ? 'Blocked: no messages either way' : 'Has blocked this org: no messages either way'} />
-                        : <PresenceDot state={rowPresence(r)} />}
+                        // lockdown: a closed contact shows only the lock; an open one its dot with a small lock
+                        : h.locked?.[r.slug] === 'closed'
+                          ? <LockIcon className="oi-locked" fontSize="inherit" role="img" aria-label="in lockdown, can't be messaged"
+                              titleAccess="In lockdown: this org isn't on their list and can't message them" />
+                          : h.locked?.[r.slug] === 'open'
+                            ? <span className="oi-lockbadge" role="img" aria-label="in lockdown, this org is on their list"
+                                title="In lockdown: this org is on their list"><PresenceDot state={rowPresence(r)} /><LockIcon className="oi-lockbadge-lock" fontSize="inherit" /></span>
+                            : <PresenceDot state={rowPresence(r)} />}
                       <HubContactChip address={'@net:' + r.slug} />
                       <span className="dim"> {(r.transports ?? ['net']).join('·')}</span>
+                      {lockdown?.on && (listed(h.id, r.slug)
+                        ? <button className="link" onClick={() => lockChange({ remove: [{ hub: h.id, address: r.slug }] })}
+                            title="Take them off the lockdown list: they can't message the org while it is locked">unlist</button>
+                        : <button className="link" onClick={() => lockChange({ add: [{ hub: h.id, address: r.slug }] })}
+                            title="Put them on the lockdown list: they can message the org while it is locked">allow</button>)}
                       {h.blocks !== undefined && blockButton(r.slug)}
                     </span>
                   ))}
@@ -2686,6 +2776,7 @@ function NetSection({ net, slug }: { net?: TreePayload['net']; slug: string }) {
           ))}
         </div>
       )}
+      {lockdown && <LockdownSection slug={slug} lockdown={lockdown} change={lockChange} />}
       {err && <div className="oi-stuck">{err}</div>}
     </div>
   )

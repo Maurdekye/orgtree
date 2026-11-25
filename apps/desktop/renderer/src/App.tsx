@@ -3616,7 +3616,7 @@ export function SettingsPanel({ tree, toast, close, initialTab, target }: {
   const server = {
     orgName: tree.name, maxTop: tree.max_top_grant ?? 1000, defTop: tree.default_top_grant ?? 50,
     compactAt: Math.round((tree.compact_at ?? .8) * 100), defEffort: tree.default_effort ?? '',
-    orgInboxMode: tree.org_inbox?.mode ?? (tree.org_inbox?.enabled === false ? 'closed' : 'normal'),
+    orgInboxMode: tree.org_inbox?.setting ?? tree.org_inbox?.mode ?? (tree.org_inbox?.enabled === false ? 'closed' : 'normal'),
     multiHolder: tree.org_inbox?.multi_holder_enabled === true,
     accOn: tree.auto_cheap_compact?.enabled ?? true,
     accOcc: Math.round((tree.auto_cheap_compact?.occ ?? .25) * 100),
@@ -3726,7 +3726,7 @@ export function SettingsPanel({ tree, toast, close, initialTab, target }: {
   const setCompactAt = set('compactAt', compactAt)
   const defEffort = val('defEffort', tree.default_effort ?? '')
   const setDefEffort = set('defEffort', defEffort)
-  const orgInboxMode = val<OrgInboxMode>('orgInboxMode', tree.org_inbox?.mode
+  const orgInboxMode = val<OrgInboxMode>('orgInboxMode', tree.org_inbox?.setting ?? tree.org_inbox?.mode
     ?? (tree.org_inbox?.enabled === false ? 'closed' : 'normal'))
   const setOrgInboxMode = set<OrgInboxMode>('orgInboxMode', orgInboxMode)
   const multiHolder = val('multiHolder',
@@ -4019,6 +4019,7 @@ export function SettingsPanel({ tree, toast, close, initialTab, target }: {
           active={tab === 'mailserver'}>
           {visited('mailserver') && <>
             <OrgInboxPolicy mode={orgInboxMode} onMode={setOrgInboxMode}
+              actual={tree.org_inbox?.mode} slug={tree.slug} lockdown={tree.org_inbox?.lockdown}
               multi={multiHolder} onMulti={setMultiHolder} />
             {tree.net != null && <NetTab tree={tree} toast={toast}
               adding={netHubDraft} setAdding={setNetHubDraft} />}

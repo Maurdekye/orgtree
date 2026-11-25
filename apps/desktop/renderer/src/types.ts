@@ -332,6 +332,49 @@ export interface NetHub {
    *  org there (the hub's last word; absent before the hub has answered) */
   blocks?: string[]
   blocked_by?: string[]
+  /** Mail hub 2.6.0 lockdown: contacts in lockdown as this org sees them there:
+   *  `open` (the org is on their list) or `closed` (it is not: only the lock shows) */
+  locked?: Record<string, 'open' | 'closed'>
+}
+/** The lockdown as the tree carries it (USER 2026-11-25 13:26Z m0388b64a9372; setting 14:10:49Z m405b44961ff5). */
+export interface NetLockdownSummary {
+  /** the user's setting: Org decides (default), forced on or forced off */
+  setting: 'org' | 'on' | 'off'
+  /** in force now */
+  on: boolean
+  /** enforced on all hubs, partial, pending, no hubs, or off */
+  coverage: string
+  set_aside: boolean
+  /** set-aside letters nobody has read yet */
+  set_aside_unread: number
+}
+/** GET /api/orgs/{slug}/net/lockdown: the full lockdown. */
+export interface NetLockdown {
+  setting: 'org' | 'on' | 'off'
+  on: boolean
+  org_on: boolean
+  set_aside: boolean
+  rev: number
+  set_by?: string | null
+  set_at?: string | null
+  refused: number
+  agents_may_change?: boolean
+  allow: { hub: string; hub_name: string; address: string; added_by: string; at: string }[]
+  hubs: { hub: string; hub_name: string; state: 'enforced' | 'pending' | 'failed' | 'unsupported'; rev: number | null; detail: string | null }[]
+  coverage: string
+}
+/** GET /api/orgs/{slug}/net/lockdown/set-aside: envelopes only, newest first. */
+export interface SetAsidePage {
+  set_aside: { id: string; from: string; hub: string | null; at: string; chars: number; read_by: string | null; files: unknown }[]
+  total: number
+  unread: number
+  top_senders: { from: string; letters: number }[]
+  next_before: string | null
+}
+/** GET /api/orgs/{slug}/net/lockdown/set-aside/{id}: one letter, to the user only. */
+export interface SetAsideLetter {
+  id: string; from: string; hub: string | null; at: string; body: string
+  files_not_downloaded: unknown; reply_to: unknown; note: string
 }
 /** GET /api/orgs/{slug}/net/blocks (Mail hub 2.6.0): the org's blocks, who set
  *  each (`@user` or an agent's name) and why; the contacts that block the org. */
@@ -1109,7 +1152,15 @@ export interface TreePayload {
      *  receive mail; null or missing otherwise (and on older engines) */
     acting?: string | null
     enabled?: boolean          // missing on older engines: enabled
+    /** what is in force */
     mode?: 'normal' | 'dnd' | 'closed'
+    /** the user's Outside communication value (USER 2026-11-25 14:10:26Z): `org` = Org decides (the default);
+     *  missing on older engines (then `mode` is the user's value) */
+    setting?: 'org' | 'normal' | 'dnd' | 'closed'
+    /** the holders' own choice under Org decides */
+    org_choice?: 'normal' | 'closed'
+    /** the org mailbox lockdown (Mail hub 2.6.0 `lockdown`); missing on older engines */
+    lockdown?: NetLockdownSummary
     multi_holder_enabled: boolean
     visible: boolean
   }
@@ -2793,7 +2844,7 @@ export interface SettingsRequest {
   auto_cheap_compact?: { enabled?: boolean; occ?: number } | null
   /** organization-level external inbox holder policy */
   org_inbox_enabled?: boolean | null
-  org_inbox_mode?: 'normal' | 'dnd' | 'closed' | null
+  org_inbox_mode?: 'org' | 'normal' | 'dnd' | 'closed' | null
   org_inbox_multi_holder?: boolean | null
   // F-06
   net_hub_address?: string | null      // global defaults only
