@@ -923,6 +923,17 @@ but give it a longer timeout, say an hour" (23:06Z mac1516a71553); "Yes, widen t
   delivered/waiting only (A10). Known limit: ownership by name (Stage 2: stable ids and roles, per-copy anchors,
   role-time last seen). Open with the user: pull under org DND vs other owners, the backlog rule, retired/replaced
   owners with zero holders, unresolvable references, the acked project job.
+- Failover decisions A-H and promotion (USER 2026-11-25 mff1aa564451b "all good", text @coordinator-opus ma62987a91396,
+  edges m423778515c90). `orginbox_jobs::thread_owners` (shared by `threaded` and `pullable`): A `keeps_thread` = live
+  with a link, or archived with an UNREVOKED `@extern` (`was_holder`); a job worker keeps its D13 job thread while
+  live; B a D13 row with no `sender_agent_id` (the user's own) resolves to the holders, an unmatched reference is new
+  mail. C `route_tx` elects the stand-in in a release too. E `acting_weak` orders by `ot.agent_dnd`, then the earliest
+  grant. F `tools/org_inbox.rs` pull skips rows `jobs::pullable` denies (another owner's reply); `has_more` counts
+  them out. G `Arrival::Thread` with no holder and no project waits (`Route{to:[], waiting:true}`, no grant); a later
+  release routes it. H `follow_up`: an acked job's follow-up goes to its worker while it is live under the project
+  (`ot.reports_of`), else a new job. Promotion: in `route_tx`, new unthreaded mail with no unrevoked `@extern` on a
+  live/archived node promotes the earliest runnable (else earliest) weak link to a persisted `@extern` (its weak row
+  revoked; event; user + agent notices); no weak link: today's auto-grant.
 
 ## Org mailbox: project holders, job replies, hub threading
 
