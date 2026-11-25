@@ -329,7 +329,8 @@ test('§3a Antigravity settings group Claude tiers before Gemini tiers', async (
       '[aria-label="Antigravity model tiers"] .acct-provider-tier .tier')]
       .map(el => el.className.split(/\s+/).find(name => name.startsWith('t-'))!.slice(2))
     assert.deepEqual(rendered, [
-      'agy-opus', 'agy-sonnet', 'carbon', 'krypton', 'neon', 'hydrogen',
+      // by seat within each group: Neon (3, USER 2026-11-25 meb8ff6987262) before Krypton (2)
+      'agy-opus', 'agy-sonnet', 'carbon', 'neon', 'krypton', 'hydrogen',
     ], 'Claude-backed tiers stay together before Gemini-backed tiers')
   } finally { await view.unmount(); delete g.fetch }
 })
