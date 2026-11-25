@@ -94,6 +94,8 @@ import type { InboxSelectionRequest } from '../inboxselection'
 export interface MailListProps {
   /** the user's own mailbox: its received rows carry no `to`, and every one is the user's (mailboxpref chatPeerOf) */
   userBox?: boolean
+  /** an agent's or project's own mailbox: the user's mail in it without a `to` is to this one (mailboxpref chatPeerOf) */
+  boxOwner?: string
   /** Org outbox attribution owns the header's left side; metadata trails it. */
   compoundHeader?: boolean
   selectionRequest?: InboxSelectionRequest
@@ -325,7 +327,7 @@ export function MailList({ org, pending = [], delivered = [], waitLabel, sender,
   outgoing, onRead, onReply, onAckJob, replyConversation, canReply: canReplyTo, onRetract, onDeleteUserMail, jumpTo, jumpSeq, selectOldestUnread, restoreSelectionId, onOpenMail, lookup, onFound,
   askState, onAskRetry, fileHref, mdBase, renderBody, rowMark,
   onFocusAgent, tierOf, hasAgent, refs, refOf, toast, collapsible, tagFilter, onLoadMore, hasMore, loadingMore, hideMailReplyKind,selectionRequest,hiddenUnread,
-  projectMail, filterRequest, userBox }: MailListProps) {
+  projectMail, filterRequest, userBox, boxOwner }: MailListProps) {
   // ONE order, by send time, always — never grouped, never re-grouped.
   //
   // Unread used to sort as its own block on top, which meant the list
@@ -675,7 +677,7 @@ export function MailList({ org, pending = [], delivered = [], waitLabel, sender,
       remove: !outgoing && onDeleteUserMail ? () => onDeleteUserMail(m) : undefined,
       // View in chat (USER 2026-11-25 m70e86c04946e): the user's classic mailbox, an agent's mailbox and a desk's Mail tab
       viewInChat: m.id && isChatMail(m as { from?: unknown; to?: unknown }, userBox)
-        ? () => { viewMailIn('chat', org ?? refs?.world.org ?? '', m.id!, chatPeerOf(m as { from?: unknown; to?: unknown }, userBox)) } : undefined,
+        ? () => { viewMailIn('chat', org ?? refs?.world.org ?? '', m.id!, chatPeerOf(m as { from?: unknown; to?: unknown }, userBox, boxOwner)) } : undefined,
     }, { el: rootRef.current, org: org ?? refs?.world.org ?? '', lookup, toast, reference: refOf?.(m) ?? null })
   }
   const custom = cur ? renderBody?.(cur) ?? null : null
@@ -2041,7 +2043,7 @@ export function InboxView({ slug, nid, unreadCount, onRetract, jumpTo, jumpSeq, 
         {mailbox.error ? <div className="dim pad" role="alert">Could not load mailbox. <button onClick={mailbox.retry}>Retry</button></div> : box == null
           ? <div className="dim pad">loading…</div>
           : folder === 'inbox'
-            ? <MailList org={slug} pending={pending} delivered={box.delivered}
+            ? <MailList org={slug} boxOwner={nid} pending={pending} delivered={box.delivered}
                 hasMore={history.hasMore} loadingMore={history.loading} onLoadMore={history.loadMore}
                 collapsible={collapsible} projectMail={projectMail}
                 tierOf={tierOf} hasAgent={hasAgent} refs={refs} toast={toast}
@@ -2077,7 +2079,7 @@ export function InboxView({ slug, nid, unreadCount, onRetract, jumpTo, jumpSeq, 
                — the panel above asks, and opens the folder that holds it. It
                hands down the OUTCOME of that question (`askState`) so this
                list does not read an unfinished or failed one as an absence. */
-            : <MailList org={slug} delivered={box.sent ?? []} outgoing jumpTo={jumpTo}
+            : <MailList org={slug} boxOwner={nid} delivered={box.sent ?? []} outgoing jumpTo={jumpTo}
                 hasMore={history.hasMore} loadingMore={history.loading} onLoadMore={history.loadMore}
                 collapsible={collapsible} projectMail={projectMail}
                 jumpSeq={jumpSeq} tierOf={tierOf} hasAgent={hasAgent} refs={refs} toast={toast}

@@ -162,15 +162,17 @@ export const replySentOnObject = (org: string, peer: string): void => {
  *
  *  `chatPeerOf`: the agent or project on the other side of a mail between the user and it, or null for any
  *  other mail (agent to agent, outside or org mail, the system's). `userBox`: the row comes from the user's own
- *  mailbox, whose received mail carries no `to`. A row the user sent whose `to` is unknown is taken as a chat
- *  mail: the chat's own jump then finds it or says it cannot (DmPanel's not-found notice).
+ *  mailbox, whose received mail carries no `to`. `owner`: the row comes from that agent's or project's own
+ *  mailbox, whose received mail carries no `to` either (engine feed/compute.rs agent_mailbox adds it only for
+ *  Sent), so the user's mail there is to the owner. Any other row the user sent whose `to` is unknown is taken as
+ *  a chat mail: the chat's own jump then finds it or says it cannot (DmPanel's not-found notice).
  *
  *  `viewMailIn` sets the view first with the toggle's own setting, then asks the shell (App.tsx) to open the
  *  user's mailbox on that mail: the chats select its chat and flash it, as a reference jump does; the classic
  *  mailbox opens its folder, selects it and scrolls to it. An empty `org` is this window's organization. */
-export const chatPeerOf = (m: { from?: unknown; to?: unknown }, userBox = false): string | null => {
+export const chatPeerOf = (m: { from?: unknown; to?: unknown }, userBox = false, owner?: string): string | null => {
   const name = (v: unknown): string | null => typeof v === 'string' && v !== '' && !v.startsWith('@') ? v : null
-  if (m.from === '@user') return m.to == null || m.to === '' ? '' : name(m.to)
+  if (m.from === '@user') return m.to == null || m.to === '' ? (owner ? name(owner) : null) ?? '' : name(m.to)
   return m.to === '@user' || userBox && m.to == null ? name(m.from) : null
 }
 export const isChatMail = (m: { from?: unknown; to?: unknown }, userBox = false): boolean => chatPeerOf(m, userBox) !== null
