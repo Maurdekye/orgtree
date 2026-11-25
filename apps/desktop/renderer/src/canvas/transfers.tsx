@@ -81,10 +81,12 @@ export function TransferPanel({ slug, agent, tab, onSummary }: {slug: string; ag
       try {
         const data = await getMailTransfers(slug, agent, AbortSignal.any([stop.signal, AbortSignal.timeout(15000)]))
         if (stop.signal.aborted) return
-        setRows(data.transfers)
-        setFirstNext(data.next_cursor)
+        // a reply without a list (an older engine, a stub) is no transfers, never a crash
+        const list = Array.isArray(data.transfers) ? data.transfers : []
+        setRows(list)
+        setFirstNext(data.next_cursor ?? null)
         setError(null)
-        active = data.transfers.some(t => !terminal.has(t.state))
+        active = list.some(t => !terminal.has(t.state))
       } catch (err) {
         if (stop.signal.aborted || isRequestCancelled(err)) return
         setError(err instanceof Error ? err.message : 'Could not load transfers')
