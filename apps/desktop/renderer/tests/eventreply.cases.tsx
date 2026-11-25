@@ -2,10 +2,11 @@ import { flush, inAct, mountView, realClock, useFakeClock } from './harness'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
+import { useEffect } from 'react'
 import path from 'node:path'
 import { DocGalleryModal } from '../src/canvas/gallery'
 import { InboxPanel } from '../src/App'
-import { addPending, resetConvos, useConvo } from '../src/convo'
+import { addPending, refreshConvo, resetConvos, useConvo } from '../src/convo'
 import type { Convo } from '../src/convo'
 import type { TreePayload } from '../src/types'
 declare const __SRC_DIR__: string
@@ -32,15 +33,18 @@ export function replyCases(profile:'operator') {
       if(url.split('?')[0].endsWith('/documents'))return response({documents:[item]})
       if(url.endsWith('/documents/d1'))return response({...item,body:'Document body'})
       if(url.endsWith('/inbox'))return response({pending:[],delivered:[mail],sent:[]})
+      // alpha's desk, open and loaded: a send from another surface paints its ghost only there (panelghost.test.tsx)
+      if(/\/nodes\/alpha\/chat(\?|$)/.test(url))return response({busy:false,queued:0,responding:false,last_error:null,occupancy:null,messages:[],live:[],mail_pending:0,pending_mail:[]})
       return response({})
     }) as typeof fetch
-    function Probe(){snapshot=useConvo('mine','alpha');return null}
+    function Probe(){const c=useConvo('mine','alpha');snapshot=c;useEffect(()=>{if(!c.loaded)void refreshConvo('mine','alpha')},[c.loaded]);return null}
     const tree={slug:'mine',roots:[],audiences:[],credit_requests:[],asks:[],tiers:{},fable_lock:null} as unknown as TreePayload
     const view=await mountView(<><Probe/>{surface==='document'
       ?<DocGalleryModal slug="mine" toast={v=>notices.push(v)} close={noop}/>
       :<InboxPanel slug="mine" tree={tree} toast={v=>notices.push(v)} close={noop} jumpTo={null}/>}</>,h=>h)
     t.after(async()=>{await view.unmount();resetConvos();realClock()})
-    await flush();await inAct(()=>{(view.el.querySelector('.mailrow') as HTMLElement).click()});await flush()
+    await flush();assert.equal(snapshot!.loaded,true,"POSITIVE CONTROL: alpha's desk loaded")
+    await inAct(()=>{(view.el.querySelector('.mailrow') as HTMLElement).click()});await flush()
     const textarea=view.el.querySelector('.mail-reply textarea') as HTMLTextAreaElement
     assert.ok(textarea,'real reply composer rendered')
     let earlier=0

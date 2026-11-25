@@ -1554,6 +1554,19 @@ export function loadOlder(slug: string, nid: string, rows = CHAT_WINDOW, _viewpo
   return true
 }
 
+/** Whether this agent's desk conversation has had its first payload. A send from another surface
+(the chats panel, an inbox or docket reply: events/reply.ts) paints its optimistic ghost only
+then. On a desk that has not loaded, the ghost's baseline is unknown and the first payload would
+set it to its newest row, assuming the send comes after everything shown; but the agent may take
+the mail, answer and move on before that desk is opened, so the ghost's row is older than the
+window, proof paging never looks for it, and it stood under "queued / undelivered" until the
+app closed (4.7.0-alpha.4, @ticket:orgtree/desk-transcript-user-mail-that-already-woke-and-w).
+The unloaded desk shows the server's own copy on its first payload instead. Never creates an
+entry. */
+export function convoLoaded(slug: string, nid: string): boolean {
+  return M.get(key(slug, nid))?.s.loaded === true
+}
+
 export function addPending(slug: string, nid: string, text: string, reply?: ReplyContext | null, attachments?: DraftAttachment[], op?: string, notice?: boolean, replies?: ReplyContext[]): number {
   const k = key(slug, nid)
   const e = entry(k)
