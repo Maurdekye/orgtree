@@ -1694,7 +1694,7 @@ export function inboxDropChoice(inbox: { holders?: string[]; weak?: string[]; mu
 /** What dragging an agent onto the org mailbox does, an App setting (USER 2026-11-25 m3f7018605789, mcc0fb84c475f,
  *  md9ca7ea6df12): `holder` (default) grants the primary audience at once (it moves with one holder allowed, adds one
  *  with several); `ask` asks as before (`inboxDropChoice`); `weak` adds a weak link at once when the mailbox has a
- *  holder. With no holder, each makes the agent the holder. */
+ *  holder. With no holder, each makes the agent the holder. A project always gets the old drop (the question). */
 export type InboxDragMode = 'ask' | 'holder' | 'weak'
 export const INBOX_DRAG_MODES: readonly InboxDragMode[] = ['ask', 'holder', 'weak']
 export type InboxDropAction =
@@ -1710,7 +1710,8 @@ export function inboxDropAction(inbox: Parameters<typeof inboxDropChoice>[0], id
   if (mode === 'weak' && holders.length && !holders.includes(id) && kind !== 'project' && Array.isArray(inbox?.weak)) {
     return inbox!.weak!.includes(id) ? { kind: 'noop', why: `${id} already has a weak link to the org mailbox` } : { kind: 'weak' }
   }
-  if (mode === 'holder') return { kind: 'grant' }
+  // a project keeps the old drop in every mode (it may replace the holder only after the question)
+  if (mode === 'holder' && kind !== 'project') return { kind: 'grant' }
   const ask = inboxDropChoice(inbox, id, kind)
   return ask ? { kind: 'ask', ...ask } : { kind: 'grant' }
 }
