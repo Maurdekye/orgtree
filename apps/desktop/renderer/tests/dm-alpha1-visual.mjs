@@ -602,6 +602,19 @@ if (flag === '--expect') {
     }
   }
   checked.push('take-back x', 'notice toggle icon and dashes')
+  // ---- 29. View in chat from the classic mailbox
+  {
+    const vc = v.viewChat
+    assert.ok(vc.row, 'POSITIVE CONTROL: a row of quoter\'s in the classic mailbox')
+    assert.ok(vc.menu.includes('View in chat'), `the row's menu has View in chat (${vc.menu})`)
+    assert.equal(vc.landed.classicTicked, false, 'the chats are on')
+    assert.equal(vc.landed.title, 'Chats')
+    assert.equal(vc.landed.peer, 'quoter', 'quoter\'s chat')
+    assert.ok(vc.landed.entry, 'a message is flashed')
+    assert.ok(vc.landed.inView, 'and in view')
+    assert.ok(vc.landed.text && vc.row.text.includes(vc.landed.text.trim().slice(0, 20)), `the same message (${vc.landed.text} / ${vc.row.text})`)
+    checked.push('view in chat')
+  }
   // View in transcript goes to the agent's desk, which closes the inbox (DmPanel focusAgent): that once, and only then
   assert.equal(v.flash.closedBefore, 0, 'the inbox was never closed before View in transcript')
   assert.equal(v.end.confirms, 0); assert.equal(v.end.closed, 2, 'closed twice, once by each View in transcript')

@@ -7,6 +7,8 @@
 import { createRoot } from 'react-dom/client'
 import { useEffect, useState } from 'react'
 import { UserMailbox } from '../src/App'
+import { onMailViewRequest } from '../src/mailboxpref'
+import { ObjectMenuBoundary } from '../src/canvas/contextmenu'
 import { CurrentOrg } from '../src/popout'
 import { applyContrast } from '../src/contrast'
 import { syncFastModes } from '../src/canvas/fastmode'
@@ -57,6 +59,8 @@ declare global {
   interface Window {
     __dm: {
       toasts: string[]; focused: string[]; closed: number; opened: unknown[]; confirms: number
+      /** wrap the mailbox in the app's menu boundary (section 29) */
+      menus(on: boolean): void
       /** show the desk's own message box beside the panel */
       deskBox(on: boolean): void
       /** show the whole desk of quoter beside the panel (View in transcript lands there) */
@@ -88,8 +92,12 @@ function Probe() {
   const [list, setList] = useState(false)
   const [full, setFull] = useState(false)
   const [t, setTree] = useState(tree)
+  const [menus, setMenus] = useState(false)
+  // the shell's View in chat / View in classic inbox (App.tsx onMailViewRequest): the mailbox opens on that mail
+  const [jump, setJump] = useState<{ id: string; seq: number; peer?: string } | null>(null)
+  useEffect(() => onMailViewRequest((_org, id, peer) => { setJump({ id, seq: Date.now(), peer }) }), [])
   useEffect(() => {
-    window.__dm.deskBox = setDesk; window.__dm.canvasList = setList; window.__dm.nav = setNav; window.__dm.fullDesk = setFull
+    window.__dm.menus = setMenus; window.__dm.deskBox = setDesk; window.__dm.canvasList = setList; window.__dm.nav = setNav; window.__dm.fullDesk = setFull
     // a new tree, as the engine publishes one when an agent's runtime view changes
     window.__dm.typing = (id) => {
       const mark = (n: TreeNode): TreeNode => ({ ...n, writing_to_user: n.id === id, children: (n.children ?? []).map(mark) }) as TreeNode
@@ -98,13 +106,16 @@ function Probe() {
   }, [])
   const map = dmNodes(t) as unknown as Map<string, CanvasNode>
   const quoter = map.get('quoter')!
+  const mailbox = <UserMailbox slug="mine" tree={t} toast={lines => { window.__dm.toasts.push(...lines) }}
+    close={() => { window.__dm.closed++ }} jumpTo={jump?.id ?? null} jumpSeq={jump?.seq ?? null} jumpPeer={jump?.peer} openChat={null}
+    onFocusAgent={id => { window.__dm.focused.push(id) }}
+    onOpenMail={r => { window.__dm.opened.push(r) }} />
   return (
     <CurrentOrg.Provider value="mine"><AgentNavProvider>
       <Nav on={nav} map={map} />
-      <UserMailbox slug="mine" tree={t} toast={lines => { window.__dm.toasts.push(...lines) }}
-        close={() => { window.__dm.closed++ }} jumpTo={null} jumpSeq={null} openChat={null}
-        onFocusAgent={id => { window.__dm.focused.push(id) }}
-        onOpenMail={r => { window.__dm.opened.push(r) }} />
+      {/* the app's menu boundary (App.tsx), from section 29 on: the classic mailbox's row menus open through it.
+          The earlier sections run without it, as they were measured (section 10's pop-out walks this DOM). */}
+      {menus ? <ObjectMenuBoundary>{mailbox}</ObjectMenuBoundary> : mailbox}
       {/* the desk's message box, alone: the rest of the desk is hidden so the two boxes can be read side by side */}
       {desk && <div className="alpha1-desk" data-alpha1="desk">
         <style>{`
@@ -127,7 +138,7 @@ function Probe() {
   )
 }
 
-window.__dm = { toasts: [], focused: [], closed: 0, opened: [], confirms: 0, deskBox() {}, fullDesk() {}, canvasList() {}, typing() {}, theme: id => applyContrast(id),
+window.__dm = { toasts: [], focused: [], closed: 0, opened: [], confirms: 0, menus() {}, deskBox() {}, fullDesk() {}, canvasList() {}, typing() {}, theme: id => applyContrast(id),
   nav() {}, draft: (peer, text, attached) => writeComposerDraft(dmDraftKey('mine', peer), { text, attached }),
   streamer: on => { void setStreamerMode(on) } }
 // stream privacy as the app starts it: off until the capture switches it on

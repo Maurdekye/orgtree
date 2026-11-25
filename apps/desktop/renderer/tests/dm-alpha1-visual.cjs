@@ -809,6 +809,48 @@ module.exports = async (page) => {
   }
   await page.eval(() => window.__dm.theme('charcoal'))
 
+  // ---- 29. View in chat from the classic mailbox: the chats open on that chat, the message flashed
+  //      (USER 2026-11-25 m70e86c04946e)
+  await page.eval(() => window.__dm.menus(true))
+  await page.sleep(400)
+  await page.click('input[aria-label="Classic mailbox"]')
+  await until('the classic mailbox', async () => page.eval(() => !document.querySelector('.dm-panel') && document.querySelectorAll('.mailrow').length > 0), 12000)
+  await page.sleep(500)
+  v.viewChat = { row: await page.eval(() => {
+    const row = [...document.querySelectorAll('.mailrow')].find(r => r.className === 'mailrow' && /^quoter/.test(r.textContent))
+    if (!row) return null
+    row.scrollIntoView({ block: 'center' })
+    return { text: row.textContent.slice(0, 160) }
+  }) }
+  // the scroll settles before the right-click: a menu closes on a scroll
+  await page.sleep(400)
+  Object.assign(v.viewChat.row ?? {}, await page.eval(() => {
+    const row = [...document.querySelectorAll('.mailrow')].find(r => r.className === 'mailrow' && /^quoter/.test(r.textContent))
+    if (!row) return null
+    const rr = row.getBoundingClientRect()
+    const ev = new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: rr.left + 40, clientY: rr.top + 8, button: 2 })
+    row.dispatchEvent(ev)
+    return { prevented: ev.defaultPrevented }
+  }))
+  await page.sleep(400)
+  v.viewChat.menus = await page.eval(() => ({ ctx: document.querySelectorAll('.ctxmenu').length, menus: document.querySelectorAll('[role="menu"]').length, items: [...document.querySelectorAll('[role="menuitem"]')].map(i => i.textContent.trim()).slice(0, 12) }))
+  v.viewChat.menu = await page.eval(() => { const ms = [...document.querySelectorAll('[role="menu"]')]; return ms.length ? [...ms[ms.length - 1].querySelectorAll('[role="menuitem"]')].map(i => i.textContent.trim()) : [] })
+  await shot('29a-a-classic-row-menu-view-in-chat')
+  if (!v.viewChat.menu.includes('View in chat')) { v.viewChat.rows = await page.eval(() => [...document.querySelectorAll('.mailrow')].slice(0, 8).map(r => ({ cls: r.className, text: r.textContent.slice(0, 60) }))); return v }
+  await page.eval(() => { const ms = [...document.querySelectorAll('[role="menu"]')]; [...(ms[ms.length - 1]?.querySelectorAll('[role="menuitem"]') ?? [])].find(i => i.textContent.trim() === 'View in chat')?.click() })
+  await until('the chats on that message, flashed', async () => page.eval(() => !!document.querySelector('.dm-panel') && !!document.querySelector('.dm-msg.flash')), 12000)
+  await page.sleep(150)
+  v.viewChat.landed = await page.eval(() => {
+    const f = document.querySelector('.dm-msg.flash'), b = f?.querySelector('.dm-bubble'), tl = f?.closest('.dm-timeline, .dm-scroll') ?? document.querySelector('.dm-timeline')
+    const r = b?.getBoundingClientRect(), lr = tl?.getBoundingClientRect()
+    return { peer: document.querySelector('.dm-head')?.getAttribute('data-dm-peer') ?? null, entry: f?.dataset.dmEntry ?? null,
+      text: b ? [...b.childNodes].filter(n => !n.classList?.contains('dm-sr')).map(n => n.textContent).join('').slice(0, 80) : null,
+      inView: !!(r && lr && r.bottom > lr.top && r.top < lr.bottom),
+      classicTicked: !!document.querySelector('input[aria-label="Classic mailbox"]')?.checked,
+      title: document.querySelector('.settings h3')?.textContent?.trim() ?? null }
+  })
+  await shot('29b-view-in-chat-the-message-flashed')
+
   v.end = await page.eval(() => ({ confirms: window.__dm.confirms, closed: window.__dm.closed, toasts: window.__dm.toasts.slice() }))
   v.pages = (await asked()).pages
   return v
