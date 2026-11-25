@@ -648,13 +648,8 @@ export default function App() {
   useEffect(() => onChatRequest((org, peer, opts) => {
     // an empty org is "this window's organization" (the agent menu's Chat entry)
     if (!slug || (org && org !== slug)) return
-    // ⚠ THE CHAT WOULD OPEN BEHIND THE READER THE REPLY WAS TYPED IN. The
-    // docket and the presentations are the same `.overlay` layer and are drawn
-    // after the inbox, so a centred one gives way, as it does on its way to a
-    // mail (the docket's `onOpenMail` below). A PINNED reader covers nothing
-    // and stays beside the chat.
-    closeIfCentred('gallery', () => setShowGallery(false), slug)
-    closeIfCentred('docket', () => { setShowDocket(false); setDocketJump(null) }, slug)
+    // the reader the reply was typed in stays open: raisePinnedModal brings the chats in front of it (4.7.0-alpha.7,
+    // coordinator ruling on USER m9e3fb5560658: a jump's target comes to the front and closes nothing)
     // `grant`: an inbox link's Open chat, which grants a user audience first when missing
     setChatAsk({ org: slug, peer, seq: Date.now(), grant: opts?.grant })
     setInboxJump(null)
@@ -666,8 +661,7 @@ export default function App() {
   // chat and flash it; the classic mailbox opens its folder, selects it and scrolls to it), as a mail link does
   useEffect(() => onMailViewRequest((org, id, peer) => {
     if (!slug || (org && org !== slug)) return
-    closeIfCentred('gallery', () => setShowGallery(false), slug)
-    closeIfCentred('docket', () => { setShowDocket(false); setDocketJump(null) }, slug)
+    // the window it was chosen from stays open behind; raisePinnedModal brings the mailbox in front (alpha.7)
     setChatAsk(null)
     setInboxJump({ ...jumpTo(id), peer })
     setShowInbox(true)
@@ -2333,8 +2327,8 @@ export default function App() {
                     setFocusAgent(id)
                   }}
                   onOpenItem={(item) => {
-                    // every destination is somewhere else, so each of these
-                    // closes the inbox first: the panels they open are the
+                    // every destination below except a mail is somewhere else, so
+                    // each of these closes the inbox first: the panels they open are the
                     // same `.overlay` layer and would otherwise open BEHIND
                     // the mail the reader clicked from. A PINNED inbox is
                     // beside them rather than over them, so it stays.
@@ -2352,9 +2346,8 @@ export default function App() {
                   }}
                   onOpenMail={(r) => {
                     if (r.box === 'user' && r.id === '@user') return
-                    closeIfCentred('inbox', () => {
-                      setShowInbox(false); setInboxJump(null)
-                    }, slug)
+                    // the chats stay open: the mailbox the mail opens in comes in front of them (alpha.7, View in
+                    // @agent's inbox; a jump's target comes to the front and closes nothing)
                     setMailJump({ ...mailRefTarget(r), seq: jumpTo(r.id).seq })
                   }}
                   close={closeInbox} />
