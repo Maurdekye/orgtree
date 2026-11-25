@@ -2,7 +2,7 @@ import { flush, inAct, mountView } from './harness'
 import test, { type TestContext } from 'node:test'
 import assert from 'node:assert/strict'
 import { TransferPanel } from '../src/canvas/transfers'
-import { InboxView, OrgInboxModal } from '../src/canvas/mail'
+
 import type { MailTransfer } from '../src/api'
 
 const sample = (state = 'uploading'): MailTransfer => ({ id:'local-fixture', direction:'upload',
@@ -68,21 +68,10 @@ test('a new mailbox scope starts collapsed even if its component is reused', asy
   assert.equal(heading(v.el).getAttribute('aria-expanded'),'false')
 })
 
-test('org mailbox and desk mailbox use the same collapsed one-click disclosure',async t=>{
-  transport(t)
-  const surfaces=[<OrgInboxModal slug="fixture" map={new Map()} close={()=>{}} toast={()=>{}}
-    inbox={{entries:[],total:0,unread:0,visible:true,holders:[]}}/>,
-    <InboxView slug="fixture" nid="agent-fixture"/>]
-  for(const surface of surfaces){
-    const v=await mountView(surface,el=>el);await flush()
-    try{
-      assert.equal(heading(v.el).getAttribute('aria-expanded'),'false')
-      assert.equal(v.el.querySelector('.transfer-card'),null)
-      await inAct(()=>heading(v.el).click())
-      assert.equal(v.el.querySelectorAll('.transfer-card').length,1)
-    }finally{await v.unmount()}
-  }
-})
+// The org mailbox and the desk mailbox no longer show this disclosure: each
+// gives Transfers its own tab (USER 2026-11-25 m7202711b8122), covered by
+// tests/transfers-tab.test.tsx. The panel's own disclosure, above, stays the
+// standalone mode.
 
 // ── SYMMETRY #15 (UX audit ux05 S7): transfer history LOADS MORE as you near
 // the end, appending, with a manual Load more and a Retry for the failed page

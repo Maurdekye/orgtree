@@ -10338,6 +10338,10 @@ main:has(> .orgbar.native-header) > .error {
 .tool-model-transition { display: inline-flex; align-items: center; gap: 4px; }
 
 /* Durable attachment transfers share the mail surface; no completion toast. */
+/* TRANSFERS IS ITS OWN TAB (USER 2026-11-25 m7202711b8122): the pane fills
+   the mailbox's body; the hidden mail lists never draw behind it */
+.mail-transfers-pane { flex: 1 1 auto; min-height: 0; overflow: auto; }
+.mail-transfers-pane[hidden], .mailpane[hidden] { display: none; }
 .mail-transfers { flex: 0 0 auto; min-width: 0; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; margin: 6px 0; }
 .transfer-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; font-size: 12px; }
 .transfer-heading strong { overflow-wrap: anywhere; }

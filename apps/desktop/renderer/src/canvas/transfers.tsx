@@ -35,13 +35,24 @@ function Bytes({ file, done, direction }: {file: TransferFile; done: boolean; di
  *  transfer history (3f7f273) do. "Load more" stays as the manual path, and a
  *  failed page shows its error with a Retry that repeats THAT page; nothing
  *  loads by itself while the error stands. Each page stays bounded (100). */
-export function TransferPanel({ slug, agent }: {slug: string; agent?: string}) {
+export interface TransferSummary { total: number; active: number }
+
+/** TAB MODE (USER 2026-11-25 09:31:19Z m7202711b8122 "make transfers in every
+ *  mailbox it appears in a separate tab"): with `tab` set, the panel is the
+ *  body of a mailbox's own "transfers" tab. It stays mounted while another tab
+ *  shows (so it keeps polling, its history and the host's tab badge), lists
+ *  at once while `tab.visible`, and drops the "▸ Transfers" disclosure; the
+ *  "recent history" toggle, progress and actions are unchanged. `onSummary`
+ *  tells the host whether to offer the tab and how many are unfinished. */
+export function TransferPanel({ slug, agent, tab, onSummary }: {slug: string; agent?: string;
+  tab?: {visible: boolean}; onSummary?: (s: TransferSummary) => void}) {
   const [rows, setRows] = useState<MailTransfer[]>([])
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState<string | null>(null)
   const [reload, setReload] = useState(0)
   const [history, setHistory] = useState(false)
-  const [expanded, setExpanded] = useState(false)
+  const [disclosed, setExpanded] = useState(false)
+  const expanded = tab ? tab.visible : disclosed
   // the first page's own continuation, then (once a later page is read) the
   // last read page's; `older` keeps every row seen beyond the live first page
   const [firstNext, setFirstNext] = useState<string | null>(null)
@@ -118,17 +129,22 @@ export function TransferPanel({ slug, agent }: {slug: string; agent?: string}) {
     } catch (err) { setError(err instanceof Error ? err.message : 'Transfer action failed') }
     finally { setBusy(null) }
   }
-  if (!rows.length && !error && !older.length) return null
   const active = rows.filter(t => !terminal.has(t.state))
   // the live first page wins for any row it still carries
   const live = new Set(rows.map(t => t.id))
   const all = [...rows, ...older.filter(t => !live.has(t.id))]
+  const summary = useRef(onSummary); summary.current = onSummary
+  useEffect(() => { summary.current?.({ total: all.length, active: active.length }) }, [all.length, active.length])
+  if (!rows.length && !error && !older.length)
+    return tab?.visible ? <section className="mail-transfers tab" aria-label="Attachment transfers">
+      <div className="dim">no transfers</div></section> : null
   const shown = history ? all : active.length ? active : rows.slice(0, 3)
-  return <section className="mail-transfers" aria-label="Attachment transfers">
+  return <section className={'mail-transfers' + (tab ? ' tab' : '')} aria-label="Attachment transfers">
     <div className="transfer-heading">
-      <button className="linkish" aria-expanded={expanded} onClick={() => setExpanded(v => !v)}>
+      {tab ? <span className="dim">{active.length ? `${active.length} unfinished` : ''}</span>
+        : <button className="linkish" aria-expanded={expanded} onClick={() => setExpanded(v => !v)}>
         {expanded ? '▾' : '▸'} Transfers{active.length ? ` · ${active.length} unfinished` : ''}
-      </button>
+      </button>}
       <label><input type="checkbox" checked={history} onChange={e => setHistory(e.target.checked)} /> recent history</label>
     </div>
     {error && <div role="alert" className="err">{error} <button onClick={() => setReload(n => n + 1)}>Retry</button></div>}

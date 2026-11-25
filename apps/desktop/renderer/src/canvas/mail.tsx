@@ -35,7 +35,7 @@ import {
   setNetBlock, uploadFile,
 } from '../api'
 import { AttachThumb, fmtBytes, isImg } from './img'
-import { TransferPanel } from './transfers'
+import { TransferPanel, type TransferSummary } from './transfers'
 import {
   ArrowUpIcon, AttachIcon, BlockIcon, CampaignIcon, CloseIcon, DownloadIcon, FileIcon, HearingIcon,
   MailIcon, NotificationsActiveIcon, NotificationsIcon, PublicIcon, ScheduleIcon,
@@ -1866,6 +1866,11 @@ export function InboxView({ slug, nid, unreadCount, onRetract, jumpTo, jumpSeq, 
   const extra = extraFolders?.find((f) => f.id === chosen)
   // a host folder that is no longer offered falls back to the inbox
   const folder = extra || chosen === 'sent' ? chosen : 'inbox'
+  // TRANSFERS IS ITS OWN TAB (USER 2026-11-25 m7202711b8122): offered while the
+  // mailbox has any transfers (as its section was), or while it is open; the
+  // mail lists keep their folder underneath, so coming back finds them as left
+  const [transfers, setTransfers] = useState<TransferSummary>({ total: 0, active: 0 })
+  const onTransfers = chosen === 'transfers'
   // G5: was a fetch keyed on the `pulse` prop, which meant it refreshed on turn
   // events and on nothing else — and a mail DELIVERY is not a turn event, so
   // the one panel whose whole job is showing mail was the one that did not
@@ -1955,14 +1960,20 @@ export function InboxView({ slug, nid, unreadCount, onRetract, jumpTo, jumpSeq, 
   }, [box])
   return (
     <div className="mailwrap" ref={mailbox.ref} onFocusCapture={mailbox.onFocus}>
-      <TransferPanel slug={slug} agent={nid} />
-      <MailFolders folder={folder} setFolder={(f) => { setFolder(f); onFolderPick?.(f) }}
+      <MailFolders folder={onTransfers ? 'transfers' : folder}
+        setFolder={(f) => { setFolder(f); if (f !== 'transfers') onFolderPick?.(f) }}
         unread={unreadCount === undefined ? pending.length : Math.max(0, unreadCount
           - (box?.pending ?? []).filter(m => dropped.includes(m.id ?? '')).length)} tier={tier}
-        folders={extraFolders?.length ? ['inbox', 'sent', ...extraFolders.map((f) => f.id)] : undefined}
-        counts={Object.fromEntries((extraFolders ?? []).map((f) => [f.id, f.count ?? 0]))}
+        folders={extraFolders?.length || transfers.total > 0 || onTransfers
+          ? ['inbox', 'sent', ...(extraFolders ?? []).map((f) => f.id),
+            ...(transfers.total > 0 || onTransfers ? ['transfers'] : [])] : undefined}
+        counts={{ ...Object.fromEntries((extraFolders ?? []).map((f) => [f.id, f.count ?? 0])),
+          transfers: transfers.active }}
         tools={folderTools} />
-      <div className="mailpane">
+      <div className="mail-transfers-pane" hidden={!onTransfers}>
+        <TransferPanel slug={slug} agent={nid} tab={{ visible: onTransfers }} onSummary={setTransfers} />
+      </div>
+      <div className="mailpane" hidden={onTransfers}>
         {extra ? extra.render([...pending, ...(box?.delivered ?? [])]) : <>
         {history.error&&<div role="alert">Could not load older mail. <button onClick={history.retry}>Retry</button></div>}
         {mailbox.error ? <div className="dim pad" role="alert">Could not load mailbox. <button onClick={mailbox.retry}>Retry</button></div> : box == null
@@ -2243,7 +2254,11 @@ export function OrgInboxModal({ inbox, net, map, slug, toast, close, jumpTo,
   jumpSeq, refs, onFocusAgent, party }: OrgInboxModalProps) {
   // reworked (user spec 2026-08-05): no blurb, mailservers on their own TAB,
   // holders as bare chips with a drag-to-grant tip
-  const [tab, setTab] = useState<'mail' | 'servers'>('mail')
+  const [tab, setTab] = useState<'mail' | 'transfers' | 'servers'>('mail')
+  // TRANSFERS IS ITS OWN TAB (USER 2026-11-25 m7202711b8122), beside mail and
+  // mailservers, offered while the mailbox has any transfers or it is open
+  const [transfers, setTransfers] = useState<TransferSummary>({ total: 0, active: 0 })
+  const transfersTab = transfers.total > 0 || tab === 'transfers'
   // a jump to an OUTBOUND mail (an agent's @ext:/@org: send) opens on sent
   const [folder, setFolder] = useState(() =>
     jumpTo && (inbox?.entries ?? []).some((e) => e.id === jumpTo
@@ -2419,16 +2434,22 @@ export function OrgInboxModal({ inbox, net, map, slug, toast, close, jumpTo,
     <PinFrame kind="org-inbox" title="The org mailbox" panel="settings wide"
       close={close}>
         <h3><PublicIcon fontSize="inherit" /> The org mailbox</h3>
-        {hubsVisible && (
+        {(hubsVisible || transfersTab) && (
           <div className="adv-tabs">
             <button className={'adv-tab' + (tab === 'mail' ? ' on' : '')}
               onClick={() => setTab('mail')}>mail</button>
-            <button className={'adv-tab' + (tab === 'servers' ? ' on' : '')}
-              onClick={() => setTab('servers')}>mailservers</button>
+            {transfersTab && <button className={'adv-tab' + (tab === 'transfers' ? ' on' : '')}
+              onClick={() => setTab('transfers')}>transfers{transfers.active > 0
+                ? <>{' '}<span className="tab-count">{transfers.active}</span></> : ''}</button>}
+            {hubsVisible && <button className={'adv-tab' + (tab === 'servers' ? ' on' : '')}
+              onClick={() => setTab('servers')}>mailservers</button>}
           </div>
         )}
+        {/* mounted on every tab: it keeps polling and feeds the tab's badge */}
+        <div className="mail-transfers-pane" hidden={tab !== 'transfers'}>
+          <TransferPanel slug={slug} tab={{ visible: tab === 'transfers' }} onSummary={setTransfers} />
+        </div>
         {tab === 'mail' ? (<>
-          <TransferPanel slug={slug} />
           <div className="org-audience-holders">
             <AudienceHolderRows ids={holders} nodes={map}
               foldLabel="org mailbox audience holders" alert audienceTarget={EXTERN}
@@ -2534,9 +2555,9 @@ export function OrgInboxModal({ inbox, net, map, slug, toast, close, jumpTo,
                     }} />}
             </div>
           </div>
-        </>) : (
+        </>) : tab === 'servers' ? (
           <NetSection net={net} slug={slug} />
-        )}
+        ) : null}
     </PinFrame>
   )
 }
