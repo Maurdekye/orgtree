@@ -14,13 +14,21 @@ import { audienceGrantTooltip, EXTERN_WEAK, inboxDropChoice, orgInboxLines, type
 declare const __SRC_DIR__: string
 const WEAK_TIP = "Weak link: can send mail as the org; new outside mail goes to the org mailbox's holder, and replies to its own mail come back to it"
 
-test('W1 a weak link is drawn on the holder\'s path, dotted; an older engine draws holders only', () => {
+test('W1 a weak link is drawn on the holder\'s path, in long dashes; an older engine draws holders only', () => {
   assert.equal(EXTERN_WEAK, '@extern-weak')
   assert.deepEqual(orgInboxLines({ holders: ['front'], weak: ['scout', 'kid'] }),
     [['front', 'edge aud-line'], ['scout', 'edge aud-line weak'], ['kid', 'edge aud-line weak']])
   assert.deepEqual(orgInboxLines({ holders: ['front'] }), [['front', 'edge aud-line']])
   const css = readFileSync(path.join(__SRC_DIR__, 'styles.css'), 'utf8')
-  assert.match(css, /\.edge\.aud-line\.weak\s*\{[^}]*stroke-dasharray:\s*2 5/, 'dotted')
+  // USER 2026-11-25 09:30:29Z m70add47eb0b6 "the weak link dashed line needs to have much longer dashes": about 3x the
+  // old 2 5 dash (round caps add the stroke width to each dash), and longer than every other dashed canvas line
+  const rule = /\.edge\.aud-line\.weak\s*\{([^}]*)\}/.exec(css)?.[1] ?? ''
+  const dash = /stroke-dasharray:\s*([\d.]+)[\s,]+([\d.]+)/.exec(rule)
+  assert.ok(dash, 'the weak line has a dash pattern')
+  const [on, off] = [Number(dash![1]), Number(dash![2])]
+  assert.ok(on >= 3 * 2 + 1.8 * 2 && off >= 5, `much longer dashes, a proportionate gap: ${on} ${off}`)
+  const others = [...css.matchAll(/\.edge\.[^{}]*\{[^}]*stroke-dasharray:\s*([\d.]+)/g)].map(m => Number(m[1]))
+  assert.ok(others.length > 3 && others.filter(d => d !== on).every(d => d < on), `the longest dash of the canvas lines: ${on} vs ${others}`)
 })
 
 test('W2 the mailbox drop asks, and offers an agent a weak link only on an engine that knows them', () => {
