@@ -719,3 +719,124 @@ async fn a_removed_primary_is_replaced_by_promoting_a_weak_link() {
     assert_eq!(w.rows("@extern").await, vec!["front"], "nobody promoted");
     assert_eq!(w.rows(WEAK).await, vec!["scout"]);
 }
+
+// ── Open decisions A-H, approved "all good" (USER 2026-11-25 11:54:27Z mff1aa564451b; text @coordinator-opus ma62987a91396) ──
+
+/// A fresh connection to the fixture, for a test that needs its own transaction.
+#[nolog]
+async fn own_client() -> tokio_postgres::Client {
+    let url = std::env::var("ORGTREE_ORGINBOX_TEST_URL").expect("explicit synthetic fixture URL");
+    let (c, connection) = tokio_postgres::connect(&url, NoTls).await.unwrap();
+    tokio::spawn(async move { let _ = connection.await; });
+    c
+}
+
+#[tokio::test]
+#[ignore = "requires an isolated orginbox_queue_fixture database"]
+#[nolog]
+async fn a_a_reply_follows_an_agent_only_while_it_holds_a_link() {
+    // A: a replaced primary (live, no link) and a retired primary whose grant was revoked lose their threads
+    for retire in [false, true] {
+        let w = world(false).await;
+        w.c.execute("INSERT INTO ot.agents(org_id,name,parent_id,tier,state,born) VALUES($1,'late',$2,'sol','live','2026-11-24')", &[&w.org, &w.boss]).await.unwrap();
+        let mine = send_extern(&w.e, w.org, &Outgoing::new(From::Agent { id: w.front, name: "front".into(), generation: 1 }, "@org:weak-b", "from front")).await.unwrap();
+        let net: String = w.c.query_one("SELECT net_id FROM ot.org_inbox WHERE uid=$1", &[&mine.uid]).await.unwrap().get(0);
+        let inc: String = w.c.query_one("SELECT uid FROM ot.org_inbox WHERE org_id=$1 AND dir='in' AND net_id=$2", &[&w.b, &net]).await.unwrap().get(0);
+        grant(&w.e, &w.handle(), &Actor::User, "late", Some("extern"), "t").await.unwrap(); // replaces front
+        if retire { w.set(RETIRED, w.front).await; }
+        let (_, _, got) = w.from_desk("re: from front", vec![World::quote(&inc, &net, "from front")]).await;
+        assert_eq!(got, json!(["late"]), "retired={retire}: front holds no link, so the current holder gets it");
+    }
+}
+
+#[tokio::test]
+#[ignore = "requires an isolated orginbox_queue_fixture database"]
+#[nolog]
+async fn b_an_unidentifiable_original_is_new_mail_and_the_users_own_goes_to_the_holders() {
+    let w = world(false).await;
+    w.weak("scout").await;
+    w.set(FROZEN, w.front).await;
+    // an original this org can't identify: new mail, so the stand-in takes it
+    let (_, _, got) = w.from_desk("re: ???", vec![World::quote("nowhere", "N-unknown", "???")]).await;
+    assert_eq!(got, json!(["scout"]));
+    // a reply to mail the user sent from the org mailbox (no agent owner): the holders
+    w.c.execute("INSERT INTO ot.org_inbox(uid,org_id,dir,peer,body,by_name,state,net_id) VALUES('x-user',$1,'out','@org:weak-b','from the user','user','sent','N-user')", &[&w.org]).await.unwrap();
+    let (_, _, got) = w.from_desk("re: from the user", vec![World::quote("b-user", "N-user", "from the user")]).await;
+    assert_eq!(got, json!(["front"]), "the holder, waiting, never the stand-in");
+}
+
+#[tokio::test]
+#[ignore = "requires an isolated orginbox_queue_fixture database"]
+#[nolog]
+async fn c_mail_waiting_before_the_takeover_goes_to_the_stand_in() {
+    let w = world(false).await;
+    w.weak("scout").await;
+    w.set(FROZEN, w.front).await;
+    w.c.execute("UPDATE ot.orgs SET settings = settings || '{\"org_inbox_mode\":\"dnd\"}' WHERE id=$1", &[&w.org]).await.unwrap();
+    let (_, _, got) = w.from_desk("held news", vec![]).await;
+    assert_eq!(got, json!([]), "held under the org's Do not disturb");
+    w.c.execute("UPDATE ot.orgs SET settings = settings || '{\"org_inbox_mode\":\"normal\"}' WHERE id=$1", &[&w.org]).await.unwrap();
+    release_page(&w.e, w.org).await.unwrap();
+    let got: Value = w.c.query_one("SELECT delivered_to FROM ot.org_inbox WHERE org_id=$1 AND dir='in' AND body='held news'", &[&w.org]).await.unwrap().get(0);
+    assert_eq!(got, json!(["scout"]), "released to the stand-in");
+}
+
+#[tokio::test]
+#[ignore = "requires an isolated orginbox_queue_fixture database"]
+#[nolog]
+async fn e_the_stand_in_is_a_weak_link_not_on_do_not_disturb() {
+    let w = world(false).await;
+    let late: i64 = w.c.query_one("INSERT INTO ot.agents(org_id,name,parent_id,tier,state,born) VALUES($1,'late',$2,'sol','live','2026-11-24') RETURNING id", &[&w.org, &w.boss]).await.unwrap().get(0);
+    w.weak("scout").await;
+    w.weak("late").await;
+    w.set(FROZEN, w.front).await;
+    w.c.execute("INSERT INTO ot.turns(agent_id, started_at, do_not_disturb) VALUES($1, now(), true)", &[&w.scout]).await.unwrap();
+    assert_eq!(acting_weak(&w.c, w.org, false).await.unwrap().as_deref(), Some("late"), "the earliest one is on DND: the next");
+    w.c.execute("INSERT INTO ot.turns(agent_id, started_at, do_not_disturb) VALUES($1, now(), true)", &[&late]).await.unwrap();
+    assert_eq!(acting_weak(&w.c, w.org, false).await.unwrap().as_deref(), Some("scout"), "all on DND: the earliest");
+}
+
+#[tokio::test]
+#[ignore = "requires an isolated orginbox_queue_fixture database"]
+#[nolog]
+async fn f_a_pull_under_do_not_disturb_never_takes_another_agents_reply() {
+    let w = world(false).await;
+    w.weak("scout").await;
+    let sent = send_extern(&w.e, w.org, &Outgoing::new(From::Agent { id: w.scout, name: "scout".into(), generation: 1 }, "@org:weak-b", "q")).await.unwrap();
+    let net: String = w.c.query_one("SELECT net_id FROM ot.org_inbox WHERE uid=$1", &[&sent.uid]).await.unwrap().get(0);
+    let inc: String = w.c.query_one("SELECT uid FROM ot.org_inbox WHERE org_id=$1 AND dir='in' AND net_id=$2", &[&w.b, &net]).await.unwrap().get(0);
+    w.c.execute("UPDATE ot.orgs SET settings = settings || '{\"org_inbox_mode\":\"dnd\"}' WHERE id=$1", &[&w.org]).await.unwrap();
+    w.from_desk("re: q", vec![World::quote(&inc, &net, "q")]).await;
+    w.from_desk("plain news", vec![]).await;
+    let mut c = own_client().await;
+    let tx = c.transaction().await.unwrap();
+    let row = |body: &str| format!("SELECT to_jsonb(i) FROM ot.org_inbox i WHERE org_id={} AND dir='in' AND body='{body}'", w.org);
+    let reply: Value = tx.query_one(&row("re: q"), &[]).await.unwrap().get(0);
+    let news: Value = tx.query_one(&row("plain news"), &[]).await.unwrap().get(0);
+    assert!(!jobs::pullable(&tx, w.org, &reply, "front").await.unwrap(), "scout's reply stays for scout");
+    assert!(jobs::pullable(&tx, w.org, &news, "front").await.unwrap(), "unthreaded mail can be pulled");
+    assert!(jobs::pullable(&tx, w.org, &reply, "scout").await.unwrap(), "its owner may");
+    let source = include_str!("../tools/org_inbox.rs");
+    assert!(source.contains("jobs_pullable(") || source.contains("pullable("), "the pull checks each row");
+}
+
+#[tokio::test]
+#[ignore = "requires an isolated orginbox_queue_fixture database"]
+#[nolog]
+async fn g_a_cut_off_reply_with_no_holder_waits_for_the_next_holder() {
+    let w = world(false).await;
+    w.weak("scout").await;
+    let sent = send_extern(&w.e, w.org, &Outgoing::new(From::Agent { id: w.scout, name: "scout".into(), generation: 1 }, "@org:weak-b", "q")).await.unwrap();
+    let net: String = w.c.query_one("SELECT net_id FROM ot.org_inbox WHERE uid=$1", &[&sent.uid]).await.unwrap().get(0);
+    let inc: String = w.c.query_one("SELECT uid FROM ot.org_inbox WHERE org_id=$1 AND dir='in' AND net_id=$2", &[&w.b, &net]).await.unwrap().get(0);
+    revoke(&w.e, &w.handle(), &Actor::User, "scout", Some("extern-weak")).await.unwrap();
+    w.c.execute("UPDATE ot.audiences SET revoked_at=now() WHERE org_id=$1 AND grantor='@extern'", &[&w.org]).await.unwrap();
+    let (_, _, got) = w.from_desk("re: q", vec![World::quote(&inc, &net, "q")]).await;
+    assert_eq!(got, json!([]), "no real holder: it waits");
+    assert!(w.rows("@extern").await.is_empty(), "and grants nobody");
+    // new mail: no weak link left, so today's auto-grant; the waiting reply follows to the new holder
+    let (_, _, got) = w.from_desk("news", vec![]).await;
+    assert_eq!(got, json!(["boss"]));
+    let got: Value = w.c.query_one("SELECT delivered_to FROM ot.org_inbox WHERE org_id=$1 AND dir='in' AND body='re: q'", &[&w.org]).await.unwrap().get(0);
+    assert_eq!(got, json!(["boss"]), "the next holder gets the waiting reply");
+}

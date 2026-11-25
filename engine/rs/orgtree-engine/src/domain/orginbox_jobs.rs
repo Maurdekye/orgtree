@@ -318,6 +318,13 @@ async fn threaded(tx: &Transaction<'_>, org: i64, row: &Value) -> Result<(Option
     Ok((Some(Published { route: Route { to: reached, waiting: false, projects: Vec::new() }, copies, jobs, changed: false }), true))
 }
 
+/// F (USER 2026-11-25 mff1aa564451b): may `puller` pull this held row during the org's Do not disturb? Red stub.
+#[logged]
+pub(crate) async fn pullable(tx: &Transaction<'_>, org: i64, row: &Value, puller: &str) -> Result<bool> {
+    let _ = (tx, org, row, puller);
+    Ok(true)
+}
+
 /// D14 for one project recipient: bundle with a job not yet handed out; send straight to the holder of
 /// an unacked job (ACK mode); otherwise a new job threaded to the original.
 #[logged]

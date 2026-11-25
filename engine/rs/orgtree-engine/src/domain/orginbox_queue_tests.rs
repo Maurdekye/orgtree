@@ -256,10 +256,16 @@ async fn t15_to_t17_a_follow_up_is_bundled_sent_to_the_holder_or_made_a_new_job(
     assert_eq!(p3.copies.len(), 1);
     assert_eq!(p3.copies[0].1, "worker");
     assert_eq!(w.job_extra(&p3.copies[0].2).await["outside_job"], json!(job));
-    // T17: acked: a new job
+    // T17 + H (USER 2026-11-25 mff1aa564451b): acked, the worker finished it: to that worker while it is live under the
+    // project; otherwise a new job in the project's queue
     w.c.execute("UPDATE ot.mail SET extra = jsonb_set(extra,'{claimed,acked_at}', to_jsonb(now())) WHERE uid=$1", &[&job]).await.unwrap();
     let (_, p4) = w.arrive("n9", "@net:bob.1", "follow-up 3", json!([quote])).await;
-    assert_eq!(p4.jobs.len(), 1, "a new job, threaded to the original");
+    assert!(p4.jobs.is_empty(), "H: no new job while the worker is live under the project");
+    assert_eq!(p4.copies.iter().map(|c| c.1.as_str()).collect::<Vec<_>>(), vec!["worker"]);
+    assert_eq!(w.job_extra(&p4.copies[0].2).await["outside_job"], json!(job), "the worker keeps the job's reply right");
+    w.c.execute("UPDATE ot.agents SET parent_id=NULL WHERE id=$1", &[&worker]).await.unwrap();
+    let (_, p5) = w.arrive("n10", "@net:bob.1", "follow-up 4", json!([quote])).await;
+    assert_eq!(p5.jobs.len(), 1, "moved out of the project: a new job, threaded to the original");
 }
 
 #[tokio::test]
