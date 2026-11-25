@@ -459,6 +459,11 @@ Audit findings from the ranked UX symmetry list (`_teams/601/release-review-450/
   close, reply (opens and focuses the pane's reply box), mark read, delete (`DELETE_USER_MAIL_CONFIRM`, shared
   with App.tsx) and the user-box reference. A deleted mail is never retained while selected; the selection moves
   on as when any selected row leaves.
+  VIEW IN GROUP (USER 2026-11-25 21:38:09Z md7da554ce837): `mailMenuEntries` (canvas/mailidentity.ts), which every
+  message menu goes through (DmPanel bubbles, `mailRowMenuEntries` for MailList and the Attention view, objectnavhost
+  mail links), moves the leading entries whose label starts "View in " into their own separated section, ordered by
+  `VIEW_IN_ORDER` (chat, classic inbox, transcript), others after in given order. A new View in entry needs no
+  per-surface placement. [verified: `tests/viewingroup.test.tsx`]
 - #3: no change. The agent and project builders order Focus/Hire/Open differently, but `MenuEntries` moves
   Open to second place in every menu (USER 2026-10-20), so both show Copy mention, Open, Focus, Hire,
   New project in one order (`tests/symmetrymenus.test.tsx` §2).
