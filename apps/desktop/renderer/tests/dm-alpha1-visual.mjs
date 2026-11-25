@@ -371,7 +371,9 @@ if (flag === '--expect') {
   // ---- 15: the bubble's menu
   assert.ok(v.menu.items.includes('View in @worker’s inbox'), `the entry is in the menu: ${v.menu.items.join(' | ')}`)
   assert.deepEqual(v.menu.opened, [{ kind: 'mail', org: 'mine', box: 'node', node: 'worker', id: v.menu.id }])
-  checked.push('15 inbox entry')
+  assert.deepEqual(v.menu.after.mailboxed, [v.menu.id], 'the mail-link router opens worker\u2019s mailbox at it (USER md19d9582d5f0)')
+  assert.equal(v.menu.after.headPeer, 'worker', 'the chat stays as it was'); assert.deepEqual(v.menu.after.flashed, [], 'and nothing in it flashes')
+  checked.push('15 inbox entry', '15b inbox entry reaches the mailbox')
 
   // ---- 10: the chats fill their frame: the modal, pinned, and the popped-out layout (the frame's classes; see the header)
   const fills = (f, what) => {

@@ -7,7 +7,7 @@
 import { createRoot } from 'react-dom/client'
 import { useEffect, useState } from 'react'
 import { UserMailbox } from '../src/App'
-import { onMailViewRequest } from '../src/mailboxpref'
+import { mailLinkToChat, onMailViewRequest } from '../src/mailboxpref'
 import { ObjectMenuBoundary } from '../src/canvas/contextmenu'
 import { CurrentOrg } from '../src/popout'
 import { applyContrast } from '../src/contrast'
@@ -59,6 +59,8 @@ declare global {
   interface Window {
     __dm: {
       toasts: string[]; focused: string[]; closed: number; opened: unknown[]; confirms: number
+      /** mail the canvas's mail-link router sent to an agent's mailbox (OrgCanvas openMailRef's toInbox) */
+      mailboxed: string[]
       /** wrap the mailbox in the app's menu boundary (section 29) */
       menus(on: boolean): void
       /** show the desk's own message box beside the panel */
@@ -109,7 +111,12 @@ function Probe() {
   const mailbox = <UserMailbox slug="mine" tree={t} toast={lines => { window.__dm.toasts.push(...lines) }}
     close={() => { window.__dm.closed++ }} jumpTo={jump?.id ?? null} jumpSeq={jump?.seq ?? null} jumpPeer={jump?.peer} openChat={null}
     onFocusAgent={id => { window.__dm.focused.push(id) }}
-    onOpenMail={r => { window.__dm.opened.push(r) }} />
+    onOpenMail={r => {
+      window.__dm.opened.push(r)
+      // the canvas's mail-link router for a link into an agent's mailbox (OrgCanvas openMailRef), as the app runs it
+      const m = r as { box?: string; node?: string; id?: string }
+      if (m.box === 'node' && m.node && m.id) { const id = m.id; mailLinkToChat('mine', id, m.node, () => { window.__dm.mailboxed.push(id) }) }
+    }} />
   return (
     <CurrentOrg.Provider value="mine"><AgentNavProvider>
       <Nav on={nav} map={map} />
@@ -138,7 +145,7 @@ function Probe() {
   )
 }
 
-window.__dm = { toasts: [], focused: [], closed: 0, opened: [], confirms: 0, menus() {}, deskBox() {}, fullDesk() {}, canvasList() {}, typing() {}, theme: id => applyContrast(id),
+window.__dm = { toasts: [], focused: [], closed: 0, opened: [], mailboxed: [], confirms: 0, menus() {}, deskBox() {}, fullDesk() {}, canvasList() {}, typing() {}, theme: id => applyContrast(id),
   nav() {}, draft: (peer, text, attached) => writeComposerDraft(dmDraftKey('mine', peer), { text, attached }),
   streamer: on => { void setStreamerMode(on) } }
 // stream privacy as the app starts it: off until the capture switches it on

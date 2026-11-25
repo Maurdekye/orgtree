@@ -249,8 +249,13 @@ module.exports = async (page) => {
   v.menu = { id: menuId, items: await page.eval(() => [...document.querySelectorAll('[role="menu"] [role="menuitem"]')].map(i => (i.textContent || '').trim())) }
   await shot('09-a-bubbles-menu-view-in-the-agents-inbox')
   await page.eval(() => { [...document.querySelectorAll('[role="menu"] [role="menuitem"]')].find(i => /View in @/.test(i.textContent || ''))?.click() })
-  await page.sleep(200)
+  await page.sleep(600)
   v.menu.opened = await page.eval(() => window.__dm.opened.slice())
+  // the router's answer (USER md19d9582d5f0): the agent's mailbox, and the chat neither moves nor flashes
+  v.menu.after = await page.eval(() => ({ mailboxed: window.__dm.mailboxed.slice(),
+    headPeer: document.querySelector('.dm-head')?.getAttribute('data-dm-peer') ?? null,
+    flashed: [...document.querySelectorAll('.dm-msg.flash')].map(m => m.dataset.dmEntry) }))
+  await shot('09b-view-in-the-agents-inbox-goes-to-the-mailbox')
 
   // ------------------------------------------------ 12, 13. New chat sweeps out
   const sweep = () => page.eval(() => {
