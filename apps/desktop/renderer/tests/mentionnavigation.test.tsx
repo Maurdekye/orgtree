@@ -87,3 +87,35 @@ test('Settings reference includes Shift+F4 and its repeated-press behavior', asy
     assert.deepEqual([...row!.querySelectorAll('kbd')].map(el => el.textContent), ['Shift', 'F4'])
   } finally { await view.unmount() }
 })
+
+// ONE REQUEST, ONE LANDING (USER 2026-11-25 14:47:44Z mb4f0703132da, the same replay as a desk's View in
+// transcript; docket desk-a-view-in-transcript-jump-replays-re-scroll requirement 3): reopening the mail later
+// does not land on the mention again; a new request does.
+test('a mention landing is served once: reopening the mail does not highlight or scroll again; a new request does', async () => {
+  const scrolled: string[] = []
+  const saved = HTMLElement.prototype.scrollIntoView
+  HTMLElement.prototype.scrollIntoView = function () { scrolled.push(this.textContent ?? '') }
+  const reader = () => <div className="mailer-read">
+    <MentionLanding org="org" kind="mail" id="mail-one" />
+    <div className="md"><p>Ready for review, @user. The change is complete.</p></div>
+  </div>
+  const wait = () => inAct(() => new Promise(resolve => setTimeout(resolve, 40)))
+  try {
+    const first = await mountView(reader(), el => el)
+    await inAct(() => requestMentionLanding('org', entry('3')))
+    await wait()
+    assert.equal(first.el.querySelectorAll('p.mention-navigation-highlight').length, 1, 'POSITIVE CONTROL: the first open lands')
+    await first.unmount()
+    scrolled.length = 0
+    const again = await mountView(reader(), el => el)
+    try {
+      await wait()
+      assert.equal(again.el.querySelectorAll('.mention-navigation-highlight:not(.mention-landing)').length, 0, 'reopening does not highlight again')
+      assert.deepEqual(scrolled, [], 'and does not scroll')
+      assert.equal(again.el.querySelector<HTMLElement>('.mention-landing')!.hidden, true, 'nor shows the recorded excerpt')
+      await inAct(() => requestMentionLanding('org', entry('4')))
+      await wait()
+      assert.equal(again.el.querySelectorAll('p.mention-navigation-highlight').length, 1, 'a new request lands again')
+    } finally { await again.unmount() }
+  } finally { HTMLElement.prototype.scrollIntoView = saved }
+})

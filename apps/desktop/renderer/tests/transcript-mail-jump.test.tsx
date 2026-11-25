@@ -177,3 +177,61 @@ test('a row that arrives in a later refresh: the desk goes to it when it comes i
   assert.deepEqual(flashing(f.view.el), [], 'once for one request')
   assert.deepEqual(f.toasts, [], 'and the empty desk never said the message was gone')
 })
+
+// ONE REQUEST, ONE JUMP (USER 2026-11-25 14:47:44Z mb4f0703132da: "after i'm directed to a desk via a "show
+// in transcript" highlight, if i leave the desk and come back normally, it re-navigates and re-highlights the
+// message again every time"; docket desk-a-view-in-transcript-jump-replays-re-scroll). Leaving a desk
+// unmounts it; coming back mounts a new one, which must not serve the request again.
+test('leaving the desk and coming back after a View in transcript: no second jump and no second flash; a new request still works', async t => {
+  resetConvos(); resetSeenMentions(); localStorage.clear()
+  const server = new FakeServer()
+  server.assistantMsg('An early note', { event_id: 'ev-early', ts: '2026-11-20T08:00:00Z' })
+  server.assistantMsg('Sending it now', { event_id: 'ev-send', ts: '2026-11-20T10:00:00Z',
+    tools: [{ name: 'mcp__orgtree__orgtree_message', id: 'toolu_1', event_id: 'ev-send-tool', mail: { id: 'm-sent', to: 'user' } }] })
+  server.assistantMsg('Later work', { event_id: 'ev-late', ts: '2026-11-20T12:00:00Z' })
+  const inner = globalThis.fetch
+  installFetch(server)
+  let show: (on: boolean) => void = () => {}
+  function Host() {
+    const [on, setOn] = useState(true)
+    show = setOn
+    return on ? <DeskChat node={base} map={new Map([[base.id, base]])} slug="org" op={async () => ({})} toast={() => {}} /> : null
+  }
+  const view = await mountView(<Host />, el => el)
+  t.after(async () => { globalThis.fetch = inner; await view.unmount(); resetConvos(); resetSeenMentions() })
+  let top = 0
+  const measure = async () => {
+    const list = view.el.querySelector<HTMLElement>('.msgs-wrap .msgs')!
+    assert.ok(list, 'real DeskChat transcript mounted')
+    top = 800
+    Object.defineProperties(list, {
+      clientHeight: { configurable: true, get: () => 400 },
+      scrollHeight: { configurable: true, get: () => 1200 },
+      scrollTop: { configurable: true, get: () => top, set: (v: number) => { top = Math.max(0, Math.min(v, 800)) } },
+    })
+    await inAct(async () => { fireResize(list); await flush(8) })
+    return list
+  }
+  await inAct(async () => { await refreshConvo('org', base.id, { force: true }); await flush(5) })
+  await measure()
+  assert.equal(top, 800, 'POSITIVE CONTROL: the desk starts on the tail')
+  await inAct(async () => { requestTranscriptMail('org', base.id, 'm-sent', '2026-11-20T10:00:05Z'); await flush(8) })
+  const first = flashing(view.el)
+  assert.equal(first.length, 1, 'POSITIVE CONTROL: the first visit jumps and flashes')
+  assert.equal(view.el.querySelector('.jumpbottom') !== null, true, 'POSITIVE CONTROL: and left the tail')
+  await inAct(async () => { first[0]!.dispatchEvent(new window.Event('animationend', { bubbles: true })); await flush(2) })
+  // leave the desk, then come back to it normally
+  await inAct(async () => { show(false); await flush(4) })
+  assert.equal(view.el.querySelector('.msgs'), null, 'the desk is gone')
+  await inAct(async () => { show(true); await flush(8) })
+  await inAct(async () => { await refreshConvo('org', base.id, { force: true }); await flush(8) })
+  const list = await measure()
+  await inAct(async () => { fireResize(list); await flush(8) })
+  assert.deepEqual(flashing(view.el), [], 'coming back does not flash the row again')
+  assert.equal(view.el.querySelector('.jumpbottom'), null, 'and does not leave the tail for it again')
+  assert.equal(top, 800, 'the desk sits where a normal return puts it')
+  // a NEW request for the same mail works
+  await inAct(async () => { requestTranscriptMail('org', base.id, 'm-sent', '2026-11-20T10:00:05Z'); await flush(8) })
+  assert.equal(flashing(view.el).length, 1, 'a new View in transcript flashes again')
+  assert.equal(view.el.querySelector('.jumpbottom') !== null, true, 'and jumps again')
+})
