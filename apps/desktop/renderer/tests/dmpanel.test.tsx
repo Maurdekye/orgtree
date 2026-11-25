@@ -2560,6 +2560,33 @@ test('the user’s own unread message has the desk’s ×: it takes the mail bac
   assert.ok(s.state.toasts.some(m => /already delivered/.test(m)), `the engine’s reason is shown (${s.state.toasts.join(' | ')})`)
 })
 
+test('the take-back × is a corner overlay of the bubble: the time and tick line is the same with it and without it (USER 2026-11-25 m0c7ae1b9c32d)', async (t) => {
+  setClassicMailbox(false)
+  // "the cancel on unread meszages should be in the top right and not interfere with the read arrows position"
+  const s = await setup(t, { sent: [
+    sent('u1', 'solo', '2026-11-20T10:00:00Z', { delivered: false }),
+    sent('u2', 'solo', '2026-11-20T10:01:00Z', { delivered: true }),
+  ] })
+  await s.openChat('solo')
+  const bubble = (id: string) => document.querySelector<HTMLElement>(`.dm-msg[data-dm-entry="${id}"] .dm-bubble`)!
+  const x = bubble('u1').querySelector<HTMLButtonElement>('button.dm-retract')
+  assert.ok(x, 'POSITIVE CONTROL: the unread message has the ×')
+  assert.equal(bubble('u2').querySelector('button.dm-retract'), null, 'POSITIVE CONTROL: the read one has none')
+  assert.equal(x!.parentElement, bubble('u1'), 'the × sits on the bubble itself, not in its time and tick line')
+  // the line the tick is in: the same parts, in the same order, with and without the ×
+  const line = (id: string) => [...bubble(id).querySelector('.dm-meta')!.children].map(c => c.tagName + (c.classList.contains('dm-tick') ? '.dm-tick' : ''))
+  assert.deepEqual(line('u1'), line('u2'), 'the time and the tick, nothing else, on both')
+  assert.deepEqual(line('u1'), ['TIME', 'SPAN.dm-tick'])
+  // laid out over the bubble's top-right corner, taking no room (jsdom has no layout: the rule itself)
+  const { readFileSync } = await import('node:fs')
+  const { default: path } = await import('node:path')
+  const css = readFileSync(path.join(__SRC_DIR__, 'dm', 'dm.css'), 'utf8')
+  const rule = css.match(/\.dm-bubble > button\.dm-retract\s*\{([^}]*)\}/)?.[1] ?? ''
+  assert.match(rule, /position:\s*absolute/, `absolute (${rule.trim()})`)
+  assert.match(rule, /top:\s*[^;]+;/, 'pinned to the top')
+  assert.match(rule, /right:\s*[^;]+;/, 'and to the right')
+})
+
 // VIEW IN CHAT (USER 2026-11-25 m70e86c04946e): the user's own message, outside the loaded window, read back by id
 // names no recipient; the asker names the chat (mailboxpref viewMailIn's peer), and it joins that chat's sent mail
 test("View in chat on the user's own older message opens the chat the asker named, with the message flashed in it", async (t) => {
