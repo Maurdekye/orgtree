@@ -29,6 +29,9 @@ import { OPEN_SETTINGS_AT_EVENT } from '../src/canvas/settingskit'
 import { STREAMER_ZONES } from '../src/streamer-boundary'
 import { withoutMailTransfers } from './mailtransfers.fixture'
 import type { TreePayload } from '../src/types'
+import { InboxView } from '../src/canvas/mail'
+import { classicMailbox, onMailViewRequest } from '../src/mailboxpref'
+import { ObjectMenuBoundary } from '../src/canvas/contextmenu'
 
 const W = window as unknown as Window & typeof globalThis
 if (!W.HTMLElement.prototype.scrollIntoView) W.HTMLElement.prototype.scrollIntoView = () => {}
@@ -2581,3 +2584,81 @@ test("without a named chat, the user's own older message says it is not in a cha
   assert.deepEqual(s.state.toasts, ['That message is not in a chat.'])
   assert.equal(s.all<HTMLElement>('.dm-msg').some(m => m.dataset.dmEntry === 'old8'), false)
 })
+
+// VIEW IN CHAT FROM AN AGENT'S MAILBOX (requirement 8). The engine's agent mailbox (feed/compute.rs agent_mailbox)
+// adds `to` only for the Sent folder, so the user's mail in an agent's inbox reads from=@user with no recipient:
+// the mailbox's own agent is the chat. Mounted from @integ-sol-c's bounce fixture.
+const nodeBoxTarget = 'older-user-mail'
+const nodeBoxSentDate = '2026-10-01T09:00:00Z'
+
+for (const withRecipient of [true, false]) {
+  test(withRecipient ? "View in chat from an agent's mailbox: a row that names its recipient opens that chat" :
+    "View in chat from an agent's mailbox: the user's mail in its inbox names no recipient (the engine's row shape), and the mailbox's own agent is the chat (integ-sol-c bounce m42d5992dd90a)", async t => {
+    setClassicMailbox(true)
+    resetLocalReads()
+    window.sessionStorage.clear()
+    const older = mail(nodeBoxTarget, USER, nodeBoxSentDate)
+    const row = withRecipient ? { ...older, to: 'worker' } : older
+    const server = engine({
+      audiences: [grant('worker')],
+      delivered: [mail('newer-received', 'worker', '2026-11-20T10:00:00Z')],
+      byId: { [nodeBoxTarget]: older },
+    })
+    const realFetch = globalThis.fetch
+    const reads: string[] = []
+    globalThis.fetch = (async (input, init) => {
+      const path = new URL(String(input), 'http://fixture').pathname
+      reads.push(path)
+      if (path === '/api/orgs/mine/nodes/worker/inbox') {
+        return Response.json({ pending: [], delivered: [row], sent: [], next_cursor: null })
+      }
+      return server.fetcher(input, init)
+    }) as typeof fetch
+    const wires: {id: string; peer: string | null; classic: boolean}[] = []
+    const toasts: string[] = []
+    const orgTree = tree()
+    const toast = (lines: string[]) => { toasts.push(...lines) }
+    function Shell() {
+      const [jump, setJump] = React.useState<{ id: string; peer?: string } | null>(null)
+      React.useEffect(() => onMailViewRequest((_org, id, peer) => {
+        wires.push({ id, peer: peer ?? null, classic: classicMailbox() })
+        setJump({id, peer})
+      }), [])
+      return <CurrentOrg.Provider value="mine"><ObjectMenuBoundary>
+        <InboxView slug="mine" nid="worker" toast={toast} />
+        {jump && <UserMailbox slug="mine" tree={orgTree} toast={toast} close={() => {}}
+          jumpTo={jump.id} jumpSeq={1} jumpPeer={jump.peer} />}
+      </ObjectMenuBoundary></CurrentOrg.Provider>
+    }
+    const v = await mountView(<Shell />, el => el)
+    try {
+      await inAct(async () => { await flush(8) })
+      const agentRow = [...v.el.querySelectorAll('.mailrow')].find(el => el.textContent?.includes(older.body))
+      assert.ok(agentRow, 'the actual node inbox renders the delivered item')
+      await inAct(async () => {
+        agentRow.dispatchEvent(new window.MouseEvent('contextmenu',{bubbles:true,cancelable:true,button:2}))
+        await flush(6)
+      })
+      const choices = [...document.querySelectorAll<HTMLElement>('.ctxmenu [role="menuitem"]')]
+      const action = choices.find(el => el.textContent?.trim() === 'View in chat')
+      assert.ok(action, 'the node inbox shows View in chat')
+      await inAct(async () => { action.click(); await flush(14) })
+      const bubble = v.el.querySelector(`[data-dm-entry="${nodeBoxTarget}"]`)
+      const result = {
+        withRecipient, wires, toasts,
+        peer: v.el.querySelector('.dm-head')?.getAttribute('data-dm-peer') ?? null,
+        flashed: bubble?.classList.contains('flash') ?? false,
+        lookedUp: reads.includes(`/api/orgs/mine/mail/user/${nodeBoxTarget}`),
+      }
+      assert.equal(result.lookedUp,true,'the older mail is outside the loaded user window and is fetched by id')
+      assert.deepEqual(wires,[{id:nodeBoxTarget,peer:'worker',classic:false}],'the node inbox hands the chat its own recipient')
+      assert.equal(result.peer,'worker','the named chat opens')
+      assert.equal(result.flashed,true,'the older message flashes')
+      assert.deepEqual(result.toasts,[])
+    } finally {
+      await v.unmount()
+      globalThis.fetch = realFetch
+      window.localStorage.removeItem(CLASSIC_MAILBOX_KEY)
+    }
+  })
+}

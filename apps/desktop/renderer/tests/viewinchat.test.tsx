@@ -47,6 +47,9 @@ test('chatPeerOf: the agent or project on the other side of the user\'s mail, an
   assert.equal(chatPeerOf({ from: 'quoter', to: USER }), 'quoter', 'it wrote to the user')
   assert.equal(chatPeerOf({ from: 'quoter' }, true), 'quoter', 'the user\'s own box: received mail has no to')
   assert.equal(chatPeerOf({ from: USER }), '', 'the user\'s own, recipient unknown: a chat mail, chat unnamed')
+  assert.equal(chatPeerOf({ from: USER }, false, 'quoter'), 'quoter', 'the user\'s own in an agent\'s inbox: no to, the mailbox\'s agent is the chat')
+  assert.equal(chatPeerOf({ from: 'worker' }, false, 'quoter'), null, 'a colleague\'s mail in that inbox: not the user\'s')
+  assert.equal(chatPeerOf({ from: USER, to: 'reader' }, false, 'quoter'), 'reader', 'a named recipient wins')
   assert.equal(chatPeerOf({ from: 'quoter' }), null, 'no to, outside the user\'s box: not the user\'s')
   assert.equal(chatPeerOf({ from: 'a', to: 'b' }), null, 'agent to agent')
   assert.equal(chatPeerOf({ from: '@system', to: USER }), null, 'the system')
@@ -81,8 +84,10 @@ test('in an agent\'s mailbox only the user\'s mail with it has View in chat', as
   const rows = [
     { id: 'u1', from: USER, to: 'quoter', at: '2026-11-20T10:00:00Z', kind: 'message', body: 'the user wrote' },
     { id: 'a1', from: 'worker', to: 'quoter', at: '2026-11-20T10:01:00Z', kind: 'message', body: 'a colleague wrote' },
+    // the engine's own shape for the user's mail in an agent's inbox (feed/compute.rs agent_mailbox): no `to`
+    { id: 'u2', from: USER, at: '2026-11-20T10:02:00Z', kind: 'message', body: 'an unaddressed note' },
   ]
-  const v = await mountView(<ObjectMenuBoundary><MailList org="mine" delivered={rows} toast={() => {}} /></ObjectMenuBoundary>, el => el)
+  const v = await mountView(<ObjectMenuBoundary><MailList org="mine" boxOwner="quoter" delivered={rows} toast={() => {}} /></ObjectMenuBoundary>, el => el)
   t.after(() => v.unmount())
   await inAct(async () => { await flush(4) })
   const row = (text: string) => [...v.el.querySelectorAll<HTMLElement>('.mailrow')].find(r => r.textContent?.includes(text))!
@@ -91,7 +96,10 @@ test('in an agent\'s mailbox only the user\'s mail with it has View in chat', as
   await dismiss()
   await right(row('the user wrote'))
   await choose('View in chat')
-  assert.deepEqual(requests, [{ org: 'mine', id: 'u1', peer: 'quoter', classic: false }])
+  await right(row('unaddressed'))
+  await choose('View in chat')
+  assert.deepEqual(requests, [{ org: 'mine', id: 'u1', peer: 'quoter', classic: false },
+    { org: 'mine', id: 'u2', peer: 'quoter', classic: false }], 'a row without to names the mailbox\'s own agent')
 })
 
 for (const c of [
