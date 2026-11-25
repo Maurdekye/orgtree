@@ -2016,6 +2016,28 @@ test('the megaphone is disabled when no agent works under the project', async (t
   assert.equal(megaphone()!.getAttribute('aria-pressed'), 'false', 'Alt+B does not arm it')
 })
 
+// USER 2026-11-25 13:02:57Z mccd2710e1a87: "the megaphone should be on the right side of the chatbox, like
+// it is in the project desk". The desk's composer has notice and attach on the left, and on the right
+// one column of the urgent option, the megaphone and send (projectdesk.tsx ProjectComposer).
+test('the megaphone sits on the right of the box, over send, as on the project desk; notice and attach stay on the left', async (t) => {
+  const s = await setup(t, crewWorld(), { tree: crewTree(), active: false })
+  await s.openChat('crew')
+  const box = document.querySelector('.dm-compose .cc-composer')!
+  const b = megaphone()!
+  const ta = box.querySelector('textarea')!
+  const send = box.querySelector<HTMLButtonElement>('.cc-send')!
+  assert.ok(b && ta && send, 'POSITIVE CONTROL: the box has its megaphone, text field and send')
+  assert.deepEqual([...box.querySelectorAll<HTMLElement>(':scope > .cc-btnstack > button')].map(x => x.className.split(' ')[0]),
+    ['cc-notice-toggle', 'cc-attach'], 'the left column is notice over attach, as on the desk')
+  assert.equal(b.closest('.cc-btnstack'), null, 'the megaphone is not in the left column')
+  assert.ok(ta.compareDocumentPosition(b) & W.Node.DOCUMENT_POSITION_FOLLOWING, 'the megaphone comes after the text field: the right side')
+  assert.ok(b.closest('.cc-controls'), "it is with the box's right-hand controls")
+  assert.ok(b.compareDocumentPosition(send) & W.Node.DOCUMENT_POSITION_FOLLOWING, 'send comes after it: the megaphone is over send')
+  assert.notEqual(b.parentElement, send.parentElement, "its own row, above send's, not beside send")
+  await s.click(b, 'the megaphone')
+  assert.equal(megaphone()!.closest('.cc-controls') !== null && megaphone()!.getAttribute('aria-pressed'), 'true', 'armed, it stays where it was')
+})
+
 test('a project chat says its inbox may not be read, as the desk does, until a listener is there or the megaphone is on', async (t) => {
   const hint = () => document.querySelector('.dm-compose .inbox-no-listeners')
   const s = await setup(t, crewWorld(), { tree: crewTree(), active: false })
