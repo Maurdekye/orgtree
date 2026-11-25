@@ -50,8 +50,10 @@ export function useMailboxHistory(slug: string, rawBase: InboxPayload | null | u
   const base = useMemo(() => rawBase == null ? rawBase : mailbox(rawBase), [rawBase])
   const identity = JSON.stringify([slug, node ?? null, folder, peer ?? null])
   const [state, setState] = useState({ identity, box: empty(), cursor: null as string | null,
-    paged: false, ready: false, loading: false, older: false, error: null as string | null, errorStatus: null as number | null, deleted: [] as string[], read: [] as string[] })
-  const current = state.identity === identity ? state : { ...state, identity, box: empty(), cursor: null, paged: false, ready: false, loading: false, older: false, error: null, errorStatus: null, deleted: [], read: [] }
+    paged: false, ready: false, loading: false, older: false, error: null as string | null, errorStatus: null as number | null, deleted: [] as string[], read: [] as string[],
+    /** the ids an older page (a `before` read) brought: not in the head of the history */
+    olderIds: [] as string[] })
+  const current = state.identity === identity ? state : { ...state, identity, box: empty(), cursor: null, paged: false, ready: false, loading: false, older: false, error: null, errorStatus: null, deleted: [], read: [], olderIds: [] }
   const latest = useRef(current); latest.current = current
   const generation = useRef(0), busy = useRef(false), retryCursor = useRef<string | undefined>(undefined)
   const revision = JSON.stringify([base?.mail_revision, base?.pending.map(m => m.id), base?.delivered.map(m => m.id), base?.sent.map(m => m.id)])
@@ -86,7 +88,9 @@ export function useMailboxHistory(slug: string, rawBase: InboxPayload | null | u
         }
         box = merge(refreshed, page)
       }
+      const olderIds = before ? folders.flatMap(field => page[field].map(m => m.id)) : []
       setState(old => ({ ...old, identity, box,
+        olderIds: olderIds.length ? [...(old.identity === identity ? old.olderIds : []), ...olderIds] : old.identity === identity ? old.olderIds : [],
         cursor: !before && old.identity === identity && old.paged ? old.cursor : page.next_cursor ?? null,
         paged: !!before || old.paged, ready: true, loading: false, older: false, error: null, errorStatus: null }))
     }).catch((e: Error) => {
@@ -110,13 +114,21 @@ export function useMailboxHistory(slug: string, rawBase: InboxPayload | null | u
       delivered: [...merged.delivered, ...merged.pending.filter(m => acknowledged.has(m.id))].filter(m => !removed.has(m.id)),
       sent: merged.sent.filter(m => !removed.has(m.id)) }
   }, [base, current.box, current.deleted, current.read])
+  /** the box without what older pages brought: the head of the history and the pushed record, which only
+   *  new mail changes (the chats' list order, dm/DmPanel.tsx) */
+  const headBox = useMemo(() => {
+    if (!box || !current.olderIds.length) return box
+    const older = new Set(current.olderIds)
+    return { ...box, pending: box.pending.filter(m => !older.has(m.id)), delivered: box.delivered.filter(m => !older.has(m.id)),
+      sent: box.sent.filter(m => !older.has(m.id)) }
+  }, [box, current.olderIds])
   const loadMore = () => { if (visible && latest.current.cursor) read(latest.current.cursor, generation.current) }
   const retry = () => { if (visible) read(retryCursor.current, generation.current) }
   const remove = (id: string) => setState(old => old.identity === identity ? { ...old, deleted: [...old.deleted, id] } : old)
   const acknowledge = (id: string) => setState(old => old.identity === identity ? { ...old, read: [...old.read, id] } : old)
   // `cursor` names the next page: it changes when a page has arrived, also when React drew the request and
   // its answer in one render (so `loading` was never seen true)
-  return { box, hasMore: !!current.cursor, cursor: current.cursor, loading: current.loading, error: current.error,
+  return { box, headBox, hasMore: !!current.cursor, cursor: current.cursor, loading: current.loading, error: current.error,
     /** an OLDER page is on its way (a `before` read), never the regular read of the newest mail; a regular read
      *  that replaces a page on its way ends it (4.7.0-alpha.5 flicker, @ticket:orgtree/mailbox-dm-panel-loading-older-messages-flickers) */
     loadingOlder: current.loading && current.older,

@@ -347,34 +347,38 @@ export function DmPanel({ slug, tree, toast, refresh, close, jumpTo, jumpSeq, ju
   useEffect(() => { if (chatRefused) setRefused(slug) }, [chatRefused, slug])
   const ownPages = !!pagedPeer && !chatRefused
   /** the mailbox as one list: with the open chat's own pages and the mails looked up by id, or without them */
-  const boxOf = (own: InboxPayload | null | undefined, extra: readonly MailEntry[]) => {
-    if (!inbox.box || !outbox.box) return null
+  const boxOf = (own: InboxPayload | null | undefined, extra: readonly MailEntry[], head = false) => {
+    const inBox = head ? inbox.headBox : inbox.box, outBox = head ? outbox.headBox : outbox.box
+    if (!inBox || !outBox) return null
     // unread first, wherever it was read from; a mail is in one list only
     const pending = new Map<string, MailEntry>()
-    for (const m of [...inbox.box.pending, ...(own?.pending ?? [])]) pending.set(m.id, m)
+    for (const m of [...inBox.pending, ...(own?.pending ?? [])]) pending.set(m.id, m)
     const delivered = new Map<string, MailEntry>()
     // a message looked up by id: the user's own joins the sent mail (its `to` set by the jump), the rest the received
     const extraIn = extra.filter(m => m.from !== USER), extraOut = extra.filter(m => m.from === USER) as unknown as InboxPayload['sent']
-    for (const m of [...extraIn, ...(own?.delivered ?? []), ...inbox.box.delivered]) if (!pending.has(m.id)) delivered.set(m.id, m)
+    for (const m of [...extraIn, ...(own?.delivered ?? []), ...inBox.delivered]) if (!pending.has(m.id)) delivered.set(m.id, m)
     const sent = new Map<string, InboxPayload['sent'][number]>()
     // a mail taken back is not in the chat, as it is not on the desk (USER 2026-11-25 m88681ac17bfd)
-    const back = new Set([...(own?.sent ?? []), ...outbox.box.sent]
+    const back = new Set([...(own?.sent ?? []), ...outBox.sent]
       .filter(m => (m as { retracted?: boolean }).retracted === true).map(m => m.id))
-    for (const m of [...extraOut, ...(own?.sent ?? []), ...outbox.box.sent]) if (!back.has(m.id) && !takenBack.has(m.id)) sent.set(m.id, m)
+    for (const m of [...extraOut, ...(own?.sent ?? []), ...outBox.sent]) if (!back.has(m.id) && !takenBack.has(m.id)) sent.set(m.id, m)
     return { pending: [...pending.values()], delivered: [...delivered.values()], sent: [...sent.values()] }
   }
   // ⚠ THE LIST'S ORDER IS THE MAILBOX'S, NEVER THE OPEN CHAT'S (USER 2026-11-25 21:36:27Z mbad35d25d10f
   // "chats reorder when sleected sometimes"). The open chat reads its own pages, which hold its mail older than
   // the mailbox's window; a chat with nothing in that window then had a "last message" only while open, and
-  // jumped among the dated chats on the click and back on the next. The order is read without those pages.
+  // jumped among the dated chats on the click and back on the next. The order is read without those pages,
+  // and without the mailbox's older pages, which a project's chat loads as it opens (coordinator
+  // m3854136c7a6e): only new mail changes the order.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  const listBox = useMemo(() => boxOf(null, []), [inbox.box, outbox.box, takenBack])
+  const listBox = useMemo(() => boxOf(null, [], true), [inbox.headBox, outbox.headBox, takenBack])
   const box = useMemo(() => {
     const extra = looked.filter(l => l.slug === slug).map(l => l.mail)
-    return ownPages || extra.length ? boxOf(ownPages ? chatPages.box : null, extra) : listBox
+    return ownPages || extra.length || inbox.headBox !== inbox.box || outbox.headBox !== outbox.box
+      ? boxOf(ownPages ? chatPages.box : null, extra) : listBox
   },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [listBox, chatPages.box, ownPages, looked, slug])
+    [listBox, inbox.box, outbox.box, chatPages.box, ownPages, looked, slug, takenBack])
 
   const writing = useWriting(nodes)
   const chats = useMemo(() => {
