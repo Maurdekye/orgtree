@@ -74,7 +74,8 @@ test('a new mailbox scope starts collapsed even if its component is reused', asy
 // standalone mode.
 
 // ── SYMMETRY #15 (UX audit ux05 S7): transfer history LOADS MORE as you near
-// the end, appending, with a manual Load more and a Retry for the failed page
+// the end, appending, with a Retry for the failed page (no Load more since USER
+// 2026-11-25 13:01:34Z m97f5f119dea3)
 // only - the same states and words as Hubchat's Settings history (integ/hubchat
 // 1.2.6, 3f7f273) and the way Orgtree's other long lists grow. No page buttons.
 
@@ -155,7 +156,7 @@ test('transfer history loads the next page near the end and appends it, with no 
   assert.equal(buttonNamed(v.el, 'More transfers'), null, 'no page-forward button')
   assert.equal(buttonNamed(v.el, 'Previous transfers'), null, 'no page-back button')
   assert.equal(v.el.textContent?.includes('Page 1'), false, 'no page counter')
-  assert.ok(buttonNamed(v.el, 'Load more'), 'Load more stays as the manual path')
+  assert.equal(buttonNamed(v.el, 'Load more'), null, 'no Load more (USER 2026-11-25 m97f5f119dea3)')
   assert.ok(io.count() > 0, 'the end of the list is watched')
 
   await io.seen()
@@ -164,7 +165,6 @@ test('transfer history loads the next page near the end and appends it, with no 
 
   await io.seen()
   assert.deepEqual(cardIds(v.el), ['first-a','first-b','second-a','second-b','third-a'])
-  assert.equal(buttonNamed(v.el, 'Load more'), null, 'nothing left to load: no Load more')
   assert.equal(io.count(), 0, 'nothing left to load: the end is no longer watched')
 
   // the live poll still refreshes the FIRST page and keeps what was loaded
@@ -175,7 +175,7 @@ test('transfer history loads the next page near the end and appends it, with no 
   assert.deepEqual(cardIds(v.el), ['first-a','first-b','second-a','second-b','third-a'], 'loaded pages survive a poll')
 })
 
-test('a failed later page shows the error with Retry for that page only, and Load more loads by hand (symmetry #15)', async t => {
+test('a failed later page shows the error with Retry for that page only, then loading goes on by itself (symmetry #15)', async t => {
   t.mock.timers.enable({apis:['setTimeout']})
   const cursors = pagedTransport(t, 'cursor-2'), io = observer(t)
   const v = await mountView(<TransferPanel slug="fixture"/>, el=>el); t.after(()=>v.unmount()); await flush()
@@ -198,6 +198,6 @@ test('a failed later page shows the error with Retry for that page only, and Loa
   assert.deepEqual(cardIds(v.el), ['first-a','first-b','second-a','second-b'])
   assert.equal(buttonNamed(v.el, 'Retry'), null, 'the error clears')
 
-  await inAct(() => buttonNamed(v.el, 'Load more')!.click()); await flush()
-  assert.deepEqual(cardIds(v.el), ['first-a','first-b','second-a','second-b','third-a'], 'Load more loads the next page by hand')
+  await io.seen()
+  assert.deepEqual(cardIds(v.el), ['first-a','first-b','second-a','second-b','third-a'], 'with the error gone, the end loads the next page again')
 })

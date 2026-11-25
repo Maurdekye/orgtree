@@ -77,9 +77,15 @@ function Bytes({ file, done, direction }: {file: TransferFile; done: boolean; di
  *  live poll keeps refreshing the FIRST page (unfinished first, then newest
  *  history); later pages are read once each and APPENDED when the end of the
  *  list comes into view, as Orgtree's other long lists and Hubchat's Settings
- *  transfer history (3f7f273) do. "Load more" stays as the manual path, and a
- *  failed page shows its error with a Retry that repeats THAT page; nothing
- *  loads by itself while the error stands. Each page stays bounded (100). */
+ *  transfer history (3f7f273) do. There is no Load more (USER 2026-11-25
+ *  13:01:34Z m97f5f119dea3 "...load lazily as you scroll and not have a load
+ *  more button"). A failed page shows its error with a Retry that repeats THAT
+ *  page; nothing loads by itself while the error stands. Each page stays
+ *  bounded (100). In TAB MODE the panel's own section is the tab's scroll area
+ *  (no inner fixed-height box, same USER ruling: "fill the full tab") and the
+ *  next page loads within 240 px of its end, the inbox list's rule (MailList
+ *  `.mailer-list` onScroll); it is also checked as rows arrive, so a page that
+ *  does not fill the tab reads on. A hidden tab has no height and never pages. */
 export interface TransferSummary { total: number; active: number }
 
 /** TAB MODE (USER 2026-11-25 09:31:19Z m7202711b8122 "make transfers in every
@@ -111,6 +117,7 @@ export function TransferPanel({ slug, agent, tab, onSummary }: {slug: string; ag
   const pending = useRef(false)
   const pageStop = useRef<AbortController | null>(null)
   const end = useRef<HTMLDivElement>(null)
+  const scroller = useRef<HTMLElement>(null)
   const next = olderNext === undefined ? firstNext : olderNext
   useEffect(() => {
     epoch.current++; pending.current = false
@@ -165,7 +172,11 @@ export function TransferPanel({ slug, agent, tab, onSummary }: {slug: string; ag
   }
   // the end of the visible history coming into view loads the next page; a new
   // cursor re-arms it, so a short page that leaves the end in view loads on
-  useLoadWhenSeen(end, expanded && history && !loading && !pageError ? next : null, () => void more())
+  const canPage = expanded && history && !loading && !pageError && !!next
+  useLoadWhenSeen(end, !tab && canPage ? next : null, () => void more())
+  // TAB MODE: the inbox's near-the-end rule, on scroll and as rows arrive
+  const nearEnd = (el: HTMLElement) => el.clientHeight > 0 && el.scrollHeight - el.scrollTop - el.clientHeight < 240
+  const onScroll = tab ? (e: { currentTarget: HTMLElement }) => { if (canPage && nearEnd(e.currentTarget)) void more() } : undefined
   const change = async (id: string, action: 'retry' | 'cancel' | 'remove') => {
     setBusy(id)
     try {
@@ -182,11 +193,15 @@ export function TransferPanel({ slug, agent, tab, onSummary }: {slug: string; ag
   const all = [...rows, ...older.filter(t => !live.has(t.id))]
   const summary = useRef(onSummary); summary.current = onSummary
   useEffect(() => { summary.current?.({ total: all.length, active: active.length }) }, [all.length, active.length])
+  useEffect(() => {
+    const el = scroller.current
+    if (tab && canPage && el && nearEnd(el)) void more()
+  })
   if (!rows.length && !error && !older.length)
     return tab?.visible ? <section className="mail-transfers tab" aria-label="Attachment transfers">
       <div className="dim">no transfers</div></section> : null
   const shown = history ? all : active.length ? active : rows.slice(0, 3)
-  return <section className={'mail-transfers' + (tab ? ' tab' : '')} aria-label="Attachment transfers">
+  return <section ref={scroller} onScroll={onScroll} className={'mail-transfers' + (tab ? ' tab' : '')} aria-label="Attachment transfers">
     <div className="transfer-heading">
       {tab ? <span className="dim">{active.length ? `${active.length} unfinished` : ''}</span>
         : <button className="linkish" aria-expanded={expanded} onClick={() => setExpanded(v => !v)}>
@@ -212,17 +227,15 @@ export function TransferPanel({ slug, agent, tab, onSummary }: {slug: string; ag
         </div>
       </article>
     })}
-      {/* THE END MARKER sits inside the list's own scroller (max-height), so
-          it comes into view only as you scroll near the end of the history */}
-      {history && next && <div ref={end} className="transfer-history-end" aria-hidden="true" />}
+      {/* THE END MARKER (outside a tab) sits inside the list's own scroller
+          (max-height), so it comes into view only near the end of the history */}
+      {!tab && history && next && <div ref={end} className="transfer-history-end" aria-hidden="true" />}
     </div>}
-    {/* Load more also opens the history, as the page button it replaces did;
-        automatic loading happens only while the history shows */}
-    {expanded && (history || next) && <div className="transfer-actions transfer-more">
+    {/* paging happens only while the history shows; no Load more, no count
+        line (inbox and sent have neither) */}
+    {expanded && history && (pageError || loading) && <div className="transfer-actions transfer-more">
       {pageError && <div role="status" className="err">{pageError} <button onClick={() => { if (failedAfter) void more(failedAfter) }}>Retry</button></div>}
       {loading && <small role="status" className="dim">Loading…</small>}
-      {next && <button disabled={loading} onClick={() => { setHistory(true); void more() }}>Load more</button>}
-      {history && <small className="dim">{all.length} transfers. Unfinished first, then newest history.</small>}
     </div>}
   </section>
 }

@@ -10363,7 +10363,7 @@ main:has(> .orgbar.native-header) > .error {
 /* Durable attachment transfers share the mail surface; no completion toast. */
 /* TRANSFERS IS ITS OWN TAB (USER 2026-11-25 m7202711b8122): the pane fills
    the mailbox's body; the hidden mail lists never draw behind it */
-.mail-transfers-pane { flex: 1 1 auto; min-height: 0; overflow: auto; }
+.mail-transfers-pane { flex: 1 1 auto; min-height: 0; overflow: hidden; display: flex; flex-direction: column; }
 .mail-transfers-pane[hidden], .mailpane[hidden] { display: none; }
 .mail-transfers { flex: 0 0 auto; min-width: 0; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; margin: 6px 0; }
 .transfer-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; font-size: 12px; }
@@ -10380,6 +10380,11 @@ main:has(> .orgbar.native-header) > .error {
 .transfer-actions button { font-size: 11px; padding: 3px 7px; }
 /* the history's end marker: coming into view loads the next page (symmetry #15) */
 .transfer-history-end { height: 1px; }
+/* THE TAB IS THE SCROLL AREA (USER 2026-11-25 13:01:34Z m97f5f119dea3 "fill
+   the full tab rather than being this limited scroll"): no card, no inner
+   240 px box; the section fills the pane and scrolls, as inbox and sent do */
+.mail-transfers.tab { flex: 1 1 auto; min-height: 0; overflow-y: auto; border: 0; border-radius: 0; margin: 0; padding: 4px 10px 10px; }
+.mail-transfers.tab .transfer-list { max-height: none; overflow: visible; }
 
 /* App settings › Harnesses and the "Which harnesses are supported?" link
    beside every harness selector (canvas/harnesses.tsx) */
