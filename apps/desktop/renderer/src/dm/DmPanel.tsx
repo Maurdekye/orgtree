@@ -83,7 +83,7 @@ import { ListAge } from '../canvas/listage'
 import { SenderChip } from '../canvas/senderchip'
 import { HubContactChip, isHubAddress, requestTranscriptMail } from '../canvas/agentmentions'
 import { isCurrentOrgAddress } from '../canvas/netmentions'
-import { copyToClipboard, useContextMenu } from '../canvas/contextmenu'
+import { agentCopyEntry, copyToClipboard, useContextMenu } from '../canvas/contextmenu'
 import type { MenuEntry } from '../canvas/contextmenu'
 import { mailMenuEntries } from '../canvas/mailidentity'
 import { mailRowCopyText } from '../canvas/copytext'
@@ -701,6 +701,8 @@ function DmRow({ chat, selected, losing, toast, child, hidden, fold, writing, on
       : { label: 'Acquire audience', title: 'Grant this agent the user audience', onSelect: onAcquire }
     return [
       { label: 'Open chat', onSelect: onOpen },
+      // Hubchat's contact block: copy the chat's mention (USER 2026-11-25 m1454b39b8fd0)
+      ...(chat.kind !== 'system' ? [agentCopyEntry(anchor, chat.peer, toast)] : []),
       ...(acquire ? [acquire] : []),
       ...(rule.can ? [{ label: rule.deny ? 'Deny the audience request' : rule.project ? 'Revoke the project\u2019s audience'
         : 'Revoke its audience', onSelect: onClose }] : []),
@@ -1173,6 +1175,7 @@ function DmConversation({ slug, tree, chat, nodes, toast, refs, onFocusAgent, fl
     return out
   }, [all])
 
+  const headMenu = useContextMenu(toast)
   const send = (text: string, attachments?: string[], notice?: boolean, cast?: boolean,
     objectTarget?: ReplyTarget, selections?: SelectionTarget[]) => {
     const targets = replies
@@ -1326,7 +1329,11 @@ function DmConversation({ slug, tree, chat, nodes, toast, refs, onFocusAgent, fl
   const agent = chat.kind === 'agent' && chat.live ? chat.node as CanvasNode | null : null
   return (
     <>
-      <div className="dm-head" data-dm-peer={peer}>
+      {/* THE HEADER'S MENU, Hubchat's (USER 2026-11-25 m1454b39b8fd0): the chat's mention; a
+          press on the name link keeps that link's own menu */}
+      <div className="dm-head" data-dm-peer={peer}
+        onContextMenu={chat.kind === 'system' ? undefined : (e: ReactMouseEvent<HTMLDivElement>) => {
+          const anchor = e.currentTarget; headMenu.open(e, () => [agentCopyEntry(anchor, peer, toast)]) }}>
         <DmAvatar chat={chat} />
         <div className="dm-who">
           <div className="dm-who-l1">
@@ -1354,6 +1361,7 @@ function DmConversation({ slug, tree, chat, nodes, toast, refs, onFocusAgent, fl
           {...closeHoverProps(onCloseHover)}
           onClick={onClose}><CloseIcon fontSize="inherit" /></button>
       </div>
+      {headMenu.node}
       <div className="dm-timeline-wrap">
       <div className="dm-timeline" ref={scroller} onScroll={onScroll} role="log" aria-label={`Messages with ${name}`}
         data-dm-drawn={entries.length} data-dm-loaded={all.length}
