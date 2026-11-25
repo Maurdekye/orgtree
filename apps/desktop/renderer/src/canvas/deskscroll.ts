@@ -13,6 +13,17 @@ export function centerTranscriptTarget(list: HTMLElement | null, target: Element
   return true
 }
 
+/** Flash the transcript row a jump landed on, once: the located mail's own flash (styles.css
+ * `jflash`). The class leaves with the animation's end, so the same row can flash for the next
+ * request; it is put on by hand because the row's own render does not know it was jumped to. */
+export function flashTranscriptRow(el: HTMLElement): void {
+  el.classList.remove('jflash')
+  void el.offsetWidth   // restart the animation when the row is still flashing
+  el.classList.add('jflash')
+  const done = () => { el.classList.remove('jflash'); el.removeEventListener('animationend', done) }
+  el.addEventListener('animationend', done)
+}
+
 // canvas/deskscroll.ts — WHERE EACH PLACE'S DESK WAS SCROLLED, kept while the place is off screen.
 //
 // A place off screen mounts no desk (4.6.1, deskhosts.tsx `DeskView`): the canvas card behind the presented

@@ -28,7 +28,7 @@ import { ToolRefs } from './toolrefs'
 import { StructuredJson, parseStructured } from './structuredjson'
 import { useRecordsEnabled } from '../recordpanelhooks'
 import { transcriptViewport } from '../transcriptViewport'
-import { centerTranscriptTarget } from './deskscroll'
+import { centerTranscriptTarget, flashTranscriptRow } from './deskscroll'
 import { setButtonAgent } from '../buttoncolours'
 import { orgNavigationTooltip } from '../shell/orgnavigationbindings'
 import { agentNavProps, agentTooltipProps } from './agentnav'
@@ -3047,6 +3047,8 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
   })
   // seq is the PRE-slice ordinal, so a non-zero first seq means older rows exist
   const hasOlder = chat?.has_older ?? ((chat?.messages[0]?.seq ?? 0) > 0)
+  /** the "View in transcript" request whose row has flashed (one flash for one request) */
+  const flashedMailRef = useRef<string | null>(null)
   const centerMentionRef = useRef<() => void>(() => {})
   centerMentionRef.current = () => {
     if (!mentionHighlight) {
@@ -3069,7 +3071,8 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
     // ONE MAIL'S ROW ("View in transcript", agentmentions.tsx `requestTranscriptMail`): the message
     // whose send call wrote it (its tool chip carries the mail), else its delivery row here
     const mailId = mentionHighlight.mailId
-    const sentBy = mailId ? chat.messages.find(m => m.tools?.some(tool => tool.mail?.id === mailId))?.event_id : undefined
+    const sender = mailId ? chat.messages.find(m => m.tools?.some(tool => tool.mail?.id === mailId)) : undefined
+    const sentBy = sender?.event_id
     const evId = mentionHighlight.eventId ?? (mailId ? sentBy ?? `mail:${mailId}` : undefined)
     let target: HTMLElement | null = null
     if (evId) {
@@ -3097,6 +3100,8 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
     }
     // A mail whose row is in this transcript no more (every page that can come is in): the row
     // nearest its time, and the desk says so, once for one request.
+    // the mail's own row is in (not the nearest one below, which is another message)
+    const mailRow = mailId ? target : null
     if (!target && mailId && scrolledMentionRef.current !== scrollKey) {
       const want = Date.parse(mentionHighlight.at ?? '')
       const near = Number.isFinite(want) ? chat.messages
@@ -3147,6 +3152,16 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
           stopSettle()
         }
       }
+    }
+    // THE ROW FLASHES AS THE DESK LANDS ON IT (USER 2026-11-25 m6b1d486777c1: "the view in
+    // transcript should flash the message or tool call line when it arrives"): the line of the call
+    // that sent the mail, or the delivery row of a mail the agent received; once for one request,
+    // whenever the row came in (also with an older page).
+    if (mailRow && scrolledMentionRef.current === scrollKey && flashedMailRef.current !== scrollKey) {
+      flashedMailRef.current = scrollKey
+      const call = sender?.tools?.find(tool => tool.mail?.id === mailId)?.event_id
+      const line = call ? [...rowEl.querySelectorAll<HTMLElement>('.tline[data-reply-event]')].find(el => el.dataset.replyEvent === call) : undefined
+      flashTranscriptRow(line ?? (sender ? msgEl : mailRow))
     }
   }
   useLayoutEffect(() => {

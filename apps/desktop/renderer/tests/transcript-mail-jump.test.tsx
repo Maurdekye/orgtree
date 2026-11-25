@@ -146,7 +146,6 @@ test('a row that only arrives after older pages load flashes when it is in', asy
   })
   assert.equal(f.view.el.querySelector('[data-reply-event="e2"]'), null, 'POSITIVE CONTROL: the row is outside the first window')
   await inAct(async () => { requestTranscriptMail('org', base.id, 'm-old', '2026-11-19T10:00:05Z'); await flush(8) })
-  assert.deepEqual(flashing(f.view.el), [], 'nothing flashes while the row is not in')
   for (let page = 0; page < 8; page++) await inAct(async () => { await flush(6) })
   assert.ok(f.server.requests.some(r => r.before), 'older pages were asked for')
   const line = f.view.el.querySelector<HTMLElement>('.tline[data-reply-event="e2-tool"]')

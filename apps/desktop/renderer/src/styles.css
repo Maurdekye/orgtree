@@ -6996,7 +6996,8 @@ svg.MuiSvgIcon-root {
    from the call's words by the button's own 6px */
 .tline > .ref-chip.ref-chip.ref-message { margin-left: 6px; }
 /* the jumped-to mail flashes so "took me to it" is unmistakable */
-.mailrow.jflash { animation: jflash 1.6s ease-out 1; }
+/* and so does the transcript row "View in transcript" lands on (desk.tsx `flashTranscriptRow`) */
+.mailrow.jflash, .msgs .jflash { animation: jflash 1.6s ease-out 1; }
 @keyframes jflash {
   0%, 35% { background: color-mix(in srgb, var(--accent) 22%, transparent); }
   100% { background: transparent; }
