@@ -33,6 +33,9 @@
 //! lowered or cleared, so a holder change, a retirement or a revoked
 //! audience leaves it, and an engine restart keeps it. Turns the engine's
 //! start-up recovery closed are no turn ends (`orginbox::last_turn_ends`).
+//! A weak link's send raises the same mark (`orginbox::weak_sent`, USER
+//! 2026-11-25 meb7815aff52d) and kicks the pass; it never makes the org
+//! active now (a weak link is never in charge).
 //! Only hubs that list the feature `last_active` (read from `/healthz` once
 //! per connection and again at each refresh) get the three fields, and turn edges kick the pass only
 //! for orgs with such a hub: older hubs keep exactly today's traffic.

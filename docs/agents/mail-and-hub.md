@@ -856,7 +856,10 @@ but give it a longer timeout, say an hour" (23:06Z mac1516a71553); "Yes, widen t
   count. `active_at` never goes back (coordinator 13:27Z): `orginbox::raise_last_active` keeps a per-org mark in
   `ot.orgs.net.last_active_at`, raised by the newest end of those agents' last finished turns (`last_turn_ends`) and
   never lowered or cleared by a holder change, retirement or revoked audience; turns the start-up recovery closed
-  ("the engine stopped during this turn") are no turn ends. The org stays active while any of them runs. Event-driven:
+  ("the engine stopped during this turn") are no turn ends. The org stays active while any of them runs. A weak
+  link's send raises the same mark (USER 2026-11-25 meb7815aff52d): when the hub accepts it (net.rs, state `sent`)
+  or a local org receives it, `orginbox::weak_sent` raises it to now and kicks the pass; a weak link never makes the
+  org active now (it is never in charge). Event-driven:
   an in-charge agent's runtime publish that flips `busy` kicks the network pass (`turn_edge`; only orgs with a hub
   that lists the feature); ends between two passes are said once with the newest end. Posts are serialized, `Said`
   keeps what was sent (never the hub's echo), a failed post is followed by the current state, the 5-minute refresh
@@ -886,8 +889,8 @@ but give it a longer timeout, say an hour" (23:06Z mac1516a71553); "Yes, widen t
 
 - USER 2026-11-24 18:56:37Z m020bbd1926c3, answers m61f5367a61e7; docket weak-org-mailbox-links-several-agents-may-send-a.
   A weak link is the audience grantor `@extern-weak` (`audiences::EXTERN_WEAK`), a separate sentinel so every
-  `'@extern'` check keeps meaning the primary link: a weak link never receives, pulls, counts for busy or last seen,
-  or is inherited (agents only; `grant_tx` refuses a project). `orginbox::weak_agents` lists them,
+  `'@extern'` check keeps meaning the primary link: a weak link never receives, pulls, counts for busy or "active
+  now", or is inherited (agents only; `grant_tx` refuses a project). `orginbox::weak_agents` lists them,
   `orginbox::mailbox_link` answers primary/weak/none (blocking's permission check uses it).
 - Sending: `may_send_extern` and `route_tx` accept a weak holder without granting. A top-level sender with no link
   takes a WEAK link while the mailbox has any holder (Q1), the primary otherwise. `send_extern` marks the out row
