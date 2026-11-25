@@ -434,6 +434,28 @@ pub async fn mailbox_link<C: tokio_postgres::GenericClient + Sync>(client: &C, o
     })
 }
 
+/// Failover (USER 2026-11-25 m872c7d4f0973; @coordinator-opus m22e544059017): the weak-link agent acting as the
+/// holder while every holder is unable to receive. Red stub: no failover yet.
+#[logged]
+pub async fn acting_weak<C: tokio_postgres::GenericClient + Sync>(client: &C, org_id: i64, multi: bool) -> Result<Option<String>> {
+    let _ = (client, org_id, multi);
+    Ok(None)
+}
+
+/// The acting holder kept as state (`ot.orgs.net.acting_holder`): `Some((before, now))` when it changed. Red stub.
+#[logged]
+pub async fn note_acting<C: tokio_postgres::GenericClient + Sync>(client: &C, org_id: i64, acting: Option<&str>) -> Result<Option<(Option<String>, Option<String>)>> {
+    let _ = (client, org_id, acting);
+    Ok(None)
+}
+
+/// Failover's end, each network pass. Red stub.
+#[logged]
+pub async fn watch_failover(engine: &Arc<Engine>) -> Result<()> {
+    let _ = engine;
+    Ok(())
+}
+
 /// Every live holder's name, agents and projects, newest first. For the holders list and
 /// busy presence; anything that acts AS a holder (send, pull, read, notices) uses `holder_agents`.
 #[logged]
