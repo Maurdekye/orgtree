@@ -15,7 +15,8 @@ test('Org DnD Connections exposes three modes, Hubchat warning, and saves the se
     await inAct(async () => { await flush(8) })
     const select = view.el.querySelector<HTMLSelectElement>('select[aria-label="Org mailbox mode"]')
     assert.equal(!!select, true, 'Connections must contain the org mailbox dropdown')
-    assert.deepEqual([...select!.options].map(o => o.text), ['Normal operations', 'Do not disturb', 'Closed off mailbox'])
+    // USER 2026-11-25 14:10:26Z m16ef9bb35e25: a new default value, Org decides, comes first
+    assert.deepEqual([...select!.options].map(o => o.text), ['Org decides', 'Normal operations', 'Do not disturb', 'Closed off mailbox'])
     assert.equal(select!.value, 'dnd')
     assert.equal(view.el.querySelector('#org-inbox-dnd-warning')?.textContent?.includes('Hubchat'), true)
     assert.equal(view.el.querySelector('#org-inbox-dnd-warning')?.textContent?.includes('not read or delivered automatically'), true)
