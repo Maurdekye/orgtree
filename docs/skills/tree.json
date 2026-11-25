@@ -4226,16 +4226,18 @@
     "np:exitOnClose",
     "np:automaticUpdates",
     "bridge:setRunAsAdministrator",
-    "bridge:moveDataLocation"
+    "bridge:moveDataLocation",
+    "np:inboxDragMode"
    ],
-   "purpose": "Runtime > desktop behavior and Data location: run on boot (where agents and the engine run), exit on close, automatic updates, Run as admin, and moving Orgtree's local data folder.",
+   "purpose": "Runtime > desktop behavior, Data location and Org mailbox: run on boot (where agents and the engine run), exit on close, automatic updates, Run as admin, moving Orgtree's local data folder, and what dragging an agent onto the org mailbox does.",
    "must_cover": [
     "each switch, default and effect",
     "installer Finish launch: token-based native/original-user dispatch, exclusive ownership and installer log before engine startup",
     "restarting the background engine: always in Session 0 through the boot task (decision 94), the sign-in helper attaching within seconds, Start engine",
     "run on boot: the engine at boot in Session 0, agents in the signed-in session while the user is signed in; \"run on sign-in\" where Orgtree cannot start at boot",
     "Run as admin: one switch and one prompt per change for the Session 0 engine and the sign-in helper, always together, applied at once; no Run this session as admin in 4.4.0",
-    "Data location: <userData>/data-location.json, ORGTREE_V2_DATA override, non-empty Orgtree data subfolder rule, owner-only ACL and ancestor trust, offline verified copy and rollback, unticked delete checkbox and Delete previous folder, crash-resumable path relocation"
+    "Data location: <userData>/data-location.json, ORGTREE_V2_DATA override, non-empty Orgtree data subfolder rule, owner-only ACL and ancestor trust, offline verified copy and rollback, unticked delete checkbox and Delete previous folder, crash-resumable path relocation",
+    "Org mailbox: Dragging an agent onto the org mailbox, its three choices (Make it the holder default, Ask each time, Add a weak link if it already has a holder), the no-holder/holder/already-weak/project edges and the drag label"
    ],
    "sources": [
     "apps/desktop/renderer/src/canvas/desktopsettings.tsx:50",
@@ -4273,6 +4275,10 @@
     {
      "file": "apps/desktop/renderer/src/canvas/desktopsettings.tsx",
      "label": "Previous folder"
+    },
+    {
+     "file": "apps/desktop/renderer/src/canvas/desktopsettings.tsx",
+     "label": "Dragging an agent onto the org mailbox"
     },
     {
      "file": "apps/desktop/renderer/src/canvas/onboarding.tsx",
@@ -4315,6 +4321,13 @@
       "getDataLocationState",
       "moveDataLocation",
       "deletePreviousDataLocation"
+     ]
+    },
+    {
+     "key": "np:inboxDragMode",
+     "file": "apps/desktop/renderer/src/canvas/desktopsettings.tsx",
+     "needles": [
+      "inboxDragMode"
      ]
     }
    ],
