@@ -199,7 +199,10 @@
 .dm-conv .dm-jump:hover { border-color: var(--button-accent); }
 .dm-timeline-inner { max-width: 880px; margin: 0 auto; display: flex; flex-direction: column; }
 /* older messages load by themselves as the top comes near: this only says so while a page is on its way */
-.dm-panel .dm-older { align-self: center; margin: 8px 0; font-size: 12px; color: var(--dim); }
+/* an overlay at the top that takes no room (its negative margin gives back its height): a page on its way never
+   moves the chat (USER 2026-11-25 mc186df41cb3c "offsetting the chat") */
+.dm-panel .dm-older { position: sticky; top: 6px; z-index: 2; align-self: center; height: 22px; line-height: 22px; margin: 0 0 -22px;
+  padding: 0 10px; border-radius: 11px; font-size: 12px; color: var(--dim); background: var(--panel); }
 .dm-history-error { align-self: center; font-size: 12.5px; color: var(--bad); margin: 6px 0; }
 .dm-day { display: flex; justify-content: center; margin: 14px 0 8px; pointer-events: none; }
 .dm-day span {

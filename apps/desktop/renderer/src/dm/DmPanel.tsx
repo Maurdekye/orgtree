@@ -594,10 +594,11 @@ export function DmPanel({ slug, tree, toast, refresh, close, jumpTo, jumpSeq, op
                   toast={toast} refs={refs} onFocusAgent={focusAgent} flash={flash}
                   onFlash={key => setFlash({ key, seq: Date.now() })}
                   {...(ownPages ? {
-                    ownPages: true, hasMore: chatPages.hasMore, loadingMore: chatPages.loading, historyMark: `chat|${chatPages.cursor ?? ''}`,
+                    ownPages: true, hasMore: chatPages.hasMore, loadingMore: chatPages.loading, loadingOlder: chatPages.loadingOlder, historyMark: `chat|${chatPages.cursor ?? ''}`,
                     onLoadMore: () => chatPages.loadMore(), historyError: chatPages.error, onRetryHistory: () => chatPages.retry(),
                   } : {
                     ownPages: false, hasMore: inbox.hasMore || outbox.hasMore, loadingMore: inbox.loading || outbox.loading,
+                    loadingOlder: inbox.loadingOlder || outbox.loadingOlder,
                     historyMark: `${inbox.cursor ?? ''}|${outbox.cursor ?? ''}`,
                     onLoadMore: () => { inbox.loadMore(); outbox.loadMore() }, historyError: inbox.error ?? outbox.error,
                     onRetryHistory: () => { if (inbox.error) inbox.retry(); if (outbox.error) outbox.retry() },
@@ -801,7 +802,7 @@ function DmStanding({ chat, onFocusAgent }: { chat: DmChat; onFocusAgent?: (id: 
   </>
 }
 
-function DmConversation({ slug, tree, chat, nodes, toast, refs, onFocusAgent, flash, onFlash, writing, ownPages, hasMore, loadingMore, historyMark,
+function DmConversation({ slug, tree, chat, nodes, toast, refs, onFocusAgent, flash, onFlash, writing, ownPages, hasMore, loadingMore, loadingOlder, historyMark,
   onLoadMore, historyError, onRetryHistory, onClose, onCloseHover, onApprove, onAgentSettings, readNow, onDelete, onChanged }: {
   slug: string; tree: TreePayload; chat: DmChat; nodes: Map<string, DmNode>
   toast: ToastFn; refs: RefRoutes
@@ -816,6 +817,8 @@ function DmConversation({ slug, tree, chat, nodes, toast, refs, onFocusAgent, fl
   /** show this entry of the chat: scroll it into view and mark it */
   onFlash: (key: string) => void
   hasMore: boolean; loadingMore: boolean; onLoadMore: () => void
+  /** an older page is on its way: never the regular read of the newest mail (usemailhistory `loadingOlder`) */
+  loadingOlder: boolean
   historyError: string | null; onRetryHistory: () => void
   onClose: () => void
   onCloseHover: (hover: boolean) => void
@@ -968,10 +971,18 @@ function DmConversation({ slug, tree, chat, nodes, toast, refs, onFocusAgent, fl
    *  seen to go true and false: React may draw a request and its answer in one
    *  render, and a chain that waited to see `true` stopped there (measured). */
   const asked = useRef<string | null>(null)
-  /** an older page asked for by this chat is on its way: only then "loading older messages…" shows. The
-   *  mailbox's `loading` is also true for its regular read of the newest mail, and that row at the top made the
-   *  browser's scroll anchoring scroll the chat under an open menu (measured, alpha.1 kit 22a) */
-  const [askingOlder, setAskingOlder] = useState(false)
+  /** "loading older messages…" shows only while an older page is on its way (`loadingOlder`: never the regular
+   *  read of the newest mail, which made the browser's scroll anchoring scroll the chat under an open menu,
+   *  alpha.1 kit 22a) and only in a chat that fills its view: one that does not reads its older pages by
+   *  itself, and its row flickered there every second (4.7.0-alpha.5, USER 2026-11-25 mc186df41cb3c). The row
+   *  is an overlay that takes no room (dm.css .dm-older), so it never moves the chat either. ⚠ It once read
+   *  `loading && asked`: a regular read that replaced the page on its way left the chat "asking" for good,
+   *  and every later read (each new mail, each send: m8e421f3791ee) drew the row (measured, dmpanel.test.tsx). */
+  const [fills, setFills] = useState(false)
+  useLayoutEffect(() => {
+    const el = scroller.current, now = !!el && el.scrollHeight > el.clientHeight + 1
+    if (now !== fills) setFills(now)
+  })
   const state = useRef({ start, hasMore, loadingMore, historyError, count: all.length, mark: historyMark, ownPages })
   state.current = { start, hasMore, loadingMore, historyError, count: all.length, mark: historyMark, ownPages }
   const onLoadMoreRef = useRef(onLoadMore)
@@ -1000,7 +1011,6 @@ function DmConversation({ slug, tree, chat, nodes, toast, refs, onFocusAgent, fl
     if (!page) { setShown(n => n + DM_PAGE); return }
     before.current = now.count
     asked.current = now.mark
-    setAskingOlder(true)
     onLoadMoreRef.current()
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
@@ -1033,10 +1043,9 @@ function DmConversation({ slug, tree, chat, nodes, toast, refs, onFocusAgent, fl
   // a page has arrived (or its read failed): count it, and go on while the top is near
   useEffect(() => {
     if (asked.current === null || loadingMore) return
-    if (historyError) { asked.current = null; setAskingOlder(false); return }
+    if (historyError) { asked.current = null; return }
     if (asked.current === historyMark) return
     asked.current = null
-    setAskingOlder(false)
     idle.current = state.current.count > before.current ? 0 : idle.current + 1
     nearTop(false)
   }, [loadingMore, historyMark, historyError, nearTop])
@@ -1472,7 +1481,7 @@ function DmConversation({ slug, tree, chat, nodes, toast, refs, onFocusAgent, fl
         onWheel={(e) => { userMoves(); if (e.deltaY < 0 && (scroller.current?.scrollTop ?? 1) <= 0) older(true) }}>
         <div className="dm-timeline-inner">
           {/* no button: older messages load as the top comes near (`older`) */}
-          {loadingMore && askingOlder && <div className="dm-older" role="status">loading older messages…</div>}
+          {loadingOlder && fills && <div className="dm-older" role="status">loading older messages…</div>}
           {historyError && <div role="alert" className="dm-history-error">Could not load older mail. <button onClick={onRetryHistory}>Retry</button></div>}
           {!all.length && <div className="dm-start">
             <DmAvatar chat={chat} />

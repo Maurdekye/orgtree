@@ -50,8 +50,8 @@ export function useMailboxHistory(slug: string, rawBase: InboxPayload | null | u
   const base = useMemo(() => rawBase == null ? rawBase : mailbox(rawBase), [rawBase])
   const identity = JSON.stringify([slug, node ?? null, folder, peer ?? null])
   const [state, setState] = useState({ identity, box: empty(), cursor: null as string | null,
-    paged: false, ready: false, loading: false, error: null as string | null, errorStatus: null as number | null, deleted: [] as string[], read: [] as string[] })
-  const current = state.identity === identity ? state : { ...state, identity, box: empty(), cursor: null, paged: false, ready: false, loading: false, error: null, errorStatus: null, deleted: [], read: [] }
+    paged: false, ready: false, loading: false, older: false, error: null as string | null, errorStatus: null as number | null, deleted: [] as string[], read: [] as string[] })
+  const current = state.identity === identity ? state : { ...state, identity, box: empty(), cursor: null, paged: false, ready: false, loading: false, older: false, error: null, errorStatus: null, deleted: [], read: [] }
   const latest = useRef(current); latest.current = current
   const generation = useRef(0), busy = useRef(false), retryCursor = useRef<string | undefined>(undefined)
   const revision = JSON.stringify([base?.mail_revision, base?.pending.map(m => m.id), base?.delivered.map(m => m.id), base?.sent.map(m => m.id)])
@@ -59,7 +59,7 @@ export function useMailboxHistory(slug: string, rawBase: InboxPayload | null | u
     const chat = folder === 'chat' && !!peer
     if (busy.current || (folder !== 'inbox' && folder !== 'sent' && !chat)) return
     busy.current = true; retryCursor.current = before
-    setState(old => ({ ...(old.identity === identity ? old : { ...current }), identity, loading: true, error: null, errorStatus: null }))
+    setState(old => ({ ...(old.identity === identity ? old : { ...current }), identity, loading: true, older: !!before, error: null, errorStatus: null }))
     const retained = latest.current.identity === identity ? latest.current.box : empty()
     void getMailHistory(slug, folder as 'inbox' | 'sent' | 'chat', before, node, peer).then(async value => {
       if (generation.current !== request) return
@@ -88,11 +88,11 @@ export function useMailboxHistory(slug: string, rawBase: InboxPayload | null | u
       }
       setState(old => ({ ...old, identity, box,
         cursor: !before && old.identity === identity && old.paged ? old.cursor : page.next_cursor ?? null,
-        paged: !!before || old.paged, ready: true, loading: false, error: null, errorStatus: null }))
+        paged: !!before || old.paged, ready: true, loading: false, older: false, error: null, errorStatus: null }))
     }).catch((e: Error) => {
       // the engine's own answer (an HTTP status) is told apart from a read that never got one
       const status = (e as { status?: unknown }).status
-      if (generation.current === request) setState(old => ({ ...old, loading: false, error: e.message, errorStatus: typeof status === 'number' ? status : null }))
+      if (generation.current === request) setState(old => ({ ...old, loading: false, older: false, error: e.message, errorStatus: typeof status === 'number' ? status : null }))
     }).finally(() => { if (generation.current === request) busy.current = false })
   // The request's identity, not the current rows, owns the response.
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -117,6 +117,9 @@ export function useMailboxHistory(slug: string, rawBase: InboxPayload | null | u
   // `cursor` names the next page: it changes when a page has arrived, also when React drew the request and
   // its answer in one render (so `loading` was never seen true)
   return { box, hasMore: !!current.cursor, cursor: current.cursor, loading: current.loading, error: current.error,
+    /** an OLDER page is on its way (a `before` read), never the regular read of the newest mail; a regular read
+     *  that replaces a page on its way ends it (4.7.0-alpha.5 flicker, @ticket:orgtree/mailbox-dm-panel-loading-older-messages-flickers) */
+    loadingOlder: current.loading && current.older,
     /** the HTTP status of the failed read, when the engine answered it; null for a read that got no answer */
     errorStatus: current.errorStatus,
     /** the first read has answered */
