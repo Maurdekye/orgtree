@@ -6,6 +6,7 @@ import { grantLimits, hireGrantMax } from './creditgrant'
 import { QueuedAccountBadge, QueuedModelBadge, QueuedFastBadge, SessionZeroBadge } from './nextturn'
 import { DndBadge } from './dnd'
 import { hireTierDisabledReason, hireTierOffer, modelTierOffer, signedOutHire } from './shared'
+import { useClassicMailbox, userMailboxTitle } from '../mailboxpref'
 import { chooseAccountText, hireAwaitsAccount } from './hireaccount'
 import { CreditBarPaint, CreditBarStats, creditBarBackground } from './creditbarpaint'
 import { creditSegments } from './creditsegments'
@@ -166,6 +167,7 @@ export function UserNode({ pos, isDrop, stats, pip, seats, codexHire, claudeHire
   // for "show me the shortcut buttons", not a second one that could be set
   // differently and leave the reader wondering which card obeys which.
   const showShortcuts = useAgentShortcuts()
+  const classicView = useClassicMailbox()
   const menu = useContextMenu()
   const [askingRetireAll, setAskingRetireAll] = useState(false)
   const [askingCompactAll, setAskingCompactAll] = useState(false)
@@ -316,7 +318,7 @@ export function UserNode({ pos, isDrop, stats, pip, seats, codexHire, claudeHire
           the ask count wears the vibrant pulsing form, plain unread the
           muted one */}
       {!focused && showShortcuts && onInbox && <button className="eye-inbox"
-        title={pip?.title ?? 'your inbox'} aria-label="your inbox"
+        title={pip?.title ?? userMailboxTitle(classicView).toLowerCase()} aria-label="your inbox"
         onPointerDown={(e) => e.stopPropagation()}
         onClick={(e) => { e.stopPropagation(); onInbox() }}>
         {/* the user mailbox panel's own icon (dm/mailboxicon.tsx) */}

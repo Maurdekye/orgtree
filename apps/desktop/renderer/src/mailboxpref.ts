@@ -54,6 +54,10 @@ export const useOpenChatOnReply = (): boolean => useSyncExternalStore(subscribe,
 /** The settings' names and help, in one place for the title-bar switch, the
  *  Display tab and the settings search (sentence case). */
 export const CLASSIC_MAILBOX_LABEL = 'Classic mailbox'
+/** The window's name follows the view, live (USER 2026-11-25 m3599f869626b "rename the window from "your inbox"
+ *  to "your chats" when the new version is enabled", then m5e271cdf9dd1: "Chats"): its title, a popped-out window's title, and the tooltips
+ *  that name it. The mailbox itself, its shortcut and the glossary keep "Inbox". Shared with the Open chat
+ *  tooltip (@ui-canvas-overlay-opus). */
 export const CHATS_TITLE = 'Chats'
 export const INBOX_TITLE = 'Your inbox'
 export const userMailboxTitle = (classic: boolean): string => classic ? INBOX_TITLE : CHATS_TITLE

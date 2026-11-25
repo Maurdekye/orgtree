@@ -155,7 +155,7 @@ import {
 import { MailboxIcon } from './dm/mailboxicon'
 import { ClassicMailboxToggle } from './dm/classictoggle'
 import { DmPanel } from './dm/DmPanel'
-import { onChatRequest, setClassicMailbox, useClassicMailbox } from './mailboxpref'
+import { INBOX_TITLE, onChatRequest, setClassicMailbox, useClassicMailbox, userMailboxTitle } from './mailboxpref'
 import { DirList } from './forms'
 import { FolderPickerHost } from './picker'
 import { activeDocCount, ALL_TIERS, attentionPip, deskDpi, fmtCredits, formatCount, isOpenRouterTier, jumpKey, jumpTo, orgPxc, presenceOfPayload, primedRestartChip, setDeskDpi, syncProviderRegistries, TIER_LETTER, tierLabel, unicodeLength, usePolled } from './canvas/shared'
@@ -386,13 +386,14 @@ export function AskBell({ tree, onOpen, label }: {
   // that cannot see it — so the SAME claim is spelled out in the title, which
   // is this icon-only button's accessible name. Otherwise the dot would be a
   // signal only sighted users get.
+  const classic = useClassicMailbox()
   const pending = usePendingAttention()
   const rows = waitingNow(pending).filter((w) => w.org === tree.slug)
   const waiting = rows.length > 0
   return (
     <button className={'iconbtn ask-bell' + (pip?.urgent ? ' glow' : '')}
       aria-label={label}
-      title={(pip?.title ?? 'your inbox')
+      title={(pip?.title ?? userMailboxTitle(classic).toLowerCase())
         + (waiting ? ` — ${rows.length} request(s) still waiting on you` : '')}
       onClick={onOpen}>
       {/* the panel's own icon: a chat bubble, or the mail icon while the
@@ -3407,9 +3408,9 @@ export function InboxPanel({ slug, tree, toast, refresh, close, jumpTo, jumpSeq,
       node={nodes.get(m._ask.node)} toast={toast} refs={mailRefs} />
   }
   return (
-    <PinFrame kind="inbox" title="Your inbox" panel="settings wide"
+    <PinFrame kind="inbox" title={INBOX_TITLE} panel="settings wide"
       close={close} headerActions={headerActions}>
-        <h3><MailIcon fontSize="inherit" /> Your inbox</h3>
+        <h3><MailIcon fontSize="inherit" /> {INBOX_TITLE}</h3>
         {userReqs.length > 0 && (
           <>
             <div className="field-label">audience requests</div>

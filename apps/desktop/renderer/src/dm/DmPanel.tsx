@@ -110,7 +110,7 @@ import {
 } from '../icons'
 import { fmtDay, fmtFull, fmtHm, fmtStamp, isToday } from '../timefmt'
 import { useSurfaceDocument } from '../popout'
-import { setShownChat } from '../mailboxpref'
+import { CHATS_TITLE, setShownChat } from '../mailboxpref'
 import { dmAudienceLoss, dmChats, dmClose, dmNodes, dmReceipt, dmWaiting, dmWriting } from './model'
 import type { DmChat, DmEntry, DmNode } from './model'
 import './dm.css'
@@ -584,8 +584,8 @@ export function DmPanel({ slug, tree, toast, refresh, close, jumpTo, jumpSeq, op
        and its icon, not its name; every other place that names it (its
        shortcut, the eye card's menu, the header button) says Inbox, and a
        second name for one panel would be the asymmetry the app avoids. */
-    <PinFrame kind="inbox" title="Your inbox" panel="settings wide dm-panel" close={close} headerActions={headerActions}>
-      <h3><ChatBubbleIcon fontSize="inherit" /> Your inbox</h3>
+    <PinFrame kind="inbox" title={CHATS_TITLE} panel="settings wide dm-panel" close={close} headerActions={headerActions}>
+      <h3><ChatBubbleIcon fontSize="inherit" /> {CHATS_TITLE}</h3>
       <div className="mailpane">
         {/* a chat row, and an agent picked in New chat, close the narrow overlay: the chat they open is behind it */}
         <CollapsibleMailer collapsible listLabel="chat list" list={list} className="dm" rootRef={mailer}

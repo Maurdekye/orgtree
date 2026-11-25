@@ -13,7 +13,8 @@ export function ClassicMailboxToggle() {
     <label className="modalpin-active-filter" title={CLASSIC_MAILBOX_HINT}>
       <input type="checkbox" aria-label={CLASSIC_MAILBOX_LABEL} checked={on}
         onChange={event => setClassicMailbox(event.currentTarget.checked)} />
-      <span>classic</span>
+      {/* "classic inbox" (USER 2026-11-25 mf9341d56d281) */}
+      <span>classic inbox</span>
     </label>
   )
 }
