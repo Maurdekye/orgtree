@@ -177,11 +177,13 @@ const server = createServer(async (req, res) => {
   const message = p.match(/^\/nodes\/([^/]+)\/message$/)
   if (message && req.method === 'POST') {
     // the clock (section 23): the engine has not taken it until the kit lets it go
+    const wasHeld = holdSends
     if (holdSends) await new Promise(resolve => held.push(resolve))
     const id = `sent-${++seq}`
     // a reply names what it answers; the engine hands the quote back with the mail
     const original = body.target?.kind === 'mail' ? everyMail().find(x => x.id === body.target.id) : null
-    world.sent.push({ id, from: USER, to: decodeURIComponent(message[1]), at: new Date().toISOString(), kind: 'message', body: body.text,
+    // a held send (section 23) is stored as an engine that reports delivery does: not yet delivered, so its clock becomes the sent check
+    world.sent.push({ id, from: USER, to: decodeURIComponent(message[1]), at: new Date().toISOString(), kind: 'message', body: body.text, ...(wasHeld ? { delivered: false } : {}),
       ...(original ? { reply_to: { id: original.id, kind: 'mail', from: original.from, at: original.at, gist: original.body, org: 'mine', box: 'user' } } : {}) })
     return send({ accepted: true, id, ref: `@mail:${id}` })
   }
@@ -499,10 +501,12 @@ if (flag === '--expect') {
     const OLD_READ = { charcoal: [111, 211, 119], 'obsidian-black': [111, 211, 119], light: [35, 114, 45], 'solarized-light': [35, 114, 45] } // --ok before
     const seen = {}
     for (const theme of ['charcoal', 'light', 'solarized-light', 'obsidian-black']) {
-      const rows = v.tickColours[theme], shown = rows.filter(r => r.inView)
-      const of = (cls) => shown.find(r => r.cls === `dm-tick ${cls}`)
-      const sent = of('t-sent'), read = of('t-read'), clock = of('t-queued')
-      assert.ok(sent && read && clock, `${theme}: a sent check, a read check and the clock on screen together (${rows.map(r => r.cls + (r.inView ? '' : ' (off)')).join(', ')})`)
+      const { newest, higher } = v.tickColours[theme]
+      const of = (rows, cls) => rows.filter(r => r.inView).find(r => r.cls === `dm-tick ${cls}`)
+      const list = (rows) => rows.map(r => r.cls + (r.inView ? '' : ' (off)')).join(', ')
+      const read = of(newest, 't-read'), clock = of(newest, 't-queued'), sent = of(higher, 't-sent')
+      assert.ok(read && clock, `${theme}: a read check and the clock on screen at the newest message (${list(newest)})`)
+      assert.ok(sent, `${theme}: the sent check on screen once u4 is in view (${list(higher)})`)
       assert.equal(clock.label, 'Sending', `${theme}: the clock is the held send`)
       const bubble = parse(sent.bubble).rgb, readBubble = parse(read.bubble).rgb
       const s = over(sent.color, sent.bubble), r = over(read.color, read.bubble), wasSent = over(sent.time, sent.bubble)
@@ -519,7 +523,9 @@ if (flag === '--expect') {
     assert.notEqual(seen.charcoal.sent, seen.light.sent, 'POSITIVE CONTROL: the theme switch reached the ticks')
     const rel = v.tickColours.released
     assert.equal(rel.filter(r => r.cls === 'dm-tick t-queued').length, 0, 'the engine took it: no clock left')
-    assert.equal(rel[rel.length - 1].cls, 'dm-tick t-sent', 'the clock became the sent check')
+    const last = rel[rel.length - 1]
+    assert.equal(last.cls, 'dm-tick t-sent', `the clock became the sent check (${rel.map(r => r.entry + ':' + r.cls).join(', ')})`)
+    assert.ok(last.inView, 'on screen, at the newest message')
     v.tickSeen = seen
   }
   checked.push('tick colours')

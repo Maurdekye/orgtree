@@ -651,15 +651,24 @@ module.exports = async (page) => {
   v.tickColours = {}
   for (const theme of ['charcoal', 'light', 'solarized-light', 'obsidian-black']) {
     await page.eval((id) => window.__dm.theme(id), theme)
+    // the held message (its clock) and the read checks under it, at the newest message
     await page.eval(() => { const el = document.querySelector('.dm-timeline'); el.scrollTop = el.scrollHeight })
     await page.sleep(400)
-    v.tickColours[theme] = await tickColours()
-    await shot(`23-ticks-sent-read-and-clock-${theme}`)
+    const newest = await tickColours()
+    await shot(`23-ticks-read-and-clock-${theme}`)
+    // the one still-sent message (u4) sits higher up: brought into view for its own sample and shot
+    await page.eval(() => document.querySelector('[data-dm-entry="u4"]')?.scrollIntoView({ block: 'center' }))
+    await page.sleep(400)
+    const higher = await tickColours()
+    await shot(`23-ticks-sent-${theme}`)
+    v.tickColours[theme] = { newest, higher }
   }
   await page.eval(() => window.__dm.theme('charcoal'))
   await page.api('GET', '/__hold?on=0')
   await until('the clock to become the sent check', async () => page.eval(() => !document.querySelector('.dm-msg.out .dm-tick.t-queued')), 12000)
   await page.sleep(400)
+  await page.eval(() => { const el = document.querySelector('.dm-timeline'); el.scrollTop = el.scrollHeight })
+  await page.sleep(300)
   v.tickColours.released = await tickColours()
   await shot('23-the-clock-became-the-sent-check')
 
