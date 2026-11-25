@@ -97,6 +97,38 @@ test("a hub's connections are rows: a presence dot and the chip, with no words b
   }
 })
 
+test("Org settings › Connections: a 2.6.0 hub's rows carry the list's red block ×; a blocked row shows its badge and unblock", async t => {
+  // USER 2026-11-25 21:50:37Z m706c3054c21d "add the same button next to the entries in the lists under mailservers in
+  // the org connections tab, integrate it into the ux and style of the general list component"
+  const posts: unknown[] = []
+  let blocked = [{ address: 'beta.home.bb0002', set_by: '@user', reason: null, at: '2026-11-25T15:00:00Z' }]
+  const old = globalThis.fetch
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = String(input)
+    if (url.endsWith('/net/blocks') && init?.method === 'POST') {
+      const b = JSON.parse(String(init.body)) as { address: string; blocked: boolean }
+      posts.push(b)
+      blocked = b.blocked ? [...blocked, { address: b.address, set_by: '@user', reason: null, at: '2026-11-25T15:00:00Z' }] : blocked.filter(x => x.address !== b.address)
+    }
+    const body = url.endsWith('/net/blocks') ? { blocked, blocked_by: [] } : url.endsWith('/api/desktop/phone') ? { hubchat_pc: false } : { recent: {} }
+    return new Response(JSON.stringify(body), { headers: { 'Content-Type': 'application/json' } })
+  }) as typeof fetch
+  t.after(async () => { globalThis.fetch = old; await inAct(async () => { resetNetMentions(); setHubchatInstalled(false); await flush(2) }) })
+  const view = await mountTab(t, netOf([
+    { slug: 'alpha.home.aa0001', org_name: 'alpha test', kind: 'org', online: true },
+    { slug: 'beta.home.bb0002', org_name: 'beta test', kind: 'org', online: true },
+  ], { version: '2.6.0', blocks: ['beta.home.bb0002'], blocked_by: [] }))
+  const row = (slug: string) => rows(view.el).find(r => addressOf(r) === '@net:' + slug)!
+  const x = row('alpha.home.aa0001').querySelector<HTMLButtonElement>('button.conn-x') ?? assert.fail('no × on alpha')
+  assert.equal(x.title, 'Block @net:alpha.home.aa0001: no messages either way')
+  assert.equal(row('beta.home.bb0002').querySelector('button.conn-x'), null)
+  assert.ok(row('beta.home.bb0002').querySelector('.oi-blocked'))
+  assert.deepEqual([...row('beta.home.bb0002').querySelectorAll('button.link')].map(b => b.textContent), ['unblock'])
+  await inAct(async () => { x.click(); await flush(4) })
+  assert.deepEqual(posts, [{ address: 'alpha.home.aa0001', blocked: true }])
+  assert.equal(row('alpha.home.aa0001').querySelector('button.conn-x'), null, 'blocked now')
+})
+
 test('online first, then the newest mail with this org; no mail last, A-Z; equal times A-Z', async t => {
   const urls = serve(t, url => url === '/api/orgs/acme/net/recent' ? { recent: {
     'zed.on.old': ago(3 * 1440), 'mike.on.new': ago(60), 'off.new': ago(10), 'off.old': ago(2 * 1440),

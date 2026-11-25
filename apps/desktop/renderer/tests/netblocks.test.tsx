@@ -30,7 +30,7 @@ async function mailservers(t: test.TestContext, answer: () => Response) {
   const list = [...view.el.querySelectorAll('.oi-net .oi-hub')].find(h => /blocked contacts/.test(h.textContent ?? ''))
   return { text: view.el.querySelector('.oi-net')?.textContent ?? '', list: list?.textContent ?? null,
     signs: [...view.el.querySelectorAll('.oi-net .oi-blocked')].map(s => s.getAttribute('aria-label')),
-    buttons: [...view.el.querySelectorAll('.oi-net button.link')].map(b => b.textContent) }
+    buttons: [...view.el.querySelectorAll('.oi-net button.link, .oi-net button.conn-x')].map(b => b.textContent) }
 }
 const json = (v: unknown, status = 200) => () => new Response(JSON.stringify(v), { status, headers: { 'X-Orgtree-Instance': 'fixture' } })
 
@@ -47,7 +47,7 @@ for (const [what, answer] of [
     assert.match(r.text, /Fixture hub/, 'the tab rendered')
     assert.equal(r.list, null, 'no blocked contacts list')
     assert.deepEqual(r.signs, [], 'no red sign')
-    assert.deepEqual(r.buttons, ['block'], 'Alice still has a block button')
+    assert.deepEqual(r.buttons, ['×'], 'Alice still has a block button (the red ×, USER 2026-11-25 21:49:37Z m8ee22829e340)')
   })
 }
 
