@@ -77,6 +77,8 @@ interface World {
   /** older history, a page per entry: the first read says there is more, and
    *  `before=<n>` returns page n (1-based) */
   older?: { delivered?: unknown[]; sent?: unknown[] }[]
+  /** an older page (any `before=` read) is answered only once this settles: a page on its way */
+  holdPages?: Promise<void>
 }
 
 function engine(world: World) {
@@ -154,12 +156,14 @@ function engine(world: World) {
           .sort((a, b) => (a.m.at < b.m.at ? 1 : a.m.at > b.m.at ? -1 : 0))
         const from = before ? Number(before) : 0
         if (before) pages.push(`chat:${before}`)
+        if (before && world.holdPages) await world.holdPages
         const page = rows.slice(from, from + 50)
         return json({ pending: page.filter(r => !r.sent && unread.has(r.m.id)).map(r => r.m), delivered: page.filter(r => !r.sent && !unread.has(r.m.id)).map(r => r.m),
           sent: page.filter(r => r.sent).map(r => r.m), next_cursor: from + 50 < rows.length ? String(from + 50) : null })
       }
       if (before) {
         pages.push(`${q.get('folder')}:${before}`)
+        if (world.holdPages) await world.holdPages
         const page = older[Number(before) - 1] ?? {}
         return json({ pending: [], delivered: page.delivered ?? [], sent: page.sent ?? [],
           next_cursor: Number(before) < older.length ? String(Number(before) + 1) : null })
@@ -2359,4 +2363,72 @@ test('New chat closes on a press outside it, which still acts; presses inside it
   assert.ok(open())
   await press(document.body, 'the page')
   assert.equal(open(), null, 'a press anywhere else closes it too')
+})
+
+// "LOADING OLDER MESSAGES…" NEVER FLICKERS (4.7.0-alpha.5, USER 2026-11-25 mc186df41cb3c "on chats with few or
+// no messages i see a flickering "loading older messages..." pop up for a frame every few seconds at the top,
+// offsetting the chat", m8e421f3791ee "also i see something similar for a frame when i send messages here above
+// my sent message"; @ticket:orgtree/mailbox-dm-panel-loading-older-messages-flickers). Measured causes:
+// (1) a chat that does not fill its view reads older pages by itself (every slowPageMs), and each read drew the
+// row; (2) a regular read that replaced an older page on its way left the chat "asking" for good, so every later
+// regular read (each new mail, each send) drew the row for its duration.
+const olderRows = () => {
+  const seen: string[] = []
+  const watch = new W.MutationObserver(ms => { for (const m of ms) for (const n of m.addedNodes) {
+    const el = n as Element
+    if (el.classList?.contains('dm-older') || el.querySelector?.('.dm-older')) seen.push(el.textContent ?? '')
+  } })
+  watch.observe(document.querySelector('.mailer-read')!, { childList: true, subtree: true })
+  return { seen, stop: () => watch.disconnect() }
+}
+
+test('the row never shows in a chat that does not fill its view, while it reads older pages by itself', async (t) => {
+  const { dmTiming } = await import('../src/dm/DmPanel')
+  const was = dmTiming.slowPageMs
+  dmTiming.slowPageMs = 5
+  t.after(() => { dmTiming.slowPageMs = was })
+  // an engine with no chat folder (as a project's chat): five pages of lead's mail, then worker's older message
+  const others = Array.from({ length: 5 }, (_, i) => ({ delivered: [mail(`x${i}`, 'lead', `2026-10-${String(20 - i).padStart(2, '0')}T10:00:00Z`)] }))
+  const s = await setup(t, {
+    audiences: [grant('worker')], delivered: [mail('m1', 'worker', '2026-11-20T10:00:00Z')], noChatFolder: true,
+    older: [...others, { delivered: [mail('m0', 'worker', '2026-10-01T10:00:00Z')] }],
+  }, { active: false })
+  const rows = olderRows()
+  t.after(rows.stop)
+  await s.openChat('worker')
+  for (let i = 0; i < 200 && !s.all<HTMLElement>('.dm-msg').some(m => m.dataset.dmEntry === 'm0'); i++) {
+    await inAct(async () => { await new Promise(resolve => setTimeout(resolve, 20)); await flush(6) })
+  }
+  assert.equal(s.server.pages.includes('inbox:6'), true, `POSITIVE CONTROL: the pages were read (${s.server.pages.join(' ')})`)
+  assert.deepEqual(rows.seen, [], 'no "loading older messages" row: the view has nothing to scroll')
+})
+
+test('a regular read that replaces an older page on its way does not leave the row coming back: not at the next mail, not at a send', { timeout: 40000 }, async (t) => {
+  layOut(t)
+  let release: () => void = () => {}
+  const world: World = { audiences: [grant('worker')], delivered: many(6, 100), older: [{ delivered: many(60, 0) }], keepSent: '2026-11-21T08:00:00Z',
+    holdPages: new Promise<void>(resolve => { release = resolve }) }
+  const s = await setup(t, world, { active: false })
+  await s.openChat('worker')
+  await scrollTo(4400)
+  await scrollTo(150)
+  assert.deepEqual(s.server.pages, ['chat:50'], 'POSITIVE CONTROL: the reader at the top asked for the next page, which is on its way')
+  assert.ok(document.querySelector('.dm-older'), 'POSITIVE CONTROL: a real older page on its way says so')
+  // a new mail: the chat's regular read replaces the page on its way, whose answer is then dropped
+  world.delivered = [...world.delivered!, mail('fresh1', 'worker', '2026-11-21T09:00:00Z')]
+  await nextRead()
+  release()
+  await inAct(async () => { await flush(30) })
+  assert.equal(document.querySelector('.dm-older'), null, 'nothing on its way now')
+  const rows = olderRows()
+  t.after(rows.stop)
+  world.delivered = [...world.delivered!, mail('fresh2', 'worker', '2026-11-21T09:30:00Z')]
+  await nextRead()
+  assert.ok(s.all<HTMLElement>('.dm-msg').some(m => m.dataset.dmEntry === 'fresh2'), 'POSITIVE CONTROL: the regular read brought the next mail')
+  await s.type('one more thing')
+  await s.send()
+  await inAct(async () => { await flush(30) })
+  await nextRead()
+  assert.ok(s.server.calls.some(c => /\/nodes\/worker\/message$/.test(c.path)), 'POSITIVE CONTROL: the message was sent')
+  assert.deepEqual(rows.seen, [], 'no "loading older messages" row for a read of the newest mail or a send')
 })
