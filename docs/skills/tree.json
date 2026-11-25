@@ -6200,9 +6200,11 @@
     "org:org_inbox_enabled",
     "org:org_inbox_multi_holder"
    ],
-   "purpose": "Connections > Normal operations, Do not disturb, Closed off mailbox and multiple holders.",
+   "purpose": "Connections > Org decides, Normal operations, Do not disturb, Closed off mailbox, the lockdown setting and multiple holders.",
    "must_cover": [
     "each mode",
+    "Org decides and the in-force annotation",
+    "the lockdown setting",
     "Hubchat warning",
     "user-only mode writes",
     "pull consumption and Normal resumption",
@@ -6221,6 +6223,10 @@
     {
      "file": "apps/desktop/renderer/src/orginboxpolicy.tsx",
      "label": "Outside communication"
+    },
+    {
+     "file": "apps/desktop/renderer/src/orginboxpolicy.tsx",
+     "label": "Lockdown"
     },
     {
      "file": "apps/desktop/renderer/src/orginboxpolicy.tsx",
