@@ -51,7 +51,7 @@ try {
 writeFileSync(path.join(evidence, 'result.json'), JSON.stringify(result, null, 2))
 if (!result.ok) { console.log(JSON.stringify({ ok: false, error: result.error, out: evidence })); process.exit(1) }
 
-const v = result.value, CY = 'cy.fixture.cc0033', ALICE = 'alice.fixture.aa0011'
+const v = result.value, CY = 'cy.fixture.cc0033', ALICE = 'alice.fixture.aa0011', BOB = 'bob.fixture.bb0022'
 const red = c => { const [r, g, b] = (c.match(/\d+/g) ?? []).map(Number); return r > 150 && r > g * 1.6 && r > b * 1.6 }
 const checks = []
 const check = (name, f) => { f(); checks.push(name) }
@@ -96,7 +96,7 @@ check('7: the lockdown list is the shared list under its hub, each with a × tha
   assert.deepEqual(l.rows.map(r => r.x).sort(), [`Take @net:${DEE} off the lockdown list`, `Take @net:${GONE} off the lockdown list`])
 })
 check('8: Add opens a searchable dropdown of connected contacts not listed; a choice adds at once; × removes', () => {
-  assert.deepEqual(v.addAll, [ALICE, CY], 'Dee is listed already; Gone is not connected')
+  assert.deepEqual(v.addAll, [ALICE, BOB, CY], 'every connected contact on any hub (Bob is on the 2.5.0 hub B); Dee is listed already; Gone is not connected')
   assert.deepEqual(v.addSearch, [ALICE])
   assert.deepEqual(v.lockAdded.rows.map(r => r.address).sort(), [`@net:${ALICE}`, `@net:${DEE}`, `@net:${GONE}`])
   assert.deepEqual(v.lockRemoved.rows.map(r => r.address).sort(), [`@net:${ALICE}`, `@net:${DEE}`])

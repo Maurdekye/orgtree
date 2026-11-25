@@ -28,14 +28,15 @@
    button by each entry"): at the row's end, quiet until the row is hovered or
    it has focus, red on its own hover. It blocks in a hub's list and takes an
    address off the lockdown list there. */
-.conn-x {
-  flex: none; margin-left: auto; width: 1.45em; height: 1.45em; padding: 0;
+.conn-row > button.conn-x {
+  flex: none; margin-left: auto; box-sizing: border-box;
+  width: 18px; height: 18px; min-width: 0; min-height: 0; max-width: 18px; padding: 0;
   display: inline-flex; align-items: center; justify-content: center;
   border: none; border-radius: 50%; background: transparent; cursor: pointer;
-  color: var(--bad); opacity: 0.7; font-size: 1.05em; line-height: 1;
+  color: var(--bad); opacity: 0.7; font-size: 14px; line-height: 1;
 }
-.conn-row:hover .conn-x, .conn-x:focus-visible { opacity: 1; }
-.conn-x:hover { background: color-mix(in srgb, var(--bad) 16%, transparent); opacity: 1; }
+.conn-row:hover > button.conn-x, .conn-row > button.conn-x:focus-visible { opacity: 1; }
+.conn-row > button.conn-x:hover { background: color-mix(in srgb, var(--bad) 16%, transparent); opacity: 1; }
 .presence-dot {
   flex: none; display: inline-block; box-sizing: border-box;
   width: 10px; height: 10px; border-radius: 50%;
