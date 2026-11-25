@@ -394,6 +394,8 @@ pub async fn send_extern(engine: &Arc<Engine>, org_id: i64, out: &Outgoing) -> R
         }
     }
     if let Some(peer) = to.strip_prefix("net:") {
+        // lockdown: the org may still write to an unlisted address, warned; a question to one is refused (Q4, I8)
+        let lockdown_warning = { let c = engine.db.get().await?; crate::net::lockdown::outbound(&**c, org_id, peer, &out.kind).await? };
         let sender = match &out.from { From::Agent { id,generation,.. } => Some((*id,*generation)), _ => None };
         // D10: the reply remembers its job (written in the queueing transaction itself, after the right is re-checked
         // there), so the peer's answer can route back into the worker's thread (D13)
@@ -405,7 +407,10 @@ pub async fn send_extern(engine: &Arc<Engine>, org_id: i64, out: &Outgoing) -> R
             uid,
             to,
             recipient_state: "remote".into(),
-            delivery: "Queued for the mail hub. The message waits until all files are uploaded; inspect transfer_ids with orgtree_transfers (the org mailbox also shows progress).".into(),
+            delivery: {
+                let queued = "Queued for the mail hub. The message waits until all files are uploaded; inspect transfer_ids with orgtree_transfers (the org mailbox also shows progress).";
+                match lockdown_warning { Some(w) => format!("{queued} {w}"), None => queued.to_string() }
+            },
             deferred: false,
         });
     }
@@ -678,7 +683,7 @@ pub async fn watch_failover(engine: &Arc<Engine>) -> Result<()> {
         let tx = c.transaction().await?;
         let Some((Some(was), None)) = note_acting(&*tx, org_id, None).await? else { continue };
         let contacts: Vec<String> = tx.query(
-            "SELECT DISTINCT peer FROM ot.org_inbox WHERE org_id=$1 AND dir='in' AND delivered_to ? $2 AND at >= coalesce($3, '-infinity'::timestamptz) ORDER BY peer",
+            "SELECT DISTINCT peer FROM ot.org_inbox WHERE org_id=$1 AND dir='in' AND set_aside_at IS NULL AND delivered_to ? $2 AND at >= coalesce($3, '-infinity'::timestamptz) ORDER BY peer",
             &[&org_id, &was, &since]).await?.iter().map(|r| r.get(0)).collect();
         let handled = if contacts.is_empty() { "no new outside mail".to_string() } else { format!("new outside mail from {}", contacts.join(", ")) };
         let user = format!("A holder of {slug}'s org mailbox can receive mail again: @{was} is no longer acting holder, and new outside mail goes to the holder. @{was} handled {handled}.");
@@ -1407,6 +1412,18 @@ mod delivered_to_tests {
         let pull = include_str!("../tools/org_inbox.rs");
         assert!(pull.contains("delivered_to=$3") && pull.contains("orginbox::delivered_with(&row,&[who.name.as_str()])"),
             "a Do not disturb pull adds the pulling agent");
+    }
+}
+
+#[cfg(test)]
+mod set_aside_tests {
+    /// Set-aside letters stay out of the acting link's handover summary (lockdown review B4; the other paths are
+    /// checked in net/lockdown_tests.rs).
+    #[test] fn the_acting_handover_summary_leaves_set_aside_letters_out() {
+        // the code only, before the test modules (this test's own text would match itself)
+        let src = include_str!("orginbox.rs");
+        let flat = src[..src.find("mod set_aside_tests").unwrap()].split_whitespace().collect::<Vec<_>>().join(" ");
+        assert!(flat.contains("dir='in' AND set_aside_at IS NULL AND delivered_to ? $2"));
     }
 }
 

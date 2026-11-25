@@ -44,7 +44,7 @@ pub(crate) const NEWEST_SQL: &str = "SELECT o.id, p.slug, x.at
        FROM unnest($1::bigint[]) AS o(id)
       CROSS JOIN unnest($2::text[]) AS p(slug)
       CROSS JOIN LATERAL (SELECT i.at FROM ot.org_inbox i
-                           WHERE i.org_id = o.id AND i.peer = '@net:' || p.slug
+                           WHERE i.org_id = o.id AND i.peer = '@net:' || p.slug AND i.set_aside_at IS NULL
                            ORDER BY i.at DESC LIMIT 1) x";
 
 /// The same probe for the orgs on this machine: mail between this org and each

@@ -786,9 +786,37 @@ pub async fn summary<C: tokio_postgres::GenericClient + Sync>(c: &C, org_id: i64
     Ok(json!({ "setting": p.user.as_str(), "on": on, "coverage": coverage, "set_aside": p.set_aside, "set_aside_unread": unread }))
 }
 
-/// RED STUBS (E4)
+/// The org's own send to `peer` while it is locked (plan Q4, USER 2026-11-25 13:37Z "all rest rec": allowed, with a
+/// warning; it opens no way back). A question to an unlisted address is refused: its answer would be refused too
+/// (review I8). Listed on any of the org's hubs counts: the send picks its hub later. None: nothing to say.
 #[logged]
-pub async fn outbound<C: tokio_postgres::GenericClient + Sync>(_c: &C, _org_id: i64, _peer: &str, _kind: &str) -> Result<Option<String>> { Ok(None) }
+pub async fn outbound<C: tokio_postgres::GenericClient + Sync>(c: &C, org_id: i64, peer: &str, kind: &str) -> Result<Option<String>> {
+    let Some(address) = bare_address(peer) else { return Ok(None) };
+    let Some(r) = c
+        .query_opt(
+            "SELECT l.user_mode, l.org_on, l.set_aside, l.rev,
+                    EXISTS (SELECT 1 FROM ot.net_lockdown_allow a WHERE a.org_id = l.org_id AND a.address = $2)
+               FROM ot.net_lockdown l WHERE l.org_id = $1",
+            &[&org_id, &address],
+        )
+        .await?
+    else {
+        return Ok(None);
+    };
+    let p = row_of(&r);
+    if !effective(p.user, p.org_on) || r.get::<_, bool>(4) {
+        return Ok(None);
+    }
+    if kind == "question" {
+        crate::refuse!(
+            Forbidden,
+            "@net:{address} isn't on this org's lockdown list, so it can't answer a question: its answer would be refused. Send a message instead, or list it first (orgtree_lockdown action=add)"
+        );
+    }
+    Ok(Some(format!(
+        "Sent, but @net:{address} isn't on this org's lockdown list: while the lockdown lasts its replies will be refused (or set aside). List it with orgtree_lockdown action=add if it should be able to answer."
+    )))
+}
 
 #[nolog]
 fn notify(engine: &Arc<Engine>, org_id: i64) {

@@ -902,7 +902,10 @@ fn fill(handle: &Handle, engine: &Arc<Engine>, request: &Request, client: &tokio
             ("SELECT id, (to_jsonb(m) - 'org_id' - 'id') || jsonb_build_object('s', sender_agent_id, 'r', recipient_agent_id)
                 FROM ot.mail m WHERE sender_agent_id = $1 AND id > $2 ORDER BY id LIMIT 500", false),
             ("SELECT id, (to_jsonb(m) - 'org_id' - 'id') || jsonb_build_object('s', sender_agent_id, 'r', recipient_agent_id)
-                FROM ot.mail m WHERE recipient_agent_id = $1 AND recipient_kind = 'agent' AND id > $2 ORDER BY id LIMIT 500", true),
+                FROM ot.mail m WHERE recipient_agent_id = $1 AND recipient_kind = 'agent' AND id > $2
+                  AND NOT EXISTS (SELECT 1 FROM ot.org_inbox i WHERE i.org_id = m.org_id AND i.dir = 'in' AND i.set_aside_at IS NOT NULL
+                    AND ((i.net_id = m.net_id AND i.peer = m.sender) OR i.uid = m.extra->'org_inbox'->>'uid'))
+                ORDER BY id LIMIT 500", true),
         ] {
             pages(handle, client, sql, &row.id, |mut record| {
                 let sender = record["s"].as_i64().and_then(|id| place_of.get(&id).copied());

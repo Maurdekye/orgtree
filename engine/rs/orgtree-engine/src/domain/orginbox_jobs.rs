@@ -232,7 +232,7 @@ async fn thread_owners(tx: &Transaction<'_>, org: i64, row: &Value) -> Result<(V
         // D14: the sender's own earlier message
         let Some(orig) = tx
             .query_opt(
-                "SELECT uid, net_id, delivered_to, pulled_by FROM ot.org_inbox WHERE org_id=$1 AND uid=$2 AND dir='in' AND peer=$3",
+                "SELECT uid, net_id, delivered_to, pulled_by FROM ot.org_inbox WHERE org_id=$1 AND uid=$2 AND dir='in' AND peer=$3 AND set_aside_at IS NULL",
                 &[&org, id, &peer],
             )
             .await?

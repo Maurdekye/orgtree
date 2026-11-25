@@ -348,8 +348,8 @@ fn set_aside_letters_stay_out_of_threads_summaries_recency_and_exports() {
     let flat = |s: &str| s.split_whitespace().collect::<Vec<_>>().join(" ");
     let jobs = flat(include_str!("../domain/orginbox_jobs.rs"));
     assert!(jobs.contains("FROM ot.org_inbox WHERE org_id=$1 AND uid=$2 AND dir='in' AND peer=$3 AND set_aside_at IS NULL"), "D14 thread owner");
-    let inbox = flat(include_str!("../domain/orginbox.rs"));
-    assert!(inbox.contains("dir='in' AND set_aside_at IS NULL AND delivered_to ? $2"), "acting handover summary");
+    // the acting handover summary is checked in domain/orginbox.rs (set_aside_tests): only the files the
+    // delivery-record guard allows may name that column
     let recent = flat(include_str!("recent.rs"));
     assert!(recent.contains("WHERE i.org_id = o.id AND i.peer = '@net:' || p.slug AND i.set_aside_at IS NULL"), "contact recency");
     let export = flat(include_str!("../portable/export.rs"));
