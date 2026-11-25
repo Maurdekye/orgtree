@@ -17,6 +17,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { flush, inAct, mountView } from './harness'
 import { agentMenuEntries } from '../src/canvas/agentmenu'
+import { useContextMenu } from '../src/canvas/contextmenu'
 import { CLASSIC_MAILBOX_KEY, onChatRequest } from '../src/mailboxpref'
 import * as modalpin from '../src/canvas/modalpin'
 import { pinModal, unpinModal } from '../src/canvas/modalpin'
@@ -106,4 +107,30 @@ test('a modal kind’s closeCentred closes its centred instance and keeps the pi
   await inAct(() => { closed = api!.closeCentred() }); await flush()
   assert.deepEqual([...api!.ids], ['pinned'], 'the pinned window stays where the user put it')
   assert.equal(closed, 1, 'it says how many it closed')
+})
+
+// RENDERED, as the user sees it (integration bounce mda65bfe41ae4: the builder had Open chat after Open,
+// but the renderer moves Open second after the prefix and left Open chat after New project)
+test('in the drawn menu, Open chat comes right after Open, with Open still second', async t => {
+  window.localStorage.removeItem(CLASSIC_MAILBOX_KEY)
+  t.after(() => window.localStorage.removeItem(CLASSIC_MAILBOX_KEY))
+  const entries = agentMenuEntries(OWN, { onInbox() {}, onOpenDesk() {}, onHire() {} } as never,
+    { tiers: [{ tier: 'opus' }] } as never)
+  assert.ok(top(entries).indexOf('Open') > 1, 'POSITIVE CONTROL: the builder does not already have Open second')
+  function Host() {
+    const menu = useContextMenu()
+    return <><button data-copy-agent-name="own" onContextMenu={e => menu.open(e, entries)}>own</button>{menu.node}</>
+  }
+  const v = await mountView(<Host />, el => el); t.after(() => v.unmount())
+  const button = v.el.querySelector('button')!
+  await inAct(() => { button.dispatchEvent(new window.MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 5, clientY: 5 })) })
+  await flush()
+  const menu = button.ownerDocument.querySelector('.ctxmenu')
+  assert.ok(menu, 'the menu is drawn')
+  const real = [...menu!.querySelectorAll(':scope > .ctxmenu-branch > [role="menuitem"]')]
+    .map(el => el.textContent?.replace('▸', '').trim() ?? '')
+  const open = real.indexOf('Open')
+  assert.equal(open, 1, `Open is second: ${JSON.stringify(real)}`)
+  assert.equal(real[open + 1], 'Open chat', `Open chat follows it: ${JSON.stringify(real)}`)
+  assert.ok(real.includes('Focus') && real.indexOf('Focus') > open + 1, 'Focus and the rest follow')
 })
