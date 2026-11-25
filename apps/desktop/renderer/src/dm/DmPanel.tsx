@@ -44,7 +44,7 @@
 // a megaphone send is recorded once.
 
 import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import type { KeyboardEvent as ReactKeyboardEvent, MouseEvent as ReactMouseEvent, ReactNode } from 'react'
+import type { DragEvent as ReactDragEvent, KeyboardEvent as ReactKeyboardEvent, MouseEvent as ReactMouseEvent, ReactNode } from 'react'
 import type { AskInfo, InboxPayload, MailEntry, ToastFn, TreePayload } from '../types'
 import {
   audienceAction, broadcastMessage, clearInbox, deleteUserMail, fileBase, fileUrl, getAudiences, getMailById,
@@ -1176,6 +1176,20 @@ function DmConversation({ slug, tree, chat, nodes, toast, refs, onFocusAgent, fl
   }, [all])
 
   const headMenu = useContextMenu(toast)
+  // the message box's handles: a file dropped on the chat, a discarded message put back
+  const dropAttach = useRef<((file: File) => void) | null>(null)
+  const restoreBox = useRef<((sent: { text: string; attached: { name: string; path: string; bytes: number }[] }) => void) | null>(null)
+  // DROPPING FILES ON THE CHAT ATTACHES THEM (Hubchat Composer: "files dropped on the chat join the
+  // attachments"; USER 2026-11-25 m1454b39b8fd0): the box's own rules, as a pasted file; and never the
+  // browser's navigate-away
+  const dropProps = {
+    onDragOver: (e: ReactDragEvent<HTMLDivElement>) => { if (dropAttach.current && e.dataTransfer?.types?.includes?.('Files')) e.preventDefault() },
+    onDrop: (e: ReactDragEvent<HTMLDivElement>) => {
+      if (!dropAttach.current || !e.dataTransfer?.files?.length) return
+      e.preventDefault()
+      ;[...e.dataTransfer.files].forEach(f => dropAttach.current?.(f))
+    },
+  }
   const send = (text: string, attachments?: string[], notice?: boolean, cast?: boolean,
     objectTarget?: ReplyTarget, selections?: SelectionTarget[]) => {
     const targets = replies
@@ -1362,7 +1376,7 @@ function DmConversation({ slug, tree, chat, nodes, toast, refs, onFocusAgent, fl
           onClick={onClose}><CloseIcon fontSize="inherit" /></button>
       </div>
       {headMenu.node}
-      <div className="dm-timeline-wrap">
+      <div className="dm-timeline-wrap" {...dropProps}>
       <div className="dm-timeline" ref={scroller} onScroll={onScroll} role="log" aria-label={`Messages with ${name}`}
         data-dm-drawn={entries.length} data-dm-loaded={all.length}
         /* the keyboard walk (above): focusable for it, never a Tab stop of its own */
@@ -1389,7 +1403,7 @@ function DmConversation({ slug, tree, chat, nodes, toast, refs, onFocusAgent, fl
       {far && <button type="button" className="dm-jump" onClick={toBottom} title="Jump to the newest message" aria-label="Jump to the newest message"><ArrowDownIcon fontSize="inherit" /></button>}
       </div>
       <span className="dm-sr dm-walk-said" role="status" aria-live="polite">{walkSaid}</span>
-      <div className="dm-compose" ref={boxRef} onKeyDown={boxKeys}>
+      <div className="dm-compose" ref={boxRef} onKeyDown={boxKeys} {...dropProps}>
         {replies.length > 0 && <div className="dm-replybar" role="group" aria-label="Replying to">
           <ReplyIcon fontSize="inherit" />
           <div className="dm-replybar-list">
@@ -1405,7 +1419,7 @@ function DmConversation({ slug, tree, chat, nodes, toast, refs, onFocusAgent, fl
         {unheard && <InboxNoListeners project={peer} />}
         {canWrite
           ? <MailReplyBox key={peer} target={peer} slug={slug} toast={toast} objectActions broadcast={broadcast}
-              draftKey={draftKey} quietSent escapeRemovesFile transcriptTexts={chatTexts}
+              draftKey={draftKey} quietSent escapeRemovesFile transcriptTexts={chatTexts} attachRef={dropAttach} restoreRef={restoreBox}
               /* Up and Down walk what was sent to this agent: its desk's own history */
               history={chat.kind === 'agent' ? { slug, id: peer } : undefined}
               placeholder={!replies.length ? `message ${peer}…`

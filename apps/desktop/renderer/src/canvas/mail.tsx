@@ -25,7 +25,7 @@ import { useStaging, StagingRows } from './staging'
 // split.
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
-import type { CSSProperties, KeyboardEvent, ReactNode } from 'react'
+import type { CSSProperties, KeyboardEvent, MutableRefObject, ReactNode } from 'react'
 import { mailTagKey, mailTagHue, mailMatchesTags, toggleMailTag } from './mailtags'
 import { MailTagPicker } from './mailtagpicker'
 import type { MailTagPickerProps } from './mailtagpicker'
@@ -1249,7 +1249,7 @@ type FailedSelectionReply = {
 
 export function MailReplyBox({ target, slug, onSend, placeholder, sendDisabled = false, objectActions = false, selectionActions = false,
   toast, broadcast, sendLabel = 'reply', sendTitle, below, desk, draftKey, quietSent = false, history, escapeRemovesFile = false,
-  transcriptTexts }: {
+  transcriptTexts, attachRef, restoreRef }: {
   target?: string
   /** required to actually upload anything — omit it and the attach button
    *  stays disabled, the same graceful-degradation shape as `sendDisabled`. */
@@ -1257,7 +1257,8 @@ export function MailReplyBox({ target, slug, onSend, placeholder, sendDisabled =
   /** `notice` is true only for a send the user ARMED as a passive notice; the
    *  host decides what that means on its own wire and the server decides
    *  whether it is possible at all (see the toggle's comment below). */
-  onSend: (text: string, attachments?: string[], notice?: boolean, broadcast?: boolean, objectTarget?: ReplyTarget, selections?: SelectionTarget[]) => void | Promise<unknown>
+  onSend: (text: string, attachments?: string[], notice?: boolean, broadcast?: boolean, objectTarget?: ReplyTarget, selections?: SelectionTarget[],
+    attached?: { name: string; path: string; bytes: number }[]) => void | Promise<unknown>
   /** Enable a mail reader's actions outside a desk too. Contextual readers
    * embedded in desks automatically own their nearer reply box. */
   objectActions?: boolean
@@ -1296,6 +1297,12 @@ export function MailReplyBox({ target, slug, onSend, placeholder, sendDisabled =
    *  the same store its desk's box walks and records into, with the desk's
    *  rules (the top or bottom row only, the draft set aside and put back). */
   history?: { slug: string; id: string }
+  /** THE HOST'S HANDLES (the chats, USER 2026-11-25 m1454b39b8fd0): `attachRef` takes a file
+   *  dropped on the host's chat into this box, by the rules a pasted file follows (null while
+   *  the box cannot attach); `restoreRef` puts a discarded message back, its text ahead of any
+   *  newer draft and its files with the box's own. */
+  attachRef?: MutableRefObject<((file: File) => void) | null>
+  restoreRef?: MutableRefObject<((sent: { text: string; attached: { name: string; path: string; bytes: number }[] }) => void) | null>
   /** nothing under the box: no "sending", "sent to …" or "not sent" line (the
    *  chats, USER 2026-11-24 mafab49c9aaf0, m0afe266f60e9 "remove all the text
    *  that appears down under the messagebox"). The host says a refused send
@@ -1386,6 +1393,17 @@ export function MailReplyBox({ target, slug, onSend, placeholder, sendDisabled =
       setAttached(a => [...a, attachment])
     })
   const attach = staging.add
+  if (attachRef) attachRef.current = attachable ? attach : null
+  if (restoreRef) restoreRef.current = ({ text, attached: files }) => {
+    const draftNow = currentDraft.current.draft
+    const merged = draftNow.trim() ? text + '
+
+' + draftNow : text
+    const allFiles = [...files, ...currentDraft.current.attached.filter(a => !files.some(f => f.path === a.path))]
+    currentDraft.current = { ...currentDraft.current, draft: merged, attached: allFiles }
+    setDraft(merged); setAttached(allFiles)
+    taRef.current?.focus({ preventScroll: true })
+  }
   // Capture edits synchronously too: an HTTP refusal can resolve before React
   // paints a newly staged object or completed upload.
   const currentDraft = useRef({ draft, attached, object: objectReply, blocked: staging.blocked })
@@ -1432,7 +1450,7 @@ export function MailReplyBox({ target, slug, onSend, placeholder, sendDisabled =
     setDraft(''); setAttached([]); staging.newDraft()
     const sendingBroadcast = broadcastArmed
     const res = Promise.resolve().then(() => onSend(t || '(file attached)', paths.length ? paths : undefined, armed, sendingBroadcast,
-      sentObjectReply ? composerTarget(sentObjectReply) : undefined, sentSelections.map(({target,selection}) => ({target,selection}))))
+      sentObjectReply ? composerTarget(sentObjectReply) : undefined, sentSelections.map(({target,selection}) => ({target,selection})), sentAttached))
     if (res && typeof (res as Promise<unknown>).then === 'function') {
       const mine = ++sendSeq.current
       setSendState({ state: 'sending', key: sentKey })
