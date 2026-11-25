@@ -122,6 +122,19 @@ are a second view over the same reads and calls.
 
 [verified: `tests/dmmodel.test.tsx`, `tests/dmpanel.test.tsx`, `appsettings` §3c, `scopedmodals`, `gallery` §11,
 `docket` §13 and §13d; engine `cargo test dm_panel`; the capture receipt named in the hand-in]
+- HUBCHAT PARITY (USER 2026-11-25 m1454b39b8fd0 "correct 1, 2, 5, 6, 7."; ticket
+  chats-panel-parity-with-hubchat-instant-send-ret). INSTANT SEND: `DmConversation` keeps `DmLocal` bubbles
+  (class `local`, the clock tick `t-queued`); its `send` resolves at once so `MailReplyBox` never puts the text
+  back, and a refusal leaves the bubble `failed` with Hubchat's `.dm-failed` line (Not sent: why. Retry /
+  Discard, also in its menu) plus alpha.1 point 11's toast. The engine's row replaces it by the receipt's id,
+  or by one more own row of the same text; Discard hands text and files back through `MailReplyBox`
+  `restoreRef`. The megaphone keeps its own send. DROP: `attachRef` takes files dropped on the timeline or the
+  box, the paste rules. LINKS: a right-click on an http(s) link in a bubble opens the bubble's menu anchored on
+  the link (so `nativeMenuPreferred` does not hand it to the empty native menu) with Open link / Copy link
+  first; selected text keeps `ReplySelectionSurface`'s menu. COPY MENTION: `agentCopyEntry` in the row menu
+  (after the audience entries) and on the header. TRANSFERS: `useMessageTransfers(slug, 'user')` (transfers.tsx)
+  maps the user's transfers by message; `MailAttachments transfer=` draws `fileTransferView` per unfinished
+  file (`.attach-transfer`, over a picture when `.pic`). [verified: `tests/dmparity.test.tsx`]
 
 ## Retired counts are non-interactive (2026-11-19, 4.6.4)
 
