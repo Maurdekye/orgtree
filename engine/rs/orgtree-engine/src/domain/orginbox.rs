@@ -499,7 +499,7 @@ pub async fn acting_weak<C: tokio_postgres::GenericClient + Sync>(client: &C, or
         "SELECT au.grantee FROM ot.audiences au JOIN ot.agents a ON a.org_id = au.org_id AND a.name = au.grantee
           WHERE au.org_id = $1 AND au.grantor = '@extern-weak' AND au.revoked_at IS NULL AND NOT au.paused
             AND a.state = 'live' AND a.kind = 'agent' AND a.halt IS NULL AND a.frozen IS NULL
-          GROUP BY au.grantee ORDER BY min(au.id) LIMIT 1", &[&org_id]).await?.map(|r| r.get(0)))
+          GROUP BY au.grantee, a.id ORDER BY ot.agent_dnd(a.id), min(au.id) LIMIT 1", &[&org_id]).await?.map(|r| r.get(0)))
 }
 
 /// The acting holder kept as state (`ot.orgs.net.acting_holder`; @coordinator-opus Q3, so a restart doesn't repeat
@@ -809,7 +809,36 @@ async fn route_tx(tx: &tokio_postgres::Transaction<'_>, org_id:i64, sender:Optio
     // failover (USER 2026-11-25 m872c7d4f0973): while every holder is unable to receive, new UNTHREADED mail goes to
     // the acting weak link alone (one copy, no job, no waiting copies; review item 2), before the top-level fallback
     // and the auto-grant below; nothing is granted. The first diverted mail tells it (`failover_started`).
-    if sender.is_none() && arrival == Arrival::New && !releasing {
+    // promotion (USER 2026-11-25 mff1aa564451b; @coordinator-opus m423778515c90): with NO primary grant at all, new mail
+    // promotes a weak link to a real, persisted primary (its weak link drops): the earliest-granted that can run, else
+    // the earliest-granted; with no weak link, today's auto-grant below. A retired holder whose grant stands keeps it.
+    let mut promoted = false;
+    if sender.is_none() && arrival == Arrival::New && !releasing && tx.query_opt(
+        "SELECT 1 FROM ot.audiences au JOIN ot.agents a ON a.org_id = au.org_id AND a.name = au.grantee
+          WHERE au.org_id = $1 AND au.grantor = '@extern' AND au.revoked_at IS NULL AND a.state IN ('live', 'archived') LIMIT 1",
+        &[&org_id]).await?.is_none() {
+        if let Some(r) = tx.query_opt(
+            "SELECT au.grantee, a.id FROM ot.audiences au JOIN ot.agents a ON a.org_id = au.org_id AND a.name = au.grantee
+              WHERE au.org_id = $1 AND au.grantor = '@extern-weak' AND au.revoked_at IS NULL AND NOT au.paused AND a.state = 'live' AND a.kind = 'agent'
+              GROUP BY au.grantee, a.id, a.halt, a.frozen ORDER BY (a.halt IS NULL AND a.frozen IS NULL) DESC, min(au.id) LIMIT 1", &[&org_id]).await? {
+            let (name, id): (String, i64) = (r.get(0), r.get(1));
+            let reason = "promoted: the org mailbox had no holder, so its earliest weak link became the holder";
+            tx.execute("UPDATE ot.audiences SET revoked_at = now() WHERE org_id = $1 AND grantee = $2 AND grantor = '@extern-weak' AND revoked_at IS NULL", &[&org_id, &name]).await?;
+            tx.execute("INSERT INTO ot.audiences (org_id, grantee, grantor, reason) VALUES ($1, $2, '@extern', $3)", &[&org_id, &name, &reason]).await?;
+            tx.execute("INSERT INTO ot.events (org_id, op, actor, subject_agent_id, detail) VALUES ($1, 'audience_grant', '@system', $2, $3)",
+                &[&org_id, &id, &json!({"grantee": name, "grantor": super::audiences::EXTERN, "reason": reason})]).await?;
+            let slug: String = tx.query_one("SELECT slug FROM ot.orgs WHERE id = $1", &[&org_id]).await?.get(0);
+            let user = format!("{slug}'s org mailbox had no holder when new outside mail arrived, so @{name} was promoted from its weak link and is now the holder.");
+            tx.execute("INSERT INTO ot.mail(uid,org_id,sender,recipient_kind,recipient_name,kind,body,state) VALUES($1,$2,'@system','user','@user','message',$3,'pending')",
+                &[&crate::util::uid("m"), &org_id, &user]).await?;
+            let to_agent = "You are now the holder of the org mailbox: it had no holder, so new outside mail promoted you from your weak link. New outside mail comes to you; you may read and pull the org mailbox.";
+            tx.execute("INSERT INTO ot.mail(uid,org_id,sender,recipient_kind,recipient_agent_id,recipient_name,kind,body,state) VALUES($1,$2,'@system','agent',$3,$4,'system',$5,'pending')",
+                &[&crate::util::uid("m"), &org_id, &id, &name, &to_agent]).await?;
+            promoted = true;
+        }
+    }
+    // C (USER mff1aa564451b): mail waiting before the takeover (a release) goes to the stand-in too
+    if sender.is_none() && arrival == Arrival::New && !promoted {
         if let Some(acting) = acting_weak(&*tx, org_id, multi).await? {
             failover_started(tx, org_id, &acting).await?;
             return Ok((Route { to: vec![acting], waiting: false, projects: Vec::new() }, false));
@@ -828,6 +857,9 @@ async fn route_tx(tx: &tokio_postgres::Transaction<'_>, org_id:i64, sender:Optio
         if !holders.is_empty() || !projects.is_empty() {
             return Ok((Route { to: holders, waiting: false, projects }, false));
         }
+        // G (USER mff1aa564451b): no real holder at all: it waits (no copy, no grant) for whoever next becomes holder,
+        // and a later release hands it over
+        return Ok((Route { to: Vec::new(), waiting: true, projects: Vec::new() }, false));
     }
     let mut holders = holder_agents(&*tx, org_id, multi).await?;
     let projects = holder_projects(&*tx, org_id, multi).await?;
@@ -852,7 +884,7 @@ async fn route_tx(tx: &tokio_postgres::Transaction<'_>, org_id:i64, sender:Optio
                        ORDER BY (halt IS NULL AND frozen IS NULL) DESC, sibling_order, id LIMIT 1", &[&org_id]).await?
             .map(|r| (r.get(0), r.get(1), "auto-granted: outside mail arrived with no live org-mailbox holder"))
     } else { None };
-    let mut changed = false;
+    let mut changed = promoted;
     if let Some((id, name, reason)) = target {
         let grantor = if weak { super::audiences::EXTERN_WEAK } else { super::audiences::EXTERN };
         if !multi && !weak {

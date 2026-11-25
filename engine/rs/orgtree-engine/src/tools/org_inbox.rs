@@ -71,9 +71,11 @@ pub async fn read(engine:&Arc<Engine>,caller:&Caller,args:&Value)->Result<Done> 
         return Done::json(&json!({"messages":items,"has_more":more,"next_cursor":if more {Some(format!("oi1:{}:{}:{last}",who.org_id,who.id))}else{None},"consumed":false}));
     }
     let rows=tx.query("SELECT to_jsonb(i) FROM ot.org_inbox i WHERE org_id=$1 AND dnd_held ORDER BY id LIMIT $2 FOR UPDATE",&[&who.org_id,&max]).await?;
-    let mut items=Vec::new();let mut budget=256*1024usize;let mut receipts=Vec::new();
+    let mut items=Vec::new();let mut budget=256*1024usize;let mut receipts=Vec::new();let mut kept=0i64;
     for r in &rows {
         let row:Value=r.get(0);
+        // F (USER 2026-11-25 mff1aa564451b): never another agent's reply; it waits for its owner until DND ends
+        if !orginbox::jobs::pullable(&tx,who.org_id,&row,&who.name).await? {kept+=1;continue;}
         let body=row["body"].as_str().unwrap_or("");
         let mut item=mailtools::mail_chunk(body,0)?;
         let bytes=item["content"].as_str().unwrap().len();
@@ -93,7 +95,8 @@ pub async fn read(engine:&Arc<Engine>,caller:&Caller,args:&Value)->Result<Done> 
         item["reply_to"]=row["reply_to"].clone();item["replies"]=row["replies"].clone();
         items.push(item);
     }
-    let more=tx.query_opt("SELECT 1 FROM ot.org_inbox WHERE org_id=$1 AND dnd_held LIMIT 1",&[&who.org_id]).await?.is_some();
+    let held:i64=tx.query_one("SELECT count(*) FROM ot.org_inbox WHERE org_id=$1 AND dnd_held",&[&who.org_id]).await?.get(0);
+    let more=held>kept;
     tx.commit().await?;drop(c);
     crate::domain::mail::consumed(engine,&receipts);
     if !items.is_empty() {changes::notify_id(engine,who.org_id,vec![Change::OrgInbox,Change::Mailbox(who.id)]);}

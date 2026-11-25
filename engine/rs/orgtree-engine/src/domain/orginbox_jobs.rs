@@ -161,14 +161,22 @@ async fn owner_by_name(tx: &Transaction<'_>, org: i64, name: &str) -> Result<Opt
         .map(|r| (r.get(0), r.get(1), r.get(2))))
 }
 
-/// Whether a retired node's last org-mailbox link was the primary one: its threads wait for it (@coordinator-opus Q1,
-/// 2026-11-25 m22e544059017); a retired weak-link agent is cut off (USER m39db776a6ae3 "removing the link cuts it off").
+/// A: whether a retired node still holds its primary grant (the grant stands): its threads wait for it (@coordinator-opus
+/// Q1; USER 2026-11-25 mff1aa564451b A, "frozen or retired with its grant intact, it waits"). A replaced or revoked
+/// one, primary or weak, is cut off ("removing the link cuts it off").
 #[logged]
 async fn was_holder(tx: &Transaction<'_>, org: i64, name: &str) -> Result<bool> {
     Ok(tx
-        .query_opt("SELECT grantor FROM ot.audiences WHERE org_id=$1 AND grantee=$2 AND grantor IN ('@extern','@extern-weak') ORDER BY id DESC LIMIT 1", &[&org, &name])
+        .query_opt("SELECT 1 FROM ot.audiences WHERE org_id=$1 AND grantee=$2 AND grantor='@extern' AND revoked_at IS NULL", &[&org, &name])
         .await?
-        .is_some_and(|r| r.get::<_, String>(0) == "@extern"))
+        .is_some())
+}
+
+/// A: an agent keeps its threads while it holds a link (primary or weak) and is live, or is retired with its primary
+/// grant standing (it waits for a rehire).
+#[logged]
+async fn keeps_thread(tx: &Transaction<'_>, org: i64, name: &str, live: bool) -> Result<bool> {
+    Ok(if live { super::mailbox_link(tx, org, name).await?.is_some() } else { was_holder(tx, org, name).await? })
 }
 
 /// How a reply reaches one owner of a message it answers.
@@ -188,35 +196,34 @@ impl Owner {
     }
 }
 
-/// D13 and D14 for an inbound `@net:`/`@org:` row: `(Some, _)` delivered to the thread's owners; `(None, true)` it
-/// answers messages of this org but every owner is cut off (it waits for the holders, `Arrival::Thread`); `(None,
-/// false)` unthreaded (D6). A reply goes to whoever sent or received each message it answers (USER 2026-11-25
-/// m459f4474ab14), once to each distinct owner (a multi-reply, USER mc9c61d55a4ca), and waits for an owner that can't
-/// run now: halted, frozen, or a retired holder (a rehire gets it; m6786e284ed6c, @coordinator-opus Q1). Cut off: a
-/// weak-link sender whose link is gone or who retired, a recipient that holds no link (review item 6), and a deleted
-/// or unrecoverable owner (item 5).
+/// The owners of the messages a received row answers (D13 sender, D14 recipients), each once in reference order, and
+/// whether any reference resolved to a message of this org (`threaded`, `pullable`).
 #[logged]
-async fn threaded(tx: &Transaction<'_>, org: i64, row: &Value) -> Result<(Option<Published>, bool)> {
+async fn thread_owners(tx: &Transaction<'_>, org: i64, row: &Value) -> Result<(Vec<Owner>, bool)> {
     let peer = row["peer"].as_str().unwrap_or("");
-    if !peer.starts_with("@net:") && !peer.starts_with("@org:") {
-        return Ok((None, false));
-    }
     let mut owners: Vec<Owner> = Vec::new();
     let mut resolved = false;
+    if !peer.starts_with("@net:") && !peer.starts_with("@org:") {
+        return Ok((owners, false));
+    }
     for id in &org_refs(row) {
-        // D13: one of this org's own sent messages, written by an agent
+        // D13: one of this org's own sent messages
         if let Some(sent) = tx
             .query_opt(
-                "SELECT sender_agent_id, via_job, via_weak FROM ot.org_inbox WHERE org_id=$1 AND uid=$2 AND dir='out' AND peer=$3 AND sender_agent_id IS NOT NULL",
+                "SELECT sender_agent_id, via_job, via_weak FROM ot.org_inbox WHERE org_id=$1 AND uid=$2 AND dir='out' AND peer=$3",
                 &[&org, id, &peer],
             )
             .await?
         {
             resolved = true;
-            let (sender, via, weak): (i64, Option<String>, bool) = (sent.get(0), sent.get(1), sent.get(2));
+            let (sender, via, weak): (Option<i64>, Option<String>, bool) = (sent.get(0), sent.get(1), sent.get(2));
+            // B: the user's own mail from the org mailbox has no agent owner: the holders get the reply
+            let Some(sender) = sender else { continue };
             let Some((name, _, live)) = owner_by_id(tx, org, sender).await? else { continue };
-            // sent over a weak link: back to its sender only while it is live and still holds a link
-            if weak && (!live || super::mailbox_link(tx, org, &name).await?.is_none()) {
+            // a job's worker keeps its job thread while live (H covers the job itself); a weak sender only while it is
+            // live and holds its link; anyone else by A
+            let keeps = if via.is_some() { live } else if weak { live && super::mailbox_link(tx, org, &name).await?.is_some() } else { keeps_thread(tx, org, &name, live).await? };
+            if !keeps {
                 continue;
             }
             owners.push(Owner::Sent { name, job: via });
@@ -245,9 +252,8 @@ async fn threaded(tx: &Transaction<'_>, org: i64, row: &Value) -> Result<(Option
         }
         for name in names {
             let Some((nid, kind, live)) = owner_by_name(tx, org, &name).await? else { continue };
-            // an agent keeps the thread while it holds a link (primary or weak); a retired one while its last link was
-            // the primary; any other goes to the holders (a removed link cuts it off)
-            if kind == "agent" && if live { super::mailbox_link(tx, org, &name).await?.is_none() } else { !was_holder(tx, org, &name).await? } {
+            // A: an agent keeps the thread while it holds a link; any other goes to the holders
+            if kind == "agent" && !keeps_thread(tx, org, &name, live).await? {
                 continue;
             }
             if kind != "agent" && !live {
@@ -259,6 +265,32 @@ async fn threaded(tx: &Transaction<'_>, org: i64, row: &Value) -> Result<(Option
     // each owner once, in reference order
     let mut seen: Vec<String> = Vec::new();
     owners.retain(|o| if seen.iter().any(|n| n == o.name()) { false } else { seen.push(o.name().to_string()); true });
+    Ok((owners, resolved))
+}
+
+/// F (USER 2026-11-25 mff1aa564451b): a holder pulling during the org's Do not disturb never takes another agent's
+/// reply: a held row whose thread has owners is pullable only by one of them; those rows are delivered to their
+/// owners when Do not disturb ends.
+#[logged]
+pub(crate) async fn pullable(tx: &Transaction<'_>, org: i64, row: &Value, puller: &str) -> Result<bool> {
+    let (owners, resolved) = thread_owners(tx, org, row).await?;
+    Ok(!resolved || owners.is_empty() || owners.iter().any(|o| o.name() == puller))
+}
+
+/// D13 and D14 for an inbound `@net:`/`@org:` row: `(Some, _)` delivered to the thread's owners; `(None, true)` it
+/// answers messages of this org but every owner is cut off (it waits for the holders, `Arrival::Thread`); `(None,
+/// false)` unthreaded (D6). A reply goes to whoever sent or received each message it answers (USER 2026-11-25
+/// m459f4474ab14), once to each distinct owner (a multi-reply, USER mc9c61d55a4ca), and waits for an owner that can't
+/// run now: halted, frozen, or a retired holder (a rehire gets it; m6786e284ed6c, @coordinator-opus Q1). Cut off: a
+/// weak-link sender whose link is gone or who retired, a recipient that holds no link (review item 6), and a deleted
+/// or unrecoverable owner (item 5).
+#[logged]
+async fn threaded(tx: &Transaction<'_>, org: i64, row: &Value) -> Result<(Option<Published>, bool)> {
+    let peer = row["peer"].as_str().unwrap_or("");
+    if !peer.starts_with("@net:") && !peer.starts_with("@org:") {
+        return Ok((None, false));
+    }
+    let (owners, resolved) = thread_owners(tx, org, row).await?;
     if owners.is_empty() {
         return Ok((None, resolved));
     }
@@ -318,13 +350,6 @@ async fn threaded(tx: &Transaction<'_>, org: i64, row: &Value) -> Result<(Option
     Ok((Some(Published { route: Route { to: reached, waiting: false, projects: Vec::new() }, copies, jobs, changed: false }), true))
 }
 
-/// F (USER 2026-11-25 mff1aa564451b): may `puller` pull this held row during the org's Do not disturb? Red stub.
-#[logged]
-pub(crate) async fn pullable(tx: &Transaction<'_>, org: i64, row: &Value, puller: &str) -> Result<bool> {
-    let _ = (tx, org, row, puller);
-    Ok(true)
-}
-
 /// D14 for one project recipient: bundle with a job not yet handed out; send straight to the holder of
 /// an unacked job (ACK mode); otherwise a new job threaded to the original.
 #[logged]
@@ -359,6 +384,20 @@ async fn follow_up(tx: &Transaction<'_>, org: i64, project: i64, name: &str, row
         }
         let claim = &extra["claimed"];
         let holder = claim["by_id"].as_i64();
+        // H (USER 2026-11-25 mff1aa564451b): the worker finished it (acked): to that worker while it is live under the
+        // project, with the job's reply right; otherwise a new job in the queue below
+        if state == "read" && claim["ack"] == true && !claim["acked_at"].is_null() && claim["by_user"] != true {
+            if let Some(w) = holder {
+                if let Some(r) = tx.query_opt("SELECT name FROM ot.agents WHERE org_id=$1 AND id=$2 AND state='live' AND id IN (SELECT ot.reports_of($1,$3))",
+                    &[&org, &w, &project]).await? {
+                    let worker: String = r.get(0);
+                    let c = publish_row(tx, org, std::slice::from_ref(&worker), row).await?;
+                    stamp_outside_job(tx, &c, &j_uid).await?;
+                    copies.extend(c);
+                    return Ok(());
+                }
+            }
+        }
         if state == "read" && claim["ack"] == true && claim["acked_at"].is_null() && claim["by_user"] != true {
             if let Some((holder_name, _)) = match holder {
                 Some(h) => live_node(tx, org, h).await?,
