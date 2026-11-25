@@ -204,6 +204,31 @@ async fn busy_and_last_seen_count_the_primary_only() {
     assert_eq!(live_holders(&w.c, w.org, false).await.unwrap(), vec!["front"], "nor is it in charge of the inbox");
 }
 
+/// USER 2026-11-25 09:48Z meb7815aff52d: "a mail send from a weak link should update the last seen time, but it
+/// shouldnt count as active now while a weak link holder is active".
+#[tokio::test]
+#[ignore = "requires an isolated orginbox_queue_fixture database"]
+#[nolog]
+async fn a_weak_send_moves_last_seen_but_never_makes_the_org_active() {
+    let w = world(false).await;
+    w.weak("scout").await;
+    let before = mark(&w.c, w.org).await;
+    let t0 = chrono::Utc::now() - chrono::Duration::seconds(1);
+    send_extern(&w.e, w.org, &Outgoing::new(From::Agent { id: w.scout, name: "scout".into(), generation: 1 }, "@org:weak-b", "seen")).await.unwrap();
+    let after = mark(&w.c, w.org).await;
+    assert!(after.is_some_and(|a| a >= t0 && before.is_none_or(|b| a > b)), "a weak send moves the org's last seen: {before:?} -> {after:?}");
+    // the mark is the same high-water mark the turn ends raise: an older end never takes it back
+    assert_eq!(raise_last_active(&w.c, w.org, Some(t0 - chrono::Duration::hours(1))).await.unwrap(), after);
+    // and the weak link is still never in charge: its turns make no "active now"
+    assert!(!in_charge(&w.c, w.org, false).await.unwrap().contains(&w.scout), "a weak link is never in charge");
+}
+
+/// The org's last-active mark (`ot.orgs.net.last_active_at`).
+#[nolog]
+async fn mark(c: &tokio_postgres::Client, org: i64) -> Option<chrono::DateTime<chrono::Utc>> {
+    c.query_one("SELECT (net->>'last_active_at')::timestamptz FROM ot.orgs WHERE id=$1", &[&org]).await.unwrap().get(0)
+}
+
 #[tokio::test]
 #[ignore = "requires an isolated orginbox_queue_fixture database"]
 #[nolog]
