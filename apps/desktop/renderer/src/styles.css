@@ -6842,7 +6842,7 @@ svg.MuiSvgIcon-root {
   display: flex; flex-direction: column; align-items: flex-end;
   gap: 4px; flex: 0 1 auto; min-width: 0; max-width: calc(100% - 64px);
 }
-.cc-fast-row, .cc-primary-row {
+.cc-fast-row, .cc-cast-row, .cc-primary-row {
   display: flex; align-items: center; justify-content: flex-end; gap: 6px;
 }
 .cc-fast-row:empty { display: none; }

@@ -1513,6 +1513,21 @@ export function MailReplyBox({ target, slug, onSend, placeholder, sendDisabled =
         })
     }
   }
+  // the megaphone: in the left column of a plain reply box (a presentation reader's), but in a
+  // desk-shaped box (a project's chat) on the RIGHT, its own row over send, where the project
+  // desk's composer has it (USER 2026-11-25 13:02:57Z mccd2710e1a87)
+  const megaphone = broadcast && <button className={'cc-broadcast-toggle' + (broadcastArmed ? ' armed' : '')}
+        type="button" disabled={sendDisabled || broadcast.members === 0} aria-pressed={broadcastArmed}
+        aria-label={broadcast.inbox ? megaphoneWords(broadcast.project, broadcast.members, broadcastArmed).label
+          : broadcastArmed ? `Megaphone on: reply goes to all ${broadcast.members} agents under ${broadcast.project}`
+          : `Megaphone: send this reply to all ${broadcast.members} agents under ${broadcast.project}`}
+        title={broadcast.inbox ? megaphoneWords(broadcast.project, broadcast.members, broadcastArmed).title
+          : broadcast.members === 0 ? `no agent works under ${broadcast.project} yet`
+          : broadcastArmed ? `on: this reply goes to all ${broadcast.members} agents under ${broadcast.project}; click or press Alt+B to turn it off`
+            : `send this reply to all ${broadcast.members} agents under ${broadcast.project} (Alt+B)`}
+        onClick={() => setBroadcastArmed((v) => !v)}>
+        <CampaignIcon fontSize="inherit" />
+      </button>
   return (
     <>
       <SelectionDrafts selections={selections} onRemove={index=>setSelections(current=>current.filter((_,i)=>i!==index))} onClear={()=>setSelections([])} />
@@ -1567,18 +1582,7 @@ export function MailReplyBox({ target, slug, onSend, placeholder, sendDisabled =
               onClick={() => setNoticeArmed((v) => !v)}>
               {noticeArmed ? <NotificationsActiveIcon fontSize="inherit" /> : <NotificationsIcon fontSize="inherit" />}
           </button>
-          {broadcast && <button className={'cc-broadcast-toggle' + (broadcastArmed ? ' armed' : '')}
-              type="button" disabled={sendDisabled || broadcast.members === 0} aria-pressed={broadcastArmed}
-              aria-label={broadcast.inbox ? megaphoneWords(broadcast.project, broadcast.members, broadcastArmed).label
-                : broadcastArmed ? `Megaphone on: reply goes to all ${broadcast.members} agents under ${broadcast.project}`
-                : `Megaphone: send this reply to all ${broadcast.members} agents under ${broadcast.project}`}
-              title={broadcast.inbox ? megaphoneWords(broadcast.project, broadcast.members, broadcastArmed).title
-                : broadcast.members === 0 ? `no agent works under ${broadcast.project} yet`
-                : broadcastArmed ? `on: this reply goes to all ${broadcast.members} agents under ${broadcast.project}; click or press Alt+B to turn it off`
-                  : `send this reply to all ${broadcast.members} agents under ${broadcast.project} (Alt+B)`}
-              onClick={() => setBroadcastArmed((v) => !v)}>
-              <CampaignIcon fontSize="inherit" />
-          </button>}
+          {!desk && megaphone}
           <button type="button" className="cc-attach" disabled={!attachable}
             title={slug && target ? 'attach a file' : 'attachments need a recipient first'}
             onClick={() => fileRef.current?.click()}>
@@ -1635,6 +1639,7 @@ export function MailReplyBox({ target, slug, onSend, placeholder, sendDisabled =
         {desk
           ? <div className="cc-controls" onClick={(e) => e.stopPropagation()}>
               <div className="cc-fast-row">{desk.fast}</div>
+              {megaphone && <div className="cc-cast-row">{megaphone}</div>}
               <div className="cc-primary-row">
                 {desk.primary}
                 {/* the desk's round send, with its glyph; the word is its name */}
