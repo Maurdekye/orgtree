@@ -9,6 +9,7 @@
 - **Your messages show when the agent has read them**: a grey check while it has not, a green check once it has.
 - **A chat stays at its newest message** while you are at the bottom, for messages you send and messages you receive. Scrolled up, it stays put and a round button jumps back down.
 - **Typing dots** while a Claude Code agent is writing to you.
+- **A message you send from your chats or an inbox reply no longer sits under "queued / undelivered" on the agent's desk** after the agent has read and answered it.
 - **`@ticket:` is how a ticket is mentioned.** Type `@ticket:` to list every ticket; picking one writes `@ticket:<org>/<slug>`, and so do Mention and Copy reference. `@item:` still lists tickets, and every older `@item:` mention keeps working and is shown as it was written. Agents are taught the new form, which changes each agent's instructions once, at its next start.
 - **The @ menu knows the chat.** In a chat's message box, what that chat mentions is listed first. Everywhere, tickets are ordered by their latest status change.
 - **Streamer mode covers the chats**: addresses and outside names are hidden in chat rows, headers, messages and quote cards.
