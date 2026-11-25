@@ -316,7 +316,7 @@ test('§3a Antigravity settings group Claude tiers before Gemini tiers', async (
     { tier: 'argon', provider: 'google', seat: 2, model: 'antigravity-argon', letter: 'A', name: 'Argon' },
     { tier: 'agy-opus', provider: 'google', seat: 4, model: 'antigravity-opus', letter: 'O', name: 'Opus' },
     { tier: 'krypton', provider: 'google', seat: 2, model: 'antigravity-krypton', letter: 'K', name: 'Krypton' },
-    { tier: 'neon', provider: 'google', seat: 2, model: 'antigravity-neon', letter: 'N', name: 'Neon' },
+    { tier: 'neon', provider: 'google', seat: 3, model: 'antigravity-neon', letter: 'N', name: 'Neon' },
     { tier: 'carbon', provider: 'google', seat: 4, model: 'antigravity-carbon', letter: 'C', name: 'Carbon' },
   ]
   stubFetch([], { providers: [

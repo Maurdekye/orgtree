@@ -2104,7 +2104,7 @@ mod neon_tests {
     #[test]
     fn neon_catalog_preserves_identity_and_resolves_latest_or_pin() {
         let n = catalog::tier("neon").expect("speculative Neon tier");
-        assert_eq!((n.provider, n.model, n.letter, n.seat), (catalog::GOOGLE, "gemini-4-neon", "N", 2.0));
+        assert_eq!((n.provider, n.model, n.letter, n.seat), (catalog::GOOGLE, "gemini-4-neon", "N", 3.0), "USER 2026-11-25 meb8ff6987262: neon should cost 3");
         assert_eq!(n.versions, &[("4", "gemini-4-neon")]);
         assert_eq!(n.context, Some(1_000_000));
         assert!(!n.live_effort && !n.legacy && n.conditional && n.prices.is_none());

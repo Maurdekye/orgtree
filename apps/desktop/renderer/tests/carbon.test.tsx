@@ -65,6 +65,7 @@ test('§1 carbon is a conditional Antigravity tier; hydrogen and pro are not', (
   assert.deepEqual(CONDITIONAL_ANTIGRAVITY_TIERS, ['argon', 'krypton', 'neon', 'carbon', 'agy-sonnet', 'agy-opus'])
   assert.equal(TIER_LETTER.carbon, 'C')
   assert.equal(ANTIGRAVITY_TIER_SEAT.carbon, 4, 'Carbon costs 4 credits (user 2026-11-12), like Opus')
+  assert.equal(ANTIGRAVITY_TIER_SEAT.neon, 3, 'Neon costs 3 credits (USER 2026-11-25 meb8ff6987262 "neon should cost 3")')
   // no payload evidence: hidden
   assert.equal(antigravityTierOffer(null, 'carbon'), 'hide')
   assert.equal(antigravityTierOffer(ON, 'carbon'), 'hide')
