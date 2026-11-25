@@ -2791,6 +2791,9 @@ still to come. See the current
     does: the ONE exception to "no confirmation". A member inherits from its direct project only
     (migration 0032), so "several projects" cannot occur today; the label and the close rule take a list.
     A chat row's menu has "Agent…" or "Project…", the node's canvas menu. Frontend only.
+    NOTE SHORTENED (USER 2026-11-25 14:50:16Z mc6794469e5e7 "simplify that to "sent from the chats panel,
+    reply with mail""): the wrapper line is now "↳ Sent from the chats panel, reply with mail." Same marking,
+    conditions and position; the text above is the line as first accepted.
 
 108. **Agents, teams and projects are exported, imported and duplicated**
     (USER 2026-11-23 10:32Z mb05f4fda0d92 and 10:43Z m3c072bcdc19a; the design
