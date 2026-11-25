@@ -48,7 +48,8 @@ are a second view over the same reads and calls.
   `projectBroadcastRecipients`, and the hint is the desk's `InboxNoListeners`. AGENT LINKS: a plain click
   on an agent link opens its chat when `mailboxpref.ts` `agentLinkChat` says so (a live agent with a user audience,
   the chats on, not the chat already shown: `setShownChat`); the route is the third field of the agent-nav
-  registry (`useProvideAgentNav`, read with `useAgentLinkChat` in `NodeLink`, `AgentName`, `SenderChip`). A new
+  registry (`useProvideAgentNav`, read with `useAgentLinkChat` in `NodeLink`, `AgentName`, `SenderChip`, and in
+  the reference routers for chips in prose: reflinks `useRefRoutes` and docket `openRef`, through `agentChat`). A new
   component that draws an agent link calls it before its own route. Desk jump cards are not agent links. KEYBOARD
   WALK: `walk`/`walkKeys`/`boxKeys` in `DmConversation` are a port of Hubchat's Conversation.tsx `keys`; keep
   them in step. `MailReplyBox escapeRemovesFile` is the chats' Escape for a file. A whole card in a bubble
