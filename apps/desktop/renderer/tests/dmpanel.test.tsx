@@ -112,6 +112,8 @@ function engine(world: World) {
     if (/\/nodes\/[^/]+\/chat(\?|$)/.test(path)) return json({ messages: [], live: [], pending_mail: [], busy: false, responding: false,
       windowed: true, has_older: false, before: null, draft_epoch: 'synthetic:0' })
     if (/\/nodes\/[^/]+\/batch$/.test(path)) return json({ resolved: 'ok' })
+    // the megaphone's route: one copy to each agent under the project
+    if (/\/nodes\/[^/]+\/broadcast$/.test(path)) return json({ sent: [{ to: 'member' }, { to: 'mate' }], refused: [] })
     if (/\/nodes\/[^/]+\/scope$/.test(path)) return json({ ok: true })
     if (/\/mention-candidates(\?|$)/.test(path)) return json({ items: world.candidates ?? [], next_cursor: null, nodes: [], outside: [] })
     if (/\/inbox(\?|$)/.test(path)) {
@@ -1924,4 +1926,83 @@ test('stream privacy: an outside sender\u2019s name is a hidden field in the cha
   assert.equal(document.querySelector('.dm-nowrite')?.matches(STREAMER_ZONES.freeform), true, 'the line that says the sender cannot be written to names it')
   const bar = document.createElement('span'); bar.className = 'dm-replybar-text'
   assert.equal(bar.matches(STREAMER_ZONES.freeform), true, 'the staged reply\u2019s excerpt is matched')
+})
+
+// ---- a project chat's message box has the project desk's megaphone (USER 2026-11-25 m12fea20d9690:
+// "project messageboxes need the megaphone toggle like on their desk") ----
+
+const megaphone = () => document.querySelector<HTMLButtonElement>('.dm-compose .cc-broadcast-toggle')
+const altB = async () => {
+  const ta = document.querySelector('.dm-compose textarea') as HTMLTextAreaElement
+  await inAct(async () => { ta.dispatchEvent(new W.KeyboardEvent('keydown', { key: 'b', altKey: true, bubbles: true, cancelable: true })); await flush(4) })
+}
+
+test('a project chat\'s message box has the desk\'s megaphone, worded as on the desk; an agent\'s chat has none', async (t) => {
+  const world = crewWorld()
+  world.audiences = [grant('crew'), grant('lead')]
+  const s = await setup(t, world, { tree: crewTree(), active: false })
+  await s.openChat('lead')
+  assert.equal(megaphone(), null, 'an agent\'s chat has no megaphone')
+  await s.openChat('crew')
+  const b = megaphone()
+  assert.ok(b, 'the project chat\'s box has the megaphone button')
+  assert.equal(b.disabled, false)
+  assert.equal(b.getAttribute('aria-pressed'), 'false')
+  assert.equal(b.getAttribute('aria-label'), 'Megaphone: send to all 2 agents under crew instead of the project\'s inbox')
+  assert.equal(b.getAttribute('title'),
+    'send to all 2 agents under crew at once, through sub-projects but not below agent recipients, instead of the project\'s inbox that one agent claims (Alt+B)')
+  await s.click(b, 'the megaphone')
+  assert.equal(megaphone()!.getAttribute('aria-pressed'), 'true')
+  assert.equal(megaphone()!.classList.contains('armed'), true)
+  assert.equal(megaphone()!.getAttribute('aria-label'), 'Megaphone on: messages go to all 2 agents under crew')
+  assert.equal(megaphone()!.getAttribute('title'),
+    'on: each message goes to all 2 agents under crew; click or press Alt+B to send to the project\'s inbox again')
+  await altB()
+  assert.equal(megaphone()!.getAttribute('aria-pressed'), 'false', 'Alt+B in the box turns it off')
+  await altB()
+  assert.equal(megaphone()!.getAttribute('aria-pressed'), 'true', 'and on')
+})
+
+test('an armed megaphone sends a project chat\'s message to every agent under the project, by the desk\'s route, and then is off', async (t) => {
+  const s = await setup(t, crewWorld(), { tree: crewTree(), active: false })
+  await s.openChat('crew')
+  await s.click(megaphone(), 'the megaphone')
+  await s.type('All hands: stop.')
+  await s.send()
+  const casts = posts(s.server.calls, /\/broadcast$/)
+  assert.deepEqual(casts.map(c => c.path.replace(/^.*\/orgs\/mine/, '')), ['/nodes/crew/broadcast'])
+  assert.deepEqual(casts[0]!.body, { text: 'All hands: stop.' })
+  assert.equal(posts(s.server.calls, /\/message$/).length, 0, 'nothing goes to the project\'s inbox')
+  assert.deepEqual(s.state.toasts, ['sent to 2 of 2 agents under crew'], 'the desk\'s own line')
+  assert.equal(megaphone()!.getAttribute('aria-pressed'), 'false', 'one send, then it is off, as the desk\'s is')
+  // unarmed: the project's inbox, as before
+  await s.type('For the queue.')
+  await s.send()
+  assert.equal(posts(s.server.calls, /\/broadcast$/).length, 1)
+  assert.deepEqual(posts(s.server.calls, /\/message$/).map(c => c.path.replace(/^.*\/orgs\/mine/, '')), ['/nodes/crew/message'])
+})
+
+test('the megaphone is disabled when no agent works under the project', async (t) => {
+  const lone = tree({ roots: [node('lead'), projectNode('crew', [node('gone', [], { state: 'retired' })])] })
+  const s = await setup(t, { audiences: [grant('crew')], sent: [sent('j1', 'crew', '2026-11-20T10:00:00Z')] }, { tree: lone, active: false })
+  await s.openChat('crew')
+  assert.ok(megaphone(), 'the button is there')
+  assert.equal(megaphone()!.disabled, true)
+  assert.equal(megaphone()!.getAttribute('title'), 'no agent works under crew yet')
+  await altB()
+  assert.equal(megaphone()!.getAttribute('aria-pressed'), 'false', 'Alt+B does not arm it')
+})
+
+test('a project chat says its inbox may not be read, as the desk does, until a listener is there or the megaphone is on', async (t) => {
+  const hint = () => document.querySelector('.dm-compose .inbox-no-listeners')
+  const s = await setup(t, crewWorld(), { tree: crewTree(), active: false })
+  await s.openChat('crew')
+  assert.match(hint()?.textContent ?? '', /^Messages sent here may not be read by anyone\. Turn on broadcast \(megaphone\)/)
+  await s.click(megaphone(), 'the megaphone')
+  assert.equal(hint(), null, 'the megaphone reaches every agent: no hint')
+  await s.click(megaphone(), 'the megaphone')
+  assert.ok(hint(), 'off again: the hint is back')
+  const listened = { ...crewTree(), watchdogs: [{ id: 'q1', owner: 'member', name: 'q1', kind: 'fair_queue', target: 'crew', interval_s: 5, state: 'armed' }] } as unknown as TreePayload
+  await inAct(async () => { s.rerender({ tree: listened }); await flush(8) })
+  assert.equal(hint(), null, 'an agent listens on the inbox: no hint')
 })
