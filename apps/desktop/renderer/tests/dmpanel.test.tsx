@@ -7,6 +7,7 @@
 // Run:  node apps/desktop/renderer/tests/run.mjs dmpanel
 
 import './harness'
+import React from 'react'
 import { mentionHighlightOf, resetSeenMentions } from '../src/canvas/agentmentions'
 import { fireResize, flush, inAct, mountView } from './harness'
 import test from 'node:test'
@@ -21,6 +22,7 @@ import {
 import { resetLocalReads } from '../src/mailread'
 import { resetComposerDrafts } from '../src/composerdrafts'
 import { DeskChat } from '../src/canvas/desk'
+import { AgentNavProvider, useProvideAgentNav } from '../src/canvas/agentnav'
 import type { CanvasNode } from '../src/canvas/shared'
 import { syncFastModes } from '../src/canvas/fastmode'
 import { OPEN_SETTINGS_AT_EVENT } from '../src/canvas/settingskit'
@@ -171,6 +173,8 @@ function engine(world: World) {
 
 async function setup(t: TestContext, world: World, opts: {
   tree?: TreePayload; jumpTo?: string | null; active?: boolean; openChat?: { peer: string; seq: number; grant?: boolean } | null
+  /** around the panel, e.g. the canvas's agent-menu registry */
+  wrap?: (panel: React.ReactElement) => React.ReactElement
 } = {}) {
   const oldFetch = globalThis.fetch
   const server = engine(world)
@@ -194,11 +198,12 @@ async function setup(t: TestContext, world: World, opts: {
         onOpenMail={(ref) => { state.opened.push(ref) }} />
     </CurrentOrg.Provider>
   )
-  let view = await mountView(panel(), el => el)
+  const wrapped = () => opts.wrap ? opts.wrap(panel()) : panel()
+  let view = await mountView(wrapped(), el => el)
   /** close the panel and open it again, as closing and reopening the inbox does */
   const remount = async () => {
     await view.unmount()
-    view = await mountView(panel(), el => el)
+    view = await mountView(wrapped(), el => el)
     await inAct(async () => { await flush(12) })
   }
   t.after(async () => {
@@ -2303,4 +2308,55 @@ test('MEASURED CAUSE (real browser): the mailbox\u2019s regular read does not sh
   await nextRead()
   assert.ok(bubbleOf('fresh'), 'POSITIVE CONTROL: the read brought the new message')
   assert.deepEqual(seen, [], 'no "loading older" row for a read of the newest mail')
+})
+
+// USER 2026-11-25 15:29:12Z md5374b20b620: "clicking off of the new chat agents list should collapse it as well as
+// clicking the x button" (docket chats-panel-the-new-chat-agent-list-closes-on-an). Same rule as the canvas Agents
+// List tray (OrgCanvas closeOnOutsidePointer): a press inside, or in the list's own menu, keeps it; a press
+// elsewhere closes it and still acts on what it landed on.
+test('New chat closes on a press outside it, which still acts; presses inside it and in its row menu and submenu keep it open', async (t) => {
+  const picked: string[] = []
+  function Menus() {
+    useProvideAgentNav(id => [{ label: 'Focus', onSelect: () => { picked.push(id) } },
+      { label: 'More', submenuOnly: true, onSelect: () => {}, children: [{ label: 'Deeper', onSelect: () => { picked.push('deeper:' + id) } }] }])
+    return null
+  }
+  const s = await setup(t, { audiences: [] }, { wrap: panel => <AgentNavProvider><Menus />{panel}</AgentNavProvider> })
+  const open = () => document.querySelector('.dm-newchat')
+  const press = async (el: Element | null | undefined, what: string) => {
+    assert.ok(el, what + ' is on screen')
+    await inAct(async () => { el!.dispatchEvent(new W.MouseEvent('pointerdown', { bubbles: true, cancelable: true, button: 0 })); await flush(4) })
+  }
+  await s.click(document.querySelector('.dm-list-head .dm-new'), 'New chat')
+  assert.ok(open(), 'POSITIVE CONTROL: the list is open')
+  await press(document.querySelector('.dm-newchat input.tray-filter'), 'the filter')
+  await press(document.querySelector('.dm-newchat .dm-newchat-title'), 'the title')
+  await press(s.all<HTMLElement>('.dm-newchat .tray-row')[0], 'a row')
+  assert.ok(open(), 'presses inside keep it open')
+  const row = s.all<HTMLElement>('.dm-newchat .tray-row').find(r => r.dataset.dmPick === 'helper')
+  await inAct(async () => { row!.dispatchEvent(new W.MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 40, clientY: 40 })); await flush(6) })
+  const menu = [...document.querySelectorAll('.ctxmenu')].filter(m => !m.parentElement?.closest('.ctxmenu')).pop()
+  assert.ok(menu, 'POSITIVE CONTROL: the row menu opened')
+  const item = (label: string) => [...document.querySelectorAll<HTMLElement>('.ctxmenu [role="menuitem"]')].find(b => b.textContent?.trim().startsWith(label))
+  await press(item('More'), 'More')
+  await s.click(item('More'), 'More')
+  const deeper = item('Deeper')
+  assert.ok(deeper?.closest('.ctxmenu-submenu'), 'POSITIVE CONTROL: the submenu opened')
+  await press(deeper, 'the submenu entry')
+  assert.ok(open(), 'presses in its menu and submenu keep it open')
+  await s.click(deeper, 'Deeper')
+  assert.deepEqual(picked, ['deeper:helper'], 'the submenu entry acted')
+  assert.ok(open(), 'and the list is still open')
+  // outside: a chat row of the panel. The press closes the list, and the click opens that chat.
+  const chat = s.rows()[0]
+  assert.ok(chat, 'a chat row is on screen')
+  await press(chat, 'a chat row')
+  assert.equal(open(), null, 'a press outside closes the list')
+  await s.click(chat, 'the chat row')
+  assert.equal(document.querySelector('.dm-head')?.getAttribute('data-dm-peer'), chat.dataset.dmChat, 'and the click still opened that chat')
+  // outside the panel altogether
+  await s.click(document.querySelector('.dm-list-head .dm-new'), 'New chat')
+  assert.ok(open())
+  await press(document.body, 'the page')
+  assert.equal(open(), null, 'a press anywhere else closes it too')
 })
