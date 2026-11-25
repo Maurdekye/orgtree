@@ -2219,3 +2219,23 @@ test('a message arriving in another chat keeps a chat row\u2019s menu open, thou
   assert.notDeepEqual(s.rows().map(r => r.dataset.dmChat), before, 'POSITIVE CONTROL: worker\u2019s row moved up')
   assert.equal(openMenus(), 1, 'the row\u2019s menu is still open')
 })
+
+test('MEASURED CAUSE (real browser): in a long chat an arriving message slides the drawn window and drops its oldest row, and the browser\u2019s scroll anchoring then scrolls under the menu; while a menu is open the window keeps its first row', async (t) => {
+  const height = layOut(t); browserScrolls(t)
+  const world: World = { audiences: [grant('worker')], delivered: many(60) }
+  const s = await setup(t, world, { active: false })
+  await s.openChat('worker')
+  const first = () => s.all<HTMLElement>('.dm-msg')[0]?.dataset.dmEntry
+  assert.equal(s.all('.dm-msg').length, 50, 'POSITIVE CONTROL: fifty of sixty drawn')
+  const was = first()
+  await rightClick(bubbleOf('h0058'), 'a bubble')
+  assert.equal(openMenus(), 1, 'POSITIVE CONTROL: the menu is open')
+  height.scroll = 5100
+  world.delivered = [...world.delivered!, mail('fresh', 'worker', '2026-11-21T09:00:00Z')]
+  await nextRead()
+  assert.ok(bubbleOf('fresh'), 'POSITIVE CONTROL: the new message is drawn')
+  assert.equal(first(), was, 'the oldest drawn row stays: nothing above the menu\u2019s message changes')
+  assert.equal(s.all('.dm-msg').length, 51)
+  await escape()
+  assert.equal(timeline().scrollTop, 5100, 'closing the menu goes to the newest message')
+})
