@@ -764,6 +764,50 @@ module.exports = async (page) => {
   v.classic.back = await titleNow()
   await shot('26b-back-to-chats')
 
+  // ---- 27. the desk's x on the user's own unread message takes it back (USER 2026-11-25 m88681ac17bfd)
+  await page.eval(() => { window.__dm.toasts.length = 0; document.querySelector('[data-dm-entry="u4"]')?.scrollIntoView({ block: 'center' }) })
+  await page.sleep(400)
+  const takeBackState = () => page.eval(() => [...document.querySelectorAll('.dm-msg.out')].map(m => {
+    const x = m.querySelector('button.dm-retract'), b = m.querySelector('.dm-bubble'), t = m.querySelector('.dm-meta .dm-tick')
+    const xr = x?.getBoundingClientRect(), br = b?.getBoundingClientRect()
+    return { entry: m.dataset.dmEntry ?? null, tick: t?.className ?? null, x: !!x, title: x?.getAttribute('title') ?? null,
+      inside: !!(xr && br && xr.width > 0 && xr.left >= br.left && xr.right <= br.right && xr.top >= br.top && xr.bottom <= br.bottom) }
+  }))
+  v.takeBack = { before: await takeBackState() }
+  await shot('27a-an-unread-message-has-the-x')
+  await page.eval(() => document.querySelector('[data-dm-entry="u4"] button.dm-retract')?.click())
+  await until('u4 taken back', async () => page.eval(() => !document.querySelector('[data-dm-entry="u4"]')), 8000)
+  await page.sleep(600)
+  v.takeBack.after = await takeBackState()
+  v.takeBack.toasts = await page.eval(() => window.__dm.toasts.slice())
+  await shot('27b-taken-back')
+
+  // ---- 28. the notice toggle: a slashed bell when armed, and the box's dashes sparser, nothing moving
+  //      (USER 2026-11-25 m8fa7fe204469, m2e0562ae73e8)
+  const noticeState = () => page.eval(() => {
+    const toggle = document.querySelector('.dm-compose .cc-notice-toggle'), box = document.querySelector('.dm-compose .mail-reply')
+    const r = box?.getBoundingClientRect(), cs = box ? getComputedStyle(box) : null, before = box ? getComputedStyle(box, '::before') : null
+    return { icons: toggle ? [...toggle.querySelectorAll('[data-testid]')].map(i => i.getAttribute('data-testid')) : [],
+      armed: !!box?.classList.contains('notice-armed'), rect: r ? { x: r.x, y: r.y, w: r.width, h: r.height } : null,
+      borderWidth: cs?.borderTopWidth ?? null, borderColor: cs?.borderTopColor ?? null, borderStyle: cs?.borderTopStyle ?? null,
+      dashes: before ? { content: before.content, bg: before.backgroundColor, mask: (before.maskImage || before.webkitMaskImage || '').slice(0, 400) } : null }
+  })
+  v.notice = {}
+  for (const theme of ['charcoal', 'light']) {
+    await page.eval((id) => window.__dm.theme(id), theme)
+    await page.sleep(300)
+    const off = await noticeState()
+    await shot(`28-notice-off-${theme}`)
+    await page.eval(() => document.querySelector('.dm-compose .cc-notice-toggle')?.click())
+    await page.sleep(300)
+    const on = await noticeState()
+    await shot(`28-notice-on-${theme}`)
+    await page.eval(() => document.querySelector('.dm-compose .cc-notice-toggle')?.click())
+    await page.sleep(200)
+    v.notice[theme] = { off, on }
+  }
+  await page.eval(() => window.__dm.theme('charcoal'))
+
   v.end = await page.eval(() => ({ confirms: window.__dm.confirms, closed: window.__dm.closed, toasts: window.__dm.toasts.slice() }))
   v.pages = (await asked()).pages
   return v

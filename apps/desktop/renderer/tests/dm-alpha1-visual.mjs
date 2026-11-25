@@ -187,6 +187,14 @@ const server = createServer(async (req, res) => {
       ...(original ? { reply_to: { id: original.id, kind: 'mail', from: original.from, at: original.at, gist: original.body, org: 'mine', box: 'user' } } : {}) })
     return send({ accepted: true, id, ref: `@mail:${id}` })
   }
+  // the desk's retract (http::nodes::retract): the user's own mail, still pending, is taken back (section 27)
+  const retract = req.method === 'DELETE' ? p.match(/^\/nodes\/([^/]+)\/mail\/([^/]+)$/) : null
+  if (retract) {
+    const m = world.sent.find(x => x.id === decodeURIComponent(retract[2]) && x.delivered === false)
+    if (!m) return send({ error: 'that message was already delivered (or is not yours to retract)' }, 'application/json', 409)
+    m.retracted = true; delete m.delivered
+    return send({ retracted: m.id })
+  }
   // the @ menu's read of live things: two tickets, in the engine's order (their latest status change)
   if (p === '/mention-candidates') {
     const kinds = (url.searchParams.get('kinds') ?? '').split(','), q = (url.searchParams.get('q') ?? '').toLowerCase()
@@ -564,6 +572,31 @@ if (flag === '--expect') {
     }
   }
   checked.push('view in classic inbox', 'window title')
+  // ---- 27. the take-back x; 28. the notice toggle's slashed bell and sparser dashes
+  {
+    const tb = v.takeBack
+    const u4 = tb.before.find(m => m.entry === 'u4')
+    assert.ok(u4 && u4.x, `POSITIVE CONTROL: u4, unread, has the x (${JSON.stringify(tb.before.filter(m => m.x).map(m => m.entry))})`)
+    assert.equal(u4.title, 'retract (undelivered)', 'the desk’s tooltip')
+    assert.ok(u4.inside, 'inside its bubble')
+    const readWithX = tb.before.filter(m => m.x && /t-read/.test(m.tick ?? ''))
+    assert.deepEqual(readWithX.map(m => m.entry), [], 'no read message has it')
+    assert.equal(tb.after.some(m => m.entry === 'u4'), false, 'the bubble went')
+    const del = result.engineCalls.filter(c => c.method === 'DELETE')
+    assert.deepEqual(del.map(c => c.path), ['/api/orgs/mine/nodes/quoter/mail/u4'], 'the desk’s own call, once')
+    assert.deepEqual(tb.toasts.filter(t => /error/.test(t)), [], 'no error')
+    for (const [theme, { off, on }] of Object.entries(v.notice)) {
+      assert.equal(off.armed, false); assert.equal(on.armed, true, `${theme}: POSITIVE CONTROL: armed`)
+      assert.deepEqual(off.icons, ['NotificationsOutlinedIcon'], `${theme}: off is the plain bell`)
+      assert.deepEqual(on.icons, ['NotificationsOffOutlinedIcon'], `${theme}: on is the slashed bell (${on.icons})`)
+      assert.deepEqual(on.rect, off.rect, `${theme}: nothing moves when it toggles`)
+      assert.equal(on.borderWidth, off.borderWidth, `${theme}: the same border width`)
+      assert.match(on.borderColor, /rgba\(0, 0, 0, 0\)|transparent/, `${theme}: the border box stays, drawn over (${on.borderColor})`)
+      assert.match(on.dashes.mask, /stroke-dasharray='4 7'|stroke-dasharray=%274 7%27|4 7/, `${theme}: the sparser dashes`)
+      assert.doesNotMatch(on.dashes.bg, /rgba\(0, 0, 0, 0\)/, `${theme}: in a colour (${on.dashes.bg})`)
+    }
+  }
+  checked.push('take-back x', 'notice toggle icon and dashes')
   // View in transcript goes to the agent's desk, which closes the inbox (DmPanel focusAgent): that once, and only then
   assert.equal(v.flash.closedBefore, 0, 'the inbox was never closed before View in transcript')
   assert.equal(v.end.confirms, 0); assert.equal(v.end.closed, 2, 'closed twice, once by each View in transcript')
