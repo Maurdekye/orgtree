@@ -156,7 +156,7 @@ async function app(t: { after: (fn: () => void | Promise<void>) => void }) {
  *  one, which is what the first draft of this file did.
  */
 const WINDOWS = [
-  { name: 'Inbox', press: 'your inbox', title: /Your inbox/i },
+  { name: 'Inbox', press: 'chats', title: /Chats/ },
   { name: 'Docket', press: 'work docket', title: /Work docket/i },
   { name: 'Presented Documents', press: 'presented documents', title: /Presented documents/i },
   // by exact selector, not by label: see the note above
@@ -216,11 +216,11 @@ for (const w of WINDOWS) {
 test("a reply's chat request opens this organization's inbox on that agent's chat, and no other organization's", async (t) => {
   const a = await app(t)
   await a.enter('alpha')
-  assert.ok(!shown(/Your inbox/i), 'the inbox starts closed')
+  assert.ok(!shown(/Chats/), 'the inbox starts closed')
   await inAct(async () => { replySentOnObject('beta', 'a1'); await flush(10) })
-  assert.ok(!shown(/Your inbox/i), "another organization's reply opens nothing here")
+  assert.ok(!shown(/Chats/), "another organization's reply opens nothing here")
   await inAct(async () => { replySentOnObject('alpha', 'a1'); await flush(10) })
-  assert.ok(shown(/Your inbox/i), 'the inbox opens')
+  assert.ok(shown(/Chats/), 'the inbox opens')
   assert.equal(document.querySelector('.dm-head')?.getAttribute('data-dm-peer'), 'a1',
     'on the chat of the agent that received the reply')
 })
@@ -234,6 +234,6 @@ test("the centred docket a reply was typed in gives way to the chat it opens", a
   await a.press('work docket', "the docket's control", document)
   assert.ok(shown(/Work docket/i), 'POSITIVE CONTROL: the docket is open, centred')
   await inAct(async () => { replySentOnObject('alpha', 'a1'); await flush(10) })
-  assert.ok(shown(/Your inbox/i), 'the chat opens')
+  assert.ok(shown(/Chats/), 'the chat opens')
   assert.ok(!shown(/Work docket/i), 'and the docket that would cover it has closed')
 })

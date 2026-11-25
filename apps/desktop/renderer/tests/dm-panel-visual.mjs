@@ -223,7 +223,7 @@ if (flag === '--expect') {
     assert.match(s.bubbles.find(b => b.id === 'w4').files[0], /summary\.pdf/)
     assert.equal(s.newmark, '2 new messages')
     assert.equal(s.bellIcon, BUBBLE, 'the panel\'s icon is a chat bubble')
-    assert.equal(s.titleIcon, BUBBLE); assert.equal(s.title, 'Your inbox')
+    assert.equal(s.titleIcon, BUBBLE); assert.equal(s.title, 'Chats')
     assert.equal(s.bell, '1', 'the header count is today\'s rule: the open request, ahead of 3 unread')
     assert.match(s.bellTitle, /1 ask waiting on your answer · 3 unread/)
     onScreen(s.composer, `${theme} message box`)

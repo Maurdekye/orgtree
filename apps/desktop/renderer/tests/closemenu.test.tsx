@@ -181,7 +181,7 @@ const ORG_SURFACES = [
   { name: 'Work docket', kind: 'docket', open: 'work docket', sel: '.docket-modal' },
   { name: 'Usage', kind: 'usage', open: 'usage', sel: '.usage-modal' },
   { name: 'Presented documents', kind: 'gallery', open: 'presented documents', sel: '.gallery-modal' },
-  { name: 'Your inbox', kind: 'inbox', open: 'your inbox', sel: '.settings.wide' },
+  { name: 'Chats', kind: 'inbox', open: 'chats', sel: '.settings.wide' },
   { name: 'Org settings', kind: 'org-settings', open: 'Settings', sel: '.settings' },
   { name: 'Agents list', kind: 'agent-list', open: 'every agent', sel: '.tray-panel' },
 ]
