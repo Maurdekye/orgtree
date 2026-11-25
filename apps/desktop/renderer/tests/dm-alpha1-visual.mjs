@@ -124,6 +124,8 @@ const TRANSCRIPT = [
     tools: [{ name: 'mcp__orgtree__orgtree_message', id: 'toolu_q2', event_id: 'ev-send-tool', mail: { id: 'q2', to: 'user' } }] },
   ...Array.from({ length: 24 }, (_, i) => ({ role: 'assistant', text: `Later note ${i + 1}: the table stays as it is.`, seq: 25 + i, ts: ago(4 * H - i * M), event_id: `ev-after-${i}` })),
 ]
+let holdSends = false
+const held = []
 const server = createServer(async (req, res) => {
   const url = new URL(req.url, 'http://x')
   const send = (body, type = 'application/json', status = 200) => { res.writeHead(status, { 'Content-Type': type }); res.end(typeof body === 'string' || Buffer.isBuffer(body) ? body : JSON.stringify(body)) }
@@ -136,6 +138,8 @@ const server = createServer(async (req, res) => {
   // quoter's transcript off, then on again: the integrator's late case (a desk open on an empty transcript
   // when View in transcript is asked; the rows come with a later refresh)
   if (url.pathname === '/__transcript') { quoterTranscript = url.searchParams.get('on') === '1'; return send({ ok: true }) }
+  // section 23: hold the user's sends (the clock), then let them all go
+  if (url.pathname === '/__hold') { holdSends = url.searchParams.get('on') === '1'; if (!holdSends) held.splice(0).forEach(go => go()); return send({ ok: true }) }
   if (url.pathname === '/__read') { const u5 = world.sent.find(m => m.id === 'u5'); if (u5) u5.delivered = true; return send({ ok: true }) }
   if (url.pathname === '/__arrive') {
     const n = url.searchParams.get('n')
@@ -172,6 +176,8 @@ const server = createServer(async (req, res) => {
   if (p === '/inbox/read') return send({ read: 0 })
   const message = p.match(/^\/nodes\/([^/]+)\/message$/)
   if (message && req.method === 'POST') {
+    // the clock (section 23): the engine has not taken it until the kit lets it go
+    if (holdSends) await new Promise(resolve => held.push(resolve))
     const id = `sent-${++seq}`
     // a reply names what it answers; the engine hands the quote back with the mail
     const original = body.target?.kind === 'mail' ? everyMail().find(x => x.id === body.target.id) : null
@@ -426,9 +432,9 @@ if (flag === '--expect') {
   // ---- one check, grey while sent, green once read, live (USER 2026-11-25 mcc1bee9a2771, ma76e93d834d1)
   const rd = v.read
   assert.equal(rd.before.u5.cls, 'dm-tick t-sent'); assert.equal(rd.before.u5.label, 'Sent: quoter has not read it yet')
-  assert.equal(rd.before.u5.color, rd.before.u5.time, 'sent: the grey of the time')
-  assert.notEqual(rd.before.u5.time, rd.before.u5.ok, 'POSITIVE CONTROL: the time is not green')
-  assert.equal(rd.before.u1.cls, 'dm-tick t-read'); assert.equal(rd.before.u1.color, rd.before.u1.ok, 'read: Hubchat\'s read green, var(--ok)')
+  assert.equal(rd.before.u5.color, rd.before.u5.sentColor, 'sent: the darker grey of the panel, --dm-tick-sent (USER 2026-11-25 mb3ad4035c5bb)')
+  assert.notEqual(rd.before.u5.sentColor, rd.before.u5.ok, 'POSITIVE CONTROL: the two marks are not one colour')
+  assert.equal(rd.before.u1.cls, 'dm-tick t-read'); assert.equal(rd.before.u1.color, rd.before.u1.ok, 'read: the brighter green of the panel, --dm-tick-read')
   // the production bundle's icons carry no test ids: the glyph is compared by its path (MUI Check)
   for (const t of [rd.before.u5, rd.before.u1]) { assert.equal(t.svgs, 1); assert.match(t.icon ?? '', /^M9 16\.17/, 'one check, never a clock or two') }
   assert.equal(rd.before.u5.icon, rd.before.u1.icon, 'the same check, sent and read')
@@ -477,8 +483,48 @@ if (flag === '--expect') {
   assert.equal(mn.closed.menus, 0, 'Escape closes the menu')
   assert.ok(mn.closed.gap <= 1 && mn.closed.last === 'arrived-3', `and the chat goes to the newest message (${mn.closed.gap} px, ${mn.closed.last})`)
   checked.push('menu stays open')
+  // ---- the sent check a darker grey, the read check a brighter green, every theme; the clock unchanged (section 23)
+  {
+    // a computed colour: rgb()/rgba(), or color(srgb r g b / a) for a color-mix; a translucent one over the bubble
+    const parse = (c) => {
+      let m = c.match(/^rgba?\(([\d.]+),\s*([\d.]+),\s*([\d.]+)(?:,\s*([\d.]+))?\)$/)
+      if (m) return { rgb: [+m[1], +m[2], +m[3]], a: m[4] === undefined ? 1 : +m[4] }
+      m = c.match(/^color\(srgb ([\d.e-]+) ([\d.e-]+) ([\d.e-]+)(?: \/ ([\d.]+))?\)$/)
+      if (m) return { rgb: [+m[1] * 255, +m[2] * 255, +m[3] * 255], a: m[4] === undefined ? 1 : +m[4] }
+      throw new Error(`an unread colour: ${c}`)
+    }
+    const over = (c, under) => { const f = parse(c), u = parse(under).rgb; return f.rgb.map((v, i) => v * f.a + u[i] * (1 - f.a)) }
+    const lum = (c) => { const [r, g, b] = c.map(v => { const s = v / 255; return s <= 0.04045 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4 }); return 0.2126 * r + 0.7152 * g + 0.0722 * b }
+    const contrast = (a, b) => { const [x, y] = [lum(a), lum(b)].sort((p, q) => p - q); return (y + 0.05) / (x + 0.05) }
+    const OLD_READ = { charcoal: [111, 211, 119], 'obsidian-black': [111, 211, 119], light: [35, 114, 45], 'solarized-light': [35, 114, 45] } // --ok before
+    const seen = {}
+    for (const theme of ['charcoal', 'light', 'solarized-light', 'obsidian-black']) {
+      const rows = v.tickColours[theme], shown = rows.filter(r => r.inView)
+      const of = (cls) => shown.find(r => r.cls === `dm-tick ${cls}`)
+      const sent = of('t-sent'), read = of('t-read'), clock = of('t-queued')
+      assert.ok(sent && read && clock, `${theme}: a sent check, a read check and the clock on screen together (${rows.map(r => r.cls + (r.inView ? '' : ' (off)')).join(', ')})`)
+      assert.equal(clock.label, 'Sending', `${theme}: the clock is the held send`)
+      const bubble = parse(sent.bubble).rgb, readBubble = parse(read.bubble).rgb
+      const s = over(sent.color, sent.bubble), r = over(read.color, read.bubble), wasSent = over(sent.time, sent.bubble)
+      assert.ok(Math.abs(s[0] - s[1]) < 1 && Math.abs(s[1] - s[2]) < 1, `${theme}: the sent check is grey (${sent.color})`)
+      assert.ok(lum(s) < lum(wasSent), `${theme}: darker than the grey of the time it had (${sent.color} against ${sent.time})`)
+      assert.ok(r[1] > r[0] + 80 && r[1] > r[2] + 50, `${theme}: the read check is green (${read.color})`)
+      assert.ok(lum(r) > lum(OLD_READ[theme]), `${theme}: brighter than the old read green (${read.color})`)
+      assert.ok(contrast(s, bubble) >= 3, `${theme}: sent ${contrast(s, bubble).toFixed(2)}:1 on the bubble ${sent.bubble}`)
+      assert.ok(contrast(r, readBubble) >= 3, `${theme}: read ${contrast(r, readBubble).toFixed(2)}:1 on the bubble ${read.bubble}`)
+      assert.equal(clock.color, clock.time, `${theme}: the clock keeps the grey of the time`)
+      seen[theme] = { sent: sent.color, read: read.color, clock: clock.color, bubble: sent.bubble,
+        sentContrast: +contrast(s, bubble).toFixed(2), readContrast: +contrast(r, readBubble).toFixed(2) }
+    }
+    assert.notEqual(seen.charcoal.sent, seen.light.sent, 'POSITIVE CONTROL: the theme switch reached the ticks')
+    const rel = v.tickColours.released
+    assert.equal(rel.filter(r => r.cls === 'dm-tick t-queued').length, 0, 'the engine took it: no clock left')
+    assert.equal(rel[rel.length - 1].cls, 'dm-tick t-sent', 'the clock became the sent check')
+    v.tickSeen = seen
+  }
+  checked.push('tick colours')
   // View in transcript goes to the agent's desk, which closes the inbox (DmPanel focusAgent): that once, and only then
   assert.equal(v.flash.closedBefore, 0, 'the inbox was never closed before View in transcript')
   assert.equal(v.end.confirms, 0); assert.equal(v.end.closed, 2, 'closed twice, once by each View in transcript')
 }
-console.log(JSON.stringify({ ok: true, out: evidence, pinned: result.value.pinned?.real ? 'the app\'s own pin' : 'not pinned in this page', shots: result.value.shots.length, checked, consoleErrors: errors.length, session: result.session, guards: result.guards }))
+console.log(JSON.stringify({ ok: true, out: evidence, pinned: result.value.pinned?.real ? 'the app\'s own pin' : 'not pinned in this page', shots: result.value.shots.length, checked, ticks: result.value.tickSeen ?? null, consoleErrors: errors.length, session: result.session, guards: result.guards }))

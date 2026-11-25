@@ -1558,7 +1558,7 @@ test('alpha.1 point 5: while an agent writes to the user its row says "typing…
 })
 
 // USER 2026-11-25 mcc1bee9a2771 + ma76e93d834d1: grey check when sent, green check when read, live. One check
-// throughout (USER 2026-11-24 m0a5d2a5b266e); read is Hubchat's read colour (base.css .tick.t-read, var(--ok)).
+// throughout (USER 2026-11-24 m0a5d2a5b266e); sent a darker grey, read a brighter green (USER 2026-11-25 mb3ad4035c5bb; tests/dmticks.test.ts).
 test('the user\u2019s own message shows a grey check while the agent has not read it and Hubchat\u2019s green read mark once it has, live; an agent\u2019s message and an older engine\u2019s row show no mark', async (t) => {
   const world: World = {
     audiences: [grant('worker')],
@@ -1584,8 +1584,8 @@ test('the user\u2019s own message shows a grey check while the agent has not rea
     const { readFileSync } = await import('node:fs')
     const { default: path } = await import('node:path')
     const css = readFileSync(path.join(__SRC_DIR__, 'dm', 'dm.css'), 'utf8')
-    assert.match(css, /\.dm-tick\.t-read \{ color: var\(--ok\); \}/, 'read is green (Hubchat base.css .tick.t-read)')
-    assert.doesNotMatch(css, /\.dm-tick\.t-sent \{[^}]*color/, 'sent keeps the time\'s grey')
+    assert.match(css, /\.dm-tick\.t-read \{ color: var\(--dm-tick-read\); \}/, 'read is the panel\u2019s brighter green (USER 2026-11-25 mb3ad4035c5bb; tests/dmticks.test.ts)')
+    assert.match(css, /\.dm-tick\.t-sent \{ color: var\(--dm-tick-sent\); \}/, 'sent is the panel\u2019s darker grey')
   }
   assert.equal(tick('done')!.previousElementSibling?.tagName, 'TIME', 'after the time, as in Hubchat')
   assert.equal(state('old'), null, 'an older engine\u2019s row: no mark, never a clock that cannot turn')

@@ -19,6 +19,10 @@
   --dm-in-ink: var(--ink-strong);
   --dm-out: color-mix(in srgb, var(--accent) 34%, var(--bg));
   --dm-out-ink: var(--ink-strong);
+  /* the user's own check: a darker grey while sent, a brighter green once read, apart at a glance (USER
+     2026-11-25 mb3ad4035c5bb); each at least 3:1 on --dm-out with every preset accent (tests/dmticks.test.ts) */
+  --dm-tick-sent: #a0a0a0;
+  --dm-tick-read: #4cf06e;
   /* a megaphone message: a bright teal-eggshell in a light theme, and the same teal sunk into
      the page in a dark one (USER 2026-11-23 m212aefce0372) */
   --dm-mega: color-mix(in srgb, #3fd0b6 36%, var(--bg));
@@ -300,12 +304,15 @@
 .dm-request-hint { font-size: 12px; }
 .dm-kind.dm-kind-decision { color: var(--bad); background: color-mix(in srgb, var(--bad) 13%, transparent); }
 
+:root.contrast-obsidian-black .dm-panel { --dm-tick-sent: #909090; }
+:root:is(.contrast-light, .contrast-solarized-light) .dm-panel { --dm-tick-sent: #3a3a3a; --dm-tick-read: #10852b; }
 .dm-meta { display: flex; justify-content: flex-end; align-items: center; gap: 3px; margin-top: 3px; font-size: 11px; line-height: 1; color: var(--dim); user-select: none; }
-/* Hubchat's tick after the time (base.css .tick): a 16px check, the time's grey while sent, Hubchat's read
-   green once read (.tick.t-read) */
+/* Hubchat's tick after the time (base.css .tick): a 16px check, the panel's darker grey while sent, its
+   brighter green once read (--dm-tick-sent, --dm-tick-read; Hubchat keeps its own, USER m0018065d6e3c) */
 .dm-tick { display: inline-flex; align-items: center; height: 11px; font-size: 16px; line-height: 1; }
 .dm-tick svg { flex: none; }
-.dm-tick.t-read { color: var(--ok); }
+.dm-tick.t-sent { color: var(--dm-tick-sent); }
+.dm-tick.t-read { color: var(--dm-tick-read); }
 /* INSTANT SEND (Hubchat base.css .tick.t-queued, .tick.t-failed, .failed-line; USER 2026-11-25
    m1454b39b8fd0): the clock while the engine has not taken it, and a refused message's line under its
    bubble, on the user's side */

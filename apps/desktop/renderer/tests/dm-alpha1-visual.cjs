@@ -483,11 +483,13 @@ module.exports = async (page) => {
   // ---------------- 2026-11-25: one check, grey while sent, green once read, live (USER mcc1bee9a2771, ma76e93d834d1)
   await openChat('quoter')
   const ticks = () => page.eval(() => {
-    const probe = document.createElement('span'); probe.style.color = 'var(--ok)'; document.body.append(probe)
-    const ok = getComputedStyle(probe).color; probe.remove()
+    // the panel's own tick colours (USER 2026-11-25 mb3ad4035c5bb), resolved where the ticks are
+    const token = (name) => { const probe = document.createElement('span'); probe.style.color = `var(${name})`; document.querySelector('.dm-panel').append(probe)
+      const c = getComputedStyle(probe).color; probe.remove(); return c }
+    const ok = token('--dm-tick-read'), sentColor = token('--dm-tick-sent')
     return Object.fromEntries([...document.querySelectorAll('.dm-msg.out[data-dm-entry]')].map(r => {
       const t = r.querySelector('.dm-meta .dm-tick'), time = r.querySelector('.dm-meta time')
-      return [r.dataset.dmEntry, t ? { cls: t.className, color: getComputedStyle(t).color, time: getComputedStyle(time).color, ok,
+      return [r.dataset.dmEntry, t ? { cls: t.className, color: getComputedStyle(t).color, time: getComputedStyle(time).color, ok, sentColor,
         svgs: t.querySelectorAll('svg').length, icon: t.querySelector('svg path')?.getAttribute('d') ?? null, label: t.getAttribute('aria-label') } : null]
     }))
   })
@@ -625,6 +627,41 @@ module.exports = async (page) => {
   v.menus.closed = { menus: await menusNow(), gap: await gapNow(),
     last: await page.eval(() => [...document.querySelectorAll('.dm-timeline [data-dm-entry]')].pop()?.dataset.dmEntry ?? null) }
   await shot('22b-the-menu-closed-the-chat-at-its-newest')
+
+  // ---------------- 2026-11-25: the sent check a darker grey, the read check a brighter green, in every theme;
+  // the clock while the engine has not taken a send keeps the time's grey (USER mb3ad4035c5bb, m75a4ad69ae4c;
+  // @ticket:orgtree/mailbox-dm-panel-darker-grey-sent-arrow-brighter)
+  await openChat('quoter')
+  await page.api('GET', '/__hold?on=1')
+  await page.click('.dm-compose textarea')
+  await page.type('One more for the notes.')
+  await page.click('.dm-compose .mail-reply-send')
+  await until('the held message to show its clock', async () => page.eval(() => !!document.querySelector('.dm-msg.out .dm-tick.t-queued')), 12000)
+  const tickColours = () => page.eval(() => {
+    const view = document.querySelector('.dm-timeline').getBoundingClientRect()
+    return [...document.querySelectorAll('.dm-msg.out')].map(m => {
+      const t = m.querySelector('.dm-meta .dm-tick'), b = m.querySelector('.dm-bubble'), time = m.querySelector('.dm-meta time')
+      if (!t || !b) return null
+      const r = t.getBoundingClientRect()
+      return { entry: m.dataset.dmEntry ?? null, cls: t.className, label: t.getAttribute('aria-label'), color: getComputedStyle(t).color,
+        time: time ? getComputedStyle(time).color : null, bubble: getComputedStyle(b).backgroundColor,
+        inView: r.width > 0 && r.top >= view.top && r.bottom <= view.bottom }
+    }).filter(Boolean)
+  })
+  v.tickColours = {}
+  for (const theme of ['charcoal', 'light', 'solarized-light', 'obsidian-black']) {
+    await page.eval((id) => window.__dm.theme(id), theme)
+    await page.eval(() => { const el = document.querySelector('.dm-timeline'); el.scrollTop = el.scrollHeight })
+    await page.sleep(400)
+    v.tickColours[theme] = await tickColours()
+    await shot(`23-ticks-sent-read-and-clock-${theme}`)
+  }
+  await page.eval(() => window.__dm.theme('charcoal'))
+  await page.api('GET', '/__hold?on=0')
+  await until('the clock to become the sent check', async () => page.eval(() => !document.querySelector('.dm-msg.out .dm-tick.t-queued')), 12000)
+  await page.sleep(400)
+  v.tickColours.released = await tickColours()
+  await shot('23-the-clock-became-the-sent-check')
 
   v.end = await page.eval(() => ({ confirms: window.__dm.confirms, closed: window.__dm.closed, toasts: window.__dm.toasts.slice() }))
   v.pages = (await asked()).pages
