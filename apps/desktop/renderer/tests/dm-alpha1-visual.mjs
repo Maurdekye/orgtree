@@ -585,7 +585,7 @@ if (flag === '--expect') {
     // USER 2026-11-25 m0c7ae1b9c32d: the x in the top right, the read arrow where it is without it
     assert.ok(u4.xAt.top <= 6 && u4.xAt.right <= 6, `the x is over the top-right corner (${JSON.stringify(u4.xAt)})`)
     const plain = tb.before.find(m => !m.x && m.tickAt && /t-(sent|read)/.test(m.tick ?? ''))
-    assert.ok(plain, 'POSITIVE CONTROL: a message of the user's without the x')
+    assert.ok(plain, 'POSITIVE CONTROL: an own message without the x')
     assert.ok(Math.abs(u4.tickAt.right - plain.tickAt.right) < 0.5 && Math.abs(u4.tickAt.bottom - plain.tickAt.bottom) < 0.5,
       `the tick sits in the same place with and without the x (${JSON.stringify(u4.tickAt)} vs ${plain.entry} ${JSON.stringify(plain.tickAt)})`)
     const readWithX = tb.before.filter(m => m.x && /t-read/.test(m.tick ?? ''))
