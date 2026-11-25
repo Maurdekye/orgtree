@@ -274,6 +274,25 @@ test('the panel is a list of chats: every top-level agent and every audience hol
   assert.equal(s.server.calls.length, 0, 'opening the panel changes nothing on the engine')
 })
 
+test('selecting a chat never moves a chat in the list: the open chat\'s own pages do not set the order (USER 2026-11-25 mbad35d25d10f)', async (t) => {
+  // solo's only mail lies outside the mailbox's loaded window; opening solo reads its own pages, which hold it
+  const s = await setup(t, {
+    audiences: [grant('worker')],
+    delivered: [mail('m1', 'lead', '2026-11-20T12:00:00Z')],
+    older: [{ delivered: [mail('o1', 'solo', '2026-11-19T10:00:00Z')] }],
+  }, { active: false })
+  const order = () => s.rows().map(r => r.dataset.dmChat)
+  const before = order()
+  assert.deepEqual(before, ['lead', 'worker', 'solo'], 'POSITIVE CONTROL: solo has nothing in the loaded window, so it sits in tree order')
+  await s.openChat('solo')
+  await inAct(async () => { await flush(20) })
+  assert.ok(s.all<HTMLElement>('.dm-msg').some(b => b.dataset.dmEntry === 'o1'), 'POSITIVE CONTROL: the open chat read its own page')
+  assert.deepEqual(order(), before, 'opening solo moved no chat')
+  await s.openChat('worker')
+  await inAct(async () => { await flush(20) })
+  assert.deepEqual(order(), before, 'and opening another moved none either')
+})
+
 test('a chat is that agent\'s mail as bubbles, oldest first, the user\'s own on the other side', async (t) => {
   const s = await setup(t, {
     audiences: [grant('worker')],
