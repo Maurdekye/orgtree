@@ -615,7 +615,15 @@ if (flag === '--expect') {
     assert.ok(vc.landed.entry, 'a message is flashed')
     assert.ok(vc.landed.inView, 'and in view')
     assert.ok(vc.landed.text && vc.row.text.includes(vc.landed.text.trim().slice(0, 20)), `the same message (${vc.landed.text} / ${vc.row.text})`)
-    checked.push('view in chat')
+    // the whole row lights up (USER mba561e16fb40): tinted, reaching both edges of the chat, the bubble without its own ring
+    const hl = vc.landed.row
+    assert.ok(hl, 'the flashed row was measured')
+    assert.doesNotMatch(hl.bg, /^rgba\(0, 0, 0, 0\)$|^transparent$/, `the row is tinted (${hl.bg})`)
+    const spread = Number(hl.shadow.match(/(\d+(?:\.\d+)?)px\s*$/)?.[1] ?? 0)
+    assert.ok(spread >= Math.max(hl.leftGap, hl.rightGap), `the tint reaches both edges of the chat (spread ${spread}px, gaps ${hl.leftGap}/${hl.rightGap}px)`)
+    assert.match(hl.clip, /inset/, `clipped to the row's height (${hl.clip})`)
+    assert.ok(hl.bubbleShadow === 'none' || !hl.bubbleShadow, `no second ring on the bubble (${hl.bubbleShadow})`)
+    checked.push('view in chat', 'whole-row highlight')
   }
   // View in transcript goes to the agent's desk, which closes the inbox (DmPanel focusAgent): that once, and only then
   assert.equal(v.flash.closedBefore, 0, 'the inbox was never closed before View in transcript')

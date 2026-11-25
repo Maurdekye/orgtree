@@ -852,6 +852,11 @@ module.exports = async (page) => {
       text: b ? [...b.childNodes].filter(n => !n.classList?.contains('dm-sr')).map(n => n.textContent).join('').slice(0, 80) : null,
       inView: !!(r && lr && r.bottom > lr.top && r.top < lr.bottom),
       classicTicked: !!document.querySelector('input[aria-label="Classic mailbox"]')?.checked,
+      // the whole row's highlight (USER mba561e16fb40), mid-flash: its tint and how far sideways it reaches
+      row: (() => { const cs = f ? getComputedStyle(f) : null, fr = f?.getBoundingClientRect()
+        return cs && fr && lr ? { bg: cs.backgroundColor, shadow: cs.boxShadow, clip: cs.clipPath, rowW: Math.round(fr.width), timelineW: Math.round(lr.width),
+          leftGap: Math.round(fr.left - lr.left), rightGap: Math.round(lr.right - fr.right),
+          bubbleShadow: b ? getComputedStyle(b).boxShadow : null } : null })(),
       title: document.querySelector('.settings h3')?.textContent?.trim() ?? null }
   })
   await shot('29b-view-in-chat-the-message-flashed')
