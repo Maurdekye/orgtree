@@ -17,6 +17,8 @@ import { flush, inAct, mountView } from './harness'
 import { AgentNavProvider, useProvideAgentNav } from '../src/canvas/agentnav'
 import { AgentName, NodeLink } from '../src/canvas/identity'
 import { SenderChip } from '../src/canvas/senderchip'
+import { RefMdBody } from '../src/canvas/refmd'
+import { useRefRoutes } from '../src/canvas/reflinks'
 import { agentMenuEntries } from '../src/canvas/agentmenu'
 import { agentLinkChat, canChatWith, CLASSIC_MAILBOX_KEY, onChatRequest, setShownChat } from '../src/mailboxpref'
 import type { CanvasNode } from '../src/canvas/shared'
@@ -123,4 +125,50 @@ test('the agent menu\u2019s Open submenu has Chat for an agent with a user audie
   assert.equal(canChatWith(NODES.get('own')!), true)
   window.localStorage.setItem(CLASSIC_MAILBOX_KEY, '1')
   assert.equal(labels(NODES.get('own')!).includes('Chat'), false, 'not while the classic mailbox is on')
+})
+
+// ---- the links inside written text: a mail body, a chat bubble, a presentation, a ticket (USER 2026-11-25
+// m1038dab63302: "i just clicked @hubchat-web-fable 's link and it opened them on the canvas instead of
+// opening their dm, even though i have an audience with them"). MEASURED CAUSE: an @agent chip in rendered
+// prose is drawn by refmd, not by NodeLink, and its click went through the reference router
+// (reflinks.tsx `useRefRoutes`), whose agent arm called `onFocusAgent` without asking the chat. ----
+
+function Prose({ text, focus }: { text: string; focus: (id: string) => void }) {
+  const refs = useRefRoutes('mine', NODES, { onFocusAgent: focus })
+  return <RefMdBody html={{ __html: `<p>${text}</p>` }} world={refs.world} onOpen={refs.onOpen} />
+}
+
+async function prose(t: TestContext) {
+  window.localStorage.removeItem(CLASSIC_MAILBOX_KEY)
+  setShownChat('mine', null)
+  const asked: string[] = [], focused: string[] = []
+  const off = onChatRequest((org, peer) => { asked.push(`${org}:${peer}`) })
+  const view = await mountView(<AgentNavProvider><Route />
+    <Prose text="ask @own, @member, @plain, @crew and @agent:mine/own" focus={id => { focused.push(id) }} />
+  </AgentNavProvider>, el => el)
+  t.after(async () => { off(); await view.unmount(); window.localStorage.removeItem(CLASSIC_MAILBOX_KEY); setShownChat('mine', null) })
+  await inAct(async () => { await flush(4) })
+  const click = async (token: string) => {
+    const chip = view.el.querySelector<HTMLElement>(`[data-ref-token="${token}"]`)
+    assert.ok(chip, `${token} is drawn as a chip`)
+    asked.length = 0; focused.length = 0
+    await inAct(async () => { chip.click(); await flush(2) })
+    return { asked: asked.slice(), focused: focused.slice() }
+  }
+  return { click }
+}
+
+test('an @agent chip in written text opens the chat of an agent with a user audience, as the other agent links do', async t => {
+  const f = await prose(t)
+  assert.deepEqual(await f.click('@own'), { asked: ['mine:own'], focused: [] }, 'a bare @name')
+  assert.deepEqual(await f.click('@agent:mine/own'), { asked: ['mine:own'], focused: [] }, 'the canonical @agent: form')
+  assert.deepEqual(await f.click('@member'), { asked: ['mine:member'], focused: [] }, 'an audience through its project')
+})
+
+test('POSITIVE CONTROL: an @agent chip in written text without a user audience, or a project, still goes to the canvas', async t => {
+  const f = await prose(t)
+  assert.deepEqual(await f.click('@plain'), { asked: [], focused: ['plain'] })
+  assert.deepEqual(await f.click('@crew'), { asked: [], focused: ['crew'] })
+  setShownChat('mine', 'own')
+  assert.deepEqual(await f.click('@own'), { asked: [], focused: ['own'] }, 'its chat already on screen: the desk, as NodeLink does')
 })
