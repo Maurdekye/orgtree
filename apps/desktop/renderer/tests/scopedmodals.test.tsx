@@ -24,7 +24,7 @@ import { legacyAppBackend } from './appfeed-fixture'
 import assert from 'node:assert/strict'
 import { forgetModalOpenCache, forgetModalPins, isModalPinned } from '../src/canvas/modalpin'
 import App from '../src/App'
-import { replySentOnObject } from '../src/mailboxpref'
+import { replySentOnObject, viewMailIn } from '../src/mailboxpref'
 
 const agent = (id: string) => ({ id, title: id, tier: 'haiku', model_id: 'haiku',
   state: 'live', seat: 1, grant: 0, free: 0, mail_pending: 0, documents: [],
@@ -225,15 +225,28 @@ test("a reply's chat request opens this organization's inbox on that agent's cha
     'on the chat of the agent that received the reply')
 })
 
-// The readers a reply is typed in are drawn over the inbox (the same overlay
-// layer, later in the page), so a chat opened under a centred one would be a
-// reply that seemed to do nothing.
-test("the centred docket a reply was typed in gives way to the chat it opens", async (t) => {
+// A JUMP BRINGS ITS TARGET TO THE FRONT AND CLOSES NOTHING (4.7.0-alpha.7, coordinator ruling on USER
+// m9e3fb5560658, after integ-sol-d's finding): the chats a reply's Open chat or a View in chat opens come in front of
+// the centred reader the user was in, and that reader stays open behind them. Before, the reader was closed so the
+// chats would not open under it (both are the same overlay layer, the reader later in the page).
+const overlayWith = (match: (o: Element) => boolean) => [...document.querySelectorAll<HTMLElement>('.overlay')].find(match) ?? null
+const docketOverlay = () => overlayWith(o => !!o.querySelector(':scope > .docket-modal'))
+const chatsOverlay = () => overlayWith(o => !o.querySelector(':scope > .docket-modal') && /Chats/.test(o.textContent ?? ''))
+const zOf = (o: HTMLElement) => Number(o.style.zIndex || 30)
+/** whether `a` is drawn over `b`, as the browser stacks two fixed overlays: the higher z-index, else the later one */
+const over = (a: HTMLElement, b: HTMLElement) => zOf(a) !== zOf(b) ? zOf(a) > zOf(b)
+  : !!(b.compareDocumentPosition(a) & Node.DOCUMENT_POSITION_FOLLOWING)
+for (const [how, jump] of [
+  ["a reply's Open chat", () => replySentOnObject('alpha', 'a1')],
+  ['View in chat', () => { viewMailIn('chat', 'alpha', 'm1', 'a1') }],
+] as const) test(`${how} from a centred docket: the chats open in front of it, and the docket stays open behind`, async (t) => {
   const a = await app(t)
   await a.enter('alpha')
   await a.press('work docket', "the docket's control", document)
-  assert.ok(shown(/Work docket/i), 'POSITIVE CONTROL: the docket is open, centred')
-  await inAct(async () => { replySentOnObject('alpha', 'a1'); await flush(10) })
-  assert.ok(shown(/Chats/), 'the chat opens')
-  assert.ok(!shown(/Work docket/i), 'and the docket that would cover it has closed')
+  assert.ok(docketOverlay(), 'POSITIVE CONTROL: the docket is open, centred')
+  await inAct(async () => { jump(); await flush(10) })
+  const chats = chatsOverlay(), docket = docketOverlay()
+  assert.ok(chats, 'the chats open')
+  assert.ok(docket, 'the docket stays open: the jump closes nothing')
+  assert.ok(over(chats!, docket!), `the chats are in front (chats z ${zOf(chats!)}, docket z ${zOf(docket!)})`)
 })

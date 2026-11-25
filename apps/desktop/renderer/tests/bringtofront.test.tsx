@@ -107,3 +107,16 @@ test('without a jump, two centred windows keep the ordinary level (no inline z-i
   const v = await mount(<Windows chats={true} agent={false} />); t.after(() => v.unmount())
   assert.equal(overlayOf('chats-probe')!.style.zIndex, '', 'a lone centred window has no inline z-index')
 })
+
+// The chats' own mail route (View in @agent's inbox, and any mail reference in a chat) opens the agent's mailbox in
+// front of the chats, which stay open (integ-sol-d's full-app proof found the shell closing them first). The shell's
+// handler is read from App.tsx, as dmpanel's onAgentSettings check does; the full-app proof covers the behaviour.
+test('the chats stay open when one of their mail references opens an agent\'s mailbox', async () => {
+  const { readFileSync } = await import('node:fs')
+  const { default: path } = await import('node:path')
+  const app = readFileSync(path.join(__SRC_DIR__, 'App.tsx'), 'utf8')
+  const mailbox = app.slice(app.indexOf('<UserMailbox '))
+  const handler = mailbox.match(/onOpenMail=\{\(r\) => \{([\s\S]*?)\n\s*\}\}/)?.[1] ?? ''
+  assert.match(handler, /setMailJump\(/, 'POSITIVE CONTROL: this is the mail route')
+  assert.doesNotMatch(handler, /closeIfCentred|setShowInbox\(false\)/, 'it does not close a centred inbox')
+})
