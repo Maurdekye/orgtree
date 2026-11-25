@@ -468,6 +468,15 @@ if (flag === '--expect') {
   assert.ok(late.row.inView && late.settled.inView, `the desk went to it: in view as it flashes (${late.row.top}..${late.row.bottom}) and after (${late.settled.top}..${late.settled.bottom})`)
   assert.deepEqual(late.toasts, [], 'the empty desk did not say the message was gone')
   checked.push('late transcript row')
+  // ---- an arriving message never closes an open context menu (USER 2026-11-25 m1f747c2836f9)
+  const mn = v.menus
+  assert.ok(mn.gapBefore <= 1, `POSITIVE CONTROL: the chat was at its newest message (${mn.gapBefore} px)`)
+  assert.equal(mn.open, 1, 'POSITIVE CONTROL: the bubble menu opened')
+  assert.equal(mn.after.menus, 1, 'a message arrived and the menu is still open')
+  assert.ok(mn.after.gap > 1, `the chat held still under it, the new message below (${mn.after.gap} px)`)
+  assert.equal(mn.closed.menus, 0, 'Escape closes the menu')
+  assert.ok(mn.closed.gap <= 1 && mn.closed.last === 'arrived-3', `and the chat goes to the newest message (${mn.closed.gap} px, ${mn.closed.last})`)
+  checked.push('menu stays open')
   // View in transcript goes to the agent's desk, which closes the inbox (DmPanel focusAgent): that once, and only then
   assert.equal(v.flash.closedBefore, 0, 'the inbox was never closed before View in transcript')
   assert.equal(v.end.confirms, 0); assert.equal(v.end.closed, 2, 'closed twice, once by each View in transcript')

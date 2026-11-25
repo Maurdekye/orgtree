@@ -602,6 +602,30 @@ module.exports = async (page) => {
   v.lateFlash.toasts = await page.eval((n) => window.__dm.toasts.slice(n), v.lateFlash.toastsBefore)
   await page.eval(() => window.__dm.fullDesk(false))
 
+  // ---------------- 2026-11-25: an arriving message never closes an open context menu (USER m1f747c2836f9: "make
+  // sure new messages in either hubchat or the new inbox dont close any context menu"). The chat at its newest
+  // message holds still while the menu is open, and goes to the newest message when it closes.
+  await openChat('worker')
+  await page.eval(() => { const el = document.querySelector('.dm-timeline'); el.dispatchEvent(new WheelEvent('wheel', { bubbles: true, deltaY: 400 })); el.scrollTop = el.scrollHeight })
+  await page.sleep(500)
+  const gapNow = () => page.eval(() => { const el = document.querySelector('.dm-timeline'); return Math.round(el.scrollHeight - el.scrollTop - el.clientHeight) })
+  const menusNow = () => page.eval(() => document.querySelectorAll('[role="menu"]').length)
+  v.menus = { gapBefore: await gapNow() }
+  await page.eval(() => { const bs = [...document.querySelectorAll('.dm-timeline .dm-msg .dm-bubble')], b = bs[bs.length - 2], r = b.getBoundingClientRect()
+    b.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: r.left + 30, clientY: r.top + 10, button: 2 })) })
+  await page.sleep(300)
+  v.menus.open = await menusNow()
+  await page.api('GET', '/__arrive?n=3')
+  await until('the third message to be drawn', async () => page.eval(() => !!document.querySelector('[data-dm-entry="arrived-3"]')), 12000)
+  await page.sleep(600)
+  v.menus.after = { menus: await menusNow(), gap: await gapNow() }
+  await shot('22a-a-message-arrived-the-menu-stays-open')
+  await page.eval(() => document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })))
+  await page.sleep(500)
+  v.menus.closed = { menus: await menusNow(), gap: await gapNow(),
+    last: await page.eval(() => [...document.querySelectorAll('.dm-timeline [data-dm-entry]')].pop()?.dataset.dmEntry ?? null) }
+  await shot('22b-the-menu-closed-the-chat-at-its-newest')
+
   v.end = await page.eval(() => ({ confirms: window.__dm.confirms, closed: window.__dm.closed, toasts: window.__dm.toasts.slice() }))
   v.pages = (await asked()).pages
   return v
