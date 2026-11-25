@@ -357,7 +357,7 @@ pub async fn send_extern(engine: &Arc<Engine>, org_id: i64, out: &Outgoing) -> R
         .await?;
     tx.execute("UPDATE ot.org_inbox SET kind=$2 WHERE uid=$1", &[&in_uid,&out.kind]).await?;
     // delivered here and now: a weak link's send moves the org's last seen (USER meb7815aff52d)
-    if via_weak { weak_sent(&tx, org_id).await?; }
+    if via_weak { weak_sent(&*tx, org_id).await?; }
     let (published, held) = publish_new(engine,&tx,dst.id,&in_uid).await?;
     let jobs::Published { route, copies: delivered, jobs: queued, changed: audience_changed } = published;
     let holders = &route.to;
