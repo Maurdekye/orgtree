@@ -46,6 +46,18 @@ pub fn normalize_patch(patch: &mut Map<String, Value>) -> Result<()> {
     Ok(())
 }
 
+/// RED STUBS (lockdown / Org decides): today's behaviour.
+#[nolog]
+pub fn user_mode(settings: &Value) -> &'static str { mode(settings) }
+#[nolog]
+pub fn org_choice(_settings: &Value) -> &'static str { "normal" }
+#[nolog]
+pub fn resolve_patch(_patch: &mut Map<String, Value>, _stored: &Value) {}
+#[logged]
+pub async fn set_org_choice(_engine: &Arc<Engine>, _org_id: i64, _agent: &str, _choice: &str) -> Result<Value> { anyhow::bail!("not built yet") }
+#[logged]
+pub async fn set_aside_inbound(_engine: &Engine, _org_id: i64, _hub: &str, _m: &Value) -> Result<()> { Ok(()) }
+
 #[nolog]
 pub fn check(settings: &Value) -> Result<()> {
     if !enabled(settings) {

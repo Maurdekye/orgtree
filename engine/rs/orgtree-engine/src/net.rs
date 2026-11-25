@@ -33,6 +33,7 @@ use crate::engine::Engine;
 
 mod transfers;
 pub mod blocks;
+pub mod lockdown;
 mod stream;
 mod incoming;
 pub mod control;
@@ -1624,3 +1625,6 @@ mod stream_tests;
 #[cfg(test)]
 #[path = "net/blocks_tests.rs"]
 mod blocks_tests;
+#[cfg(test)]
+#[path = "net/lockdown_tests.rs"]
+mod lockdown_tests;
