@@ -251,9 +251,20 @@
 .dm-msg.hl { background: var(--accent-soft); box-shadow: 0 0 0 4px var(--accent-soft); border-radius: 8px; }
 .dm-msg.hl .dm-bubble { outline: 2px solid var(--accent); outline-offset: 1px; }
 .dm-timeline:focus { outline: none; }
-.dm-msg.flash .dm-bubble, .dm-msg.flash .ask-message { animation: dm-flash 1.4s ease; }
-@keyframes dm-flash { 0%, 40% { box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 28%, transparent); } 100% { box-shadow: 0 0 0 0 transparent; } }
-@media (prefers-reduced-motion: reduce) { .dm-msg.flash .dm-bubble, .dm-msg.flash .ask-message { animation: none; outline: 2px solid var(--accent); } }
+/* a jump's highlight (USER 2026-11-25 mba561e16fb40 "highlight the whole row"): the whole row, across the chat's
+   width, in the flash token (the accent, mixed), then it fades. The tint runs past the row sideways as a shadow
+   clipped to the row's own height, so neither the rows above and below nor the timeline's width change. Everything
+   lives in the keyframes: once the animation ends the row has no shadow, clip or tint left. */
+.dm-msg.flash { animation: dm-row-flash 2s ease; }
+@keyframes dm-row-flash {
+  0%, 45% { background-color: color-mix(in srgb, var(--accent) 34%, transparent); box-shadow: 0 0 0 100vmax color-mix(in srgb, var(--accent) 34%, transparent); clip-path: inset(-2px -100vmax); }
+  100% { background-color: transparent; box-shadow: 0 0 0 100vmax transparent; clip-path: inset(-2px -100vmax); }
+}
+@keyframes dm-row-flash-still {
+  0%, 99% { background-color: color-mix(in srgb, var(--accent) 34%, transparent); box-shadow: 0 0 0 100vmax color-mix(in srgb, var(--accent) 34%, transparent); clip-path: inset(-2px -100vmax); }
+  100% { background-color: transparent; box-shadow: none; clip-path: none; }
+}
+@media (prefers-reduced-motion: reduce) { .dm-msg.flash { animation: dm-row-flash-still 2s steps(1, end); } }
 
 /* the mail's own body and files, as the reading pane draws them, inside a bubble */
 .dm-bubble .mailer-body { font-size: inherit; line-height: inherit; }
