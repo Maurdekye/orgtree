@@ -20,7 +20,7 @@ export interface FileTransferView { state: string; label: string; confirmed: num
 export function fileTransferView(t: MailTransfer | undefined, name: string): FileTransferView | null {
   if (!t || terminal.has(t.state)) return null
   const f = (t.files ?? []).find(x => x.name === name) ?? (t.files?.length ? null : { name: t.name ?? '', total: t.total ?? null,
-    confirmed: t.confirmed ?? 0 } as Pick<TransferFile, 'name' | 'total' | 'confirmed'>)
+    confirmed: t.confirmed ?? 0, complete: false } as Pick<TransferFile, 'name' | 'total' | 'confirmed' | 'complete'>)
   if (!f || f.complete) return null
   const total = f.total && f.total > 0 ? f.total : null
   const confirmed = Math.max(0, f.confirmed)
