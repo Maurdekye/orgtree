@@ -7210,6 +7210,14 @@ svg.MuiSvgIcon-root {
 /* mail attachments (user spec 2026-07-31): staged chips on the composer,
    ride-along chips on pending bubbles and the inbox reading pane */
 .attach-row { display: flex; flex-wrap: wrap; gap: 5px; padding: 3px 2px; }
+/* A FILE IN TRANSIT (Hubchat's attachment progress, USER 2026-11-25 m1454b39b8fd0): the file card
+   with its progress and state under it; on a picture, over its lower edge */
+.attach-transfer { display: inline-flex; flex-direction: column; gap: 2px; position: relative; }
+.attach-transfer .att-progress { display: flex; flex-direction: column; gap: 1px; font-size: 11px; color: var(--dim); }
+.attach-transfer .att-progress progress { width: 100%; height: 4px; }
+.attach-transfer.pic .att-progress { position: absolute; left: 4px; right: 4px; bottom: 4px; padding: 3px 5px;
+  border-radius: 5px; background: rgb(0 0 0 / .55); color: #fff; }
+.attach-transfer .att-progress .err { color: var(--bad); }
 /* ticket attachments (docket pane): same section margins as .docket-list,
    without wearing that class (it means "a progress list" elsewhere) */
 /* W08 VERIFICATION: receipts, findings and immutable artifacts. The colour

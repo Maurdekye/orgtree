@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { changeMailTransfer, getMailTransfers, isRequestCancelled } from '../api'
 import type { MailTransfer, TransferFile } from '../api'
 import { fmtBytes } from './img'
@@ -11,6 +11,51 @@ const labels: Record<string, string> = {
   queued: 'Queued', preparing: 'Preparing', uploading: 'Uploading', downloading: 'Downloading',
   confirming: 'Confirming', delivering: 'Delivering', retry_wait: 'Waiting to retry', paused: 'Paused',
   failed: 'Failed', cancelled: 'Cancelled', complete: 'Complete', removed: 'Removed from message',
+}
+
+/** A TRANSFER ON ITS MESSAGE (Hubchat's attachment progress, USER 2026-11-25 m1454b39b8fd0): what
+ *  one file of a message shows while its transfer is unfinished, from the same transfer list the
+ *  mailbox's transfers tab reads. Null once it is complete or removed. */
+export interface FileTransferView { state: string; label: string; confirmed: number; total: number | null; pct: number | null }
+export function fileTransferView(t: MailTransfer | undefined, name: string): FileTransferView | null {
+  if (!t || terminal.has(t.state)) return null
+  const f = (t.files ?? []).find(x => x.name === name) ?? (t.files?.length ? null : { name: t.name ?? '', total: t.total ?? null,
+    confirmed: t.confirmed ?? 0 } as Pick<TransferFile, 'name' | 'total' | 'confirmed'>)
+  if (!f || f.complete) return null
+  const total = f.total && f.total > 0 ? f.total : null
+  const confirmed = Math.max(0, f.confirmed)
+  const pct = total ? Math.min(100, Math.round(confirmed / total * 100)) : null
+  const word = labels[t.state] ?? t.state
+  return { state: t.state, label: pct == null ? word : `${word} · ${pct}%`, confirmed, total, pct }
+}
+
+/** The mailbox's transfers by the message they carry, polled while any is unfinished (and once
+ *  on opening): the first page, as the transfers tab's live poll reads it. */
+export function useMessageTransfers(slug: string, agent?: string): ReadonlyMap<string, MailTransfer> {
+  const [rows, setRows] = useState<MailTransfer[]>([])
+  useEffect(() => {
+    let dead = false
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const stop = new AbortController()
+    const read = async () => {
+      let again = false
+      try {
+        const data = await getMailTransfers(slug, agent, stop.signal)
+        const list = Array.isArray(data.transfers) ? data.transfers : []
+        if (dead) return
+        setRows(list)
+        again = list.some(t => !terminal.has(t.state))
+      } catch { again = false }
+      if (!dead) timer = setTimeout(() => void read(), again ? 1000 : 10000)
+    }
+    void read()
+    return () => { dead = true; stop.abort(); if (timer) clearTimeout(timer) }
+  }, [slug, agent])
+  return useMemo(() => {
+    const map = new Map<string, MailTransfer>()
+    for (const t of rows) if (t.message_id && !map.has(t.message_id)) map.set(t.message_id, t)
+    return map
+  }, [rows])
 }
 
 function Bytes({ file, done, direction }: {file: TransferFile; done: boolean; direction: 'upload' | 'download'}) {

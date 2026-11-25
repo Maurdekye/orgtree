@@ -50,6 +50,8 @@ import {
   audienceAction, broadcastMessage, clearInbox, deleteUserMail, fileBase, fileUrl, getAudiences, getMailById,
   markRead, runOp,
 } from '../api'
+import type { MailTransfer } from '../api'
+import { useMessageTransfers } from '../canvas/transfers'
 import { useRecordInbox } from '../recordpanelhooks'
 import { useMailboxHistory } from '../usemailhistory'
 import { markReadNow, readLocally, settleReadsFromBox, useLocalReads } from '../mailread'
@@ -1176,6 +1178,8 @@ function DmConversation({ slug, tree, chat, nodes, toast, refs, onFocusAgent, fl
   }, [all])
 
   const headMenu = useContextMenu(toast)
+  // the user's transfers by message: progress on the bubbles that carry them (USER 2026-11-25 m1454b39b8fd0)
+  const transfers = useMessageTransfers(slug, 'user')
   // the message box's handles: a file dropped on the chat, a discarded message put back
   const dropAttach = useRef<((file: File) => void) | null>(null)
   const restoreBox = useRef<((sent: { text: string; attached: { name: string; path: string; bytes: number }[] }) => void) | null>(null)
@@ -1357,7 +1361,7 @@ function DmConversation({ slug, tree, chat, nodes, toast, refs, onFocusAgent, fl
         flash={flash?.key === e.key ? flash.seq : null}
         replying={replyIds.includes(e.key)} system={chat.kind === 'system'}
         sender={senderChip} fileHref={fileHref} mdBase={mdBase} locateMail={locateMail}
-        inbox={inboxOf(e, m)} onTranscript={transcriptOf(e, m)}
+        inbox={inboxOf(e, m)} onTranscript={transcriptOf(e, m)} transfer={m.id ? transfers.get(m.id) : undefined}
         /* the user's own message can be answered too (USER 2026-11-24 mf2cbc358ad35 "need to be able to
            reply to myself"): in an agent's chat the reply goes to that agent with the user's earlier mail
            as its target; in a project's chat it follows up on that job */
@@ -1516,8 +1520,10 @@ interface DmLocal {
 }
 
 function DmBubble({ entry, m, first, slug, refs, toast, flash, replying, system, sender, fileHref, mdBase,
-  locateMail, inbox, onTranscript, onReply, onRead, onDelete, onAckJob, highlighted, local }: {
+  locateMail, inbox, onTranscript, onReply, onRead, onDelete, onAckJob, highlighted, local, transfer }: {
   entry: DmEntry; m: MailRow; first: boolean; slug: string; refs: RefRoutes; toast: ToastFn
+  /** the transfer carrying this message's files, while it is unfinished */
+  transfer?: MailTransfer
   /** the user's own message the engine has not stored yet (DmLocal): its state and its two answers */
   local?: { state: 'sending' | 'failed' | 'sent'; error?: string; retry: () => void; discard: () => void }
   locateMail: LocateMail
@@ -1630,7 +1636,7 @@ function DmBubble({ entry, m, first, slug, refs, toast, flash, replying, system,
           {/* the quote card says what is answered, and finds it in this chat: no "Context" fold (USER 2026-11-24 m78cc5cf2c677) */}
           <MailMessageBody m={m} standalone={!ordinary} org={slug} refs={refs} mdBase={mdBase} sender={sender}
             locateMail={locateMail} context={false} />
-          <MailAttachments m={m} fileHref={fileHref} />
+          <MailAttachments m={m} fileHref={fileHref} transfer={transfer} />
           {onAckJob && needsAck(queued) && <JobAckPane job={queued} onAck={onAckJob} target={m.from} slug={slug} toast={toast} />}
           {job && <div className={'dm-job dm-job-' + job.state} title={jobTitle}>
             {job.state === 'waiting' ? 'waiting in the queue'

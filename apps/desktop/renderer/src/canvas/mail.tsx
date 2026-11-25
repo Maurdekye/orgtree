@@ -34,8 +34,9 @@ import {
   audienceAction, fileBase, fileUrl, getMailById, getNetBlocks, getOrgInbox, orgInboxRead,
   setNetBlock, uploadFile,
 } from '../api'
+import type { MailTransfer } from '../api'
 import { AttachThumb, fmtBytes, isImg } from './img'
-import { TransferPanel, type TransferSummary } from './transfers'
+import { fileTransferView, TransferPanel, type TransferSummary } from './transfers'
 import {
   ArrowUpIcon, AttachIcon, BlockIcon, CampaignIcon, CloseIcon, DownloadIcon, FileIcon, HearingIcon,
   MailIcon, NotificationsActiveIcon, NotificationsIcon, PublicIcon, ScheduleIcon,
@@ -1198,9 +1199,12 @@ export function MailMessageBody({ m, standalone = false, org, refs, mdBase, send
  *  audio file as its player, an image viewable in place, any other file as a
  *  download chip, and one whose path cannot be reached as a plain chip. Shared
  *  with the chat bubbles of the user's mailbox. Nothing without files. */
-export function MailAttachments({ m, fileHref }: {
+export function MailAttachments({ m, fileHref, transfer }: {
   m: MailRow
   fileHref?: (path: string, m: MailRow) => string
+  /** THE MESSAGE'S TRANSFER (Hubchat's attachment progress, USER 2026-11-25 m1454b39b8fd0): each
+   *  unfinished file shows its progress and state, over a picture and on a file card */
+  transfer?: MailTransfer
 }) {
   if (!(m.attachments ?? []).length) return null
   return (
@@ -1211,21 +1215,35 @@ export function MailAttachments({ m, fileHref }: {
       {m.attachments!.map((a) => {
         const href = (a.path && fileHref?.(a.path, m)) || ''
         const name = a.name ?? a.path ?? 'file'
-        return href && mediaFormat(name)
-          ? <MediaCard key={a.path} href={href} name={name} bytes={a.bytes} />
-          : href && isImg(name)
-          ? <AttachThumb key={a.path} href={href} name={name}
-              meta={a.bytes != null ? `${Math.round(a.bytes / 1024)} KB` : undefined} />
-          : href
-            ? <a key={a.path} className="attach-chip" title="download"
-                href={href} download={a.name}>
-                <DownloadIcon fontSize="inherit" /> {a.name}
-                <span className="dim"> {a.bytes != null ? `${Math.round(a.bytes / 1024)} KB` : ''}</span></a>
-            : <span key={a.path ?? a.name} className="attach-chip">
-                <FileIcon fontSize="inherit" /> {a.name}</span>
+        const moving = fileTransferView(transfer, name)
+        const card = attachmentCard(a, href, name)
+        if (!moving) return card
+        return <span key={a.path ?? a.name} className={'attach-transfer' + (href && isImg(name) ? ' pic' : '')}
+          data-transfer-file={name} data-transfer-state={moving.state}>
+          {card}
+          <span className="att-progress">
+            <progress aria-label={`${name} confirmed bytes`} max={moving.total ?? 1} value={moving.total == null ? undefined : moving.confirmed} />
+            <small className={moving.state === 'failed' ? 'err' : undefined}>{moving.label}</small>
+          </span>
+        </span>
       })}
     </div>
   )
+}
+
+function attachmentCard(a: NonNullable<MailRow['attachments']>[number], href: string, name: string): ReactNode {
+  return href && mediaFormat(name)
+    ? <MediaCard key={a.path} href={href} name={name} bytes={a.bytes} />
+    : href && isImg(name)
+    ? <AttachThumb key={a.path} href={href} name={name}
+        meta={a.bytes != null ? `${Math.round(a.bytes / 1024)} KB` : undefined} />
+    : href
+      ? <a key={a.path} className="attach-chip" title="download"
+          href={href} download={a.name}>
+          <DownloadIcon fontSize="inherit" /> {a.name}
+          <span className="dim"> {a.bytes != null ? `${Math.round(a.bytes / 1024)} KB` : ''}</span></a>
+      : <span key={a.path ?? a.name} className="attach-chip">
+          <FileIcon fontSize="inherit" /> {a.name}</span>
 }
 
 /** №11: inline mail reply box — textarea + reply button.
