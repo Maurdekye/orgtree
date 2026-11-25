@@ -46,6 +46,7 @@ import { agentTooltipProps } from './agentnav'
 import { useAgentSurfaceRoutes } from './panelcorner'
 import { FarZoomName, useFarZoomReveal } from './farzoomname'
 import { CardName } from './cardname'
+import { chatTargetFor } from '../mailboxpref'
 
 export function isProject(node: Pick<CanvasNode, 'kind'> | null | undefined): boolean {
   return node?.kind === 'project'
@@ -229,7 +230,7 @@ export function ProjectSquare({ node, pos, lod, focused, pinned, onFocus, onShow
     onOpenDesk: onFocus,
     onPin,
     onShowPin,
-  }, { ...hire, pinned, quickChatTier: readQuickChat(slug, tree?.quick_chat).tier })
+  }, { ...hire, pinned, quickChatTier: readQuickChat(slug, tree?.quick_chat).tier, chat: chatTargetFor(map ?? new Map(), node) })
   return (
     <div ref={cardRef} data-copy-agent-name={node.id}
       {...agentTooltipProps(deskOpen ? undefined : node.id)} className={cls.join(' ')} style={style}

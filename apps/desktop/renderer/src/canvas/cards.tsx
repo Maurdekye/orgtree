@@ -75,6 +75,7 @@ import { normalizeUserEnteredName } from './nameinput'
 import type { SlotLease } from './slots'
 import { AgentSlotChips } from './slotchips'
 import { MailboxIcon } from '../dm/mailboxicon'
+import { chatTargetFor } from '../mailboxpref'
 
 // ------------------------------------------------------------- the overseer
 interface UserNodeProps {
@@ -1733,7 +1734,7 @@ export function NodeSquare({ node, pos, lod, focused: deskOpen, dragging, isDrop
       onNewProject,
       onDismiss,
       onContinueOn: (account) => void continueFrozenOnAccount(slug, node.id, account, toast),
-    }, { pinned, piled: !!pile, detached: desk.detached,
+    }, { pinned, piled: !!pile, detached: desk.detached, chat: chatTargetFor(map, node),
       quickChatTier: readQuickChat(slug, quickChatDefaults).tier,
       claudeHire, codexHire, antigravityHire, openrouterHire, langserverHire, museHire })
   }

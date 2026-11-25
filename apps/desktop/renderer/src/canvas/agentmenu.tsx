@@ -42,7 +42,7 @@ import { ConfirmModal } from './modals'
 import { AgentCompactConfirm } from './agentcompact'
 import { effectiveReports, fmtCredits, hireTierChoices, legacyMark, tierLabel, USER } from './shared'
 import { slotCount } from './slots'
-import { canChatWith, openAgentChat } from '../mailboxpref'
+import { canChatWith, openAgentChat, openChatFrom, openChatTitle } from '../mailboxpref'
 import { eventListenersOn } from './listeners'
 import type { CanvasNode, HireProviders, OpFn } from './shared'
 
@@ -151,26 +151,24 @@ export interface AgentMenuState extends HireProviders {
   /** the card is (or would become) a pile/crowd FRONT: its edges belong to
    *  the stack, so there is no free side to hire into */
   piled?: boolean
-  /** the link was right-clicked inside the user's chats panel (mailboxpref `inboxChatFor`): Open chat for
-   *  any live agent or project, granting a user audience first when `needsGrant` */
-  inboxChat?: { needsGrant: boolean } | null
+  /** Open chat for this live agent or project (mailboxpref `chatTargetFor`), granting a user audience
+   *  first when `needsGrant`; null for a retired one */
+  chat?: { needsGrant: boolean } | null
 }
 
-/** OPEN CHAT, right after Open. In the inbox (USER 2026-11-25 14:24:01Z ma84dfc37f5a6 "add an open chat
- *  context menu entry to every agent / project link in the inbox context; if they don't have an audience,
- *  grant one before opening the chat. state that opening the chat grants an audience in the hover
- *  tooltip"): every live agent and project, through the inbox's New chat path. Elsewhere (USER
- *  2026-11-25 13:04:54Z m9b2f753b0fa5): an agent holding a user audience, own or through its project
- *  (canChatWith, the predicate the plain click uses). `withOpen` keeps it beside Open when the renderer
- *  moves Open second (contextmenu.tsx MenuEntries). */
+/** OPEN CHAT, right after Open, in EVERY agent and project menu (USER 2026-11-25 14:33:44Z m0a8fdb69edb9
+ *  "make it a universal entry in every agent's context menu"; 14:33:50Z m6da526799148 "everywhere
+ *  throughout the app"): any live target (`s.chat`, from mailboxpref `chatTargetFor`). Choosing it switches
+ *  a classic mailbox to the chats, grants a missing user audience through the inbox's New chat path, then
+ *  opens the chat; the tooltip names exactly those changes (openChatTitle). A builder given no `s.chat`
+ *  falls back to the 4e1df11 rule (canChatWith). `withOpen` keeps it beside Open when the renderer moves
+ *  Open second (contextmenu.tsx MenuEntries). */
 function placeOpenChat(entries: MenuEntry[], node: CanvasNode, s: AgentMenuState): void {
-  const inbox = s.inboxChat
-  if (!inbox && !canChatWith(node)) return
-  const title = `your chat with ${node.id}, in your Inbox`
-    + (inbox?.needsGrant ? `. Opening it grants ${node.id} an audience with you` : '')
+  const chat = s.chat !== undefined ? s.chat : canChatWith(node) ? { needsGrant: false } : null
+  if (!chat) return
   const openAt = entries.findIndex(e => e !== 'sep' && e.label === 'Open' && !!e.children)
-  entries.splice(openAt >= 0 ? openAt + 1 : entries.length, 0, { label: 'Open chat', title, withOpen: true,
-    onSelect: () => { openAgentChat('', node.id, inbox ? { grant: true } : undefined) } })
+  entries.splice(openAt >= 0 ? openAt + 1 : entries.length, 0, { label: 'Open chat',
+    title: openChatTitle(node.id, chat.needsGrant), withOpen: true, onSelect: () => { openChatFrom('', node.id) } })
 }
 
 /**
@@ -210,7 +208,7 @@ export function agentMenuEntries(node: CanvasNode, h: AgentMenuHandlers,
   })
   // the user's chat with it, when it has an audience with the user (a plain click on its links opens
   // the same chat: USER 2026-11-24 md9120179f714). "Open" is not repeated inside Open.
-  if (canChatWith(node)) openEntries.push({ label: 'Chat', title: `your chat with ${node.id}, in your Inbox`,
+  if (canChatWith(node)) openEntries.push({ label: 'Chat', title: `your chat with ${node.id}, in Chats`,
     onSelect: () => { openAgentChat('', node.id) } })
   openEntries.push(
     { label: 'Mail', onSelect: () => h.onInbox() },
@@ -568,7 +566,6 @@ export function projectMenuEntries(node: CanvasNode, h: AgentMenuHandlers,
   } else {
     entries.push(...portableEntries(node, h, live, (node.children ?? []).some((c) => c.state === 'live')))
   }
-  // a project's Open chat is the inbox's only (canChatWith is agents only)
   placeOpenChat(entries, node, s)
   return entries
 }

@@ -54,6 +54,9 @@ export const useOpenChatOnReply = (): boolean => useSyncExternalStore(subscribe,
 /** The settings' names and help, in one place for the title-bar switch, the
  *  Display tab and the settings search (sentence case). */
 export const CLASSIC_MAILBOX_LABEL = 'Classic mailbox'
+export const CHATS_TITLE = 'Chats'
+export const INBOX_TITLE = 'Your inbox'
+export const userMailboxTitle = (classic: boolean): string => classic ? INBOX_TITLE : CHATS_TITLE
 export const CLASSIC_MAILBOX_HINT
   = 'Show your mail as folders with a list and a reading pane, with the mail icon, as before 4.7.0. '
   + 'Off: one chat per agent that can write to you.'
@@ -99,20 +102,33 @@ export const openAgentChat = (org: string, peer: string, opts?: ChatRequestOptio
   return true
 }
 
-/** INBOX LINKS (USER 2026-11-25 14:24:01Z ma84dfc37f5a6: "add an open chat context menu entry to every
- *  agent / project link in the inbox context; if they don't have an audience, grant one before opening the
- *  chat. state that opening the chat grants an audience in the hover tooltip"). The inbox context is the
- *  user's chats panel; a link inside it gets Open chat for any LIVE agent or project (a retired one cannot
- *  be granted an audience). `needsGrant` mirrors New chat (DmPanel startChat): false for a holder of a user
- *  audience, its own or through its project, and for a top-level agent, which writes to the user anyway.
- *  `nodes` is the canvas map (flatten(): top-level cards have the eye root, state 'user', as parent) or a
- *  map whose top-level nodes have no parent. Null outside the inbox and with the classic mailbox. */
-export const INBOX_LINK_CONTEXT = '.dm-panel'
+/** OPEN CHAT IN EVERY AGENT AND PROJECT MENU (USER 2026-11-25 14:24:01Z ma84dfc37f5a6 "if they don't
+ *  have an audience, grant one before opening the chat. state that opening the chat grants an audience in
+ *  the hover tooltip"; widened 14:33:44Z m0a8fdb69edb9 "make it a universal entry in every agent's context
+ *  menu", 14:33:50Z m6da526799148 "everywhere throughout the app"). Any LIVE agent or project (a retired
+ *  one cannot be granted an audience). `needsGrant` mirrors New chat (DmPanel startChat): false for a holder
+ *  of a user audience, its own or through its project, and for a top-level agent, which writes to the user
+ *  anyway. `nodes` is the canvas map (flatten(): top-level cards have the eye root, state 'user', as parent)
+ *  or a map whose top-level nodes have no parent. The classic view is switched at the choice (`openChatFrom`). */
 type ChatTarget = { id: string; kind?: string | null; state?: string; parent?: string | null; audiences_held?: readonly string[] | null }
-export const inboxChatFor = (target: Element | null | undefined, nodes: ReadonlyMap<string, ChatTarget>,
-  node: ChatTarget): { needsGrant: boolean } | null => {
-  if (classicMailbox() || node.state !== 'live' || !target?.closest(INBOX_LINK_CONTEXT)) return null
+export const chatTargetFor = (nodes: ReadonlyMap<string, ChatTarget>, node: ChatTarget): { needsGrant: boolean } | null => {
+  if (node.state !== 'live') return null
   return { needsGrant: !node.audiences_held?.includes('@user') && !topLevelAgent(nodes, node) }
+}
+
+/** What choosing Open chat will change, in order (USER 2026-11-25 14:34:30Z m46b47955f2ac: the classic
+ *  view switches to the chats first, with the toggle's own setting, then the grant, then the chat; the
+ *  tooltip lists exactly those changes). */
+export const openChatTitle = (id: string, needsGrant: boolean): string => {
+  const changes = [
+    ...(classicMailbox() ? [`switches your mailbox from the classic view to ${CHATS_TITLE}`] : []),
+    ...(needsGrant ? [`grants ${id} an audience with you`] : []),
+  ]
+  return `your chat with ${id}, in ${CHATS_TITLE}` + (changes.length ? `. Opening it ${changes.join(' and ')}` : '')
+}
+export const openChatFrom = (org: string, id: string): void => {
+  if (classicMailbox()) setClassicMailbox(false)
+  openAgentChat(org, id, { grant: true })
 }
 function topLevelAgent(nodes: ReadonlyMap<string, ChatTarget>, n: ChatTarget): boolean {
   if (n.kind === 'project') return false
