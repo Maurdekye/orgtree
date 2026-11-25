@@ -153,3 +153,27 @@ test('a row that only arrives after older pages load flashes when it is in', asy
   assert.deepEqual(flashing(f.view.el), [line])
   assert.deepEqual(f.toasts, [])
 })
+
+// ---- a desk that was open on an empty transcript when the request came, whose rows arrive in a later
+// refresh (measured by the 4.7.0 integrator, 2026-11-25: the call line flashed, but the desk stayed at its
+// bottom with the line 53 px above the view). The request waits for its row: when the row comes in, the
+// desk goes to it and it flashes, once. ----
+
+test('a row that arrives in a later refresh: the desk goes to it when it comes in, and it flashes', async t => {
+  let rows: unknown[] = []
+  const f = await fixture(t, (server) => { rows = server.messages; server.messages = [] })
+  assert.equal(f.view.el.querySelector('.tline[data-reply-event="ev-send-tool"]'), null, 'POSITIVE CONTROL: the desk opened empty')
+  await inAct(async () => { requestTranscriptMail('org', base.id, 'm-sent', '2026-11-20T10:00:05Z'); await flush(8) })
+  assert.deepEqual(flashing(f.view.el), [], 'nothing to flash yet')
+  const before = f.list.scrollTop
+  f.server.messages = rows as never
+  await inAct(async () => { await refreshConvo('org', base.id, { force: true }); fireResize(f.list); await flush(8) })
+  const line = f.view.el.querySelector<HTMLElement>('.tline[data-reply-event="ev-send-tool"]')
+  assert.ok(line, 'POSITIVE CONTROL: the send call\'s line came in with the refresh')
+  assert.deepEqual(flashing(f.view.el), [line], 'that line flashes')
+  assert.equal(f.left(), true, 'the desk left the tail for that row')
+  assert.notEqual(f.list.scrollTop, before, `and went to it (scrollTop ${before} -> ${f.list.scrollTop})`)
+  await inAct(async () => { line.dispatchEvent(new window.Event('animationend', { bubbles: true })); await refreshConvo('org', base.id, { force: true }); fireResize(f.list); await flush(8) })
+  assert.deepEqual(flashing(f.view.el), [], 'once for one request')
+  assert.deepEqual(f.toasts, [], 'and the empty desk never said the message was gone')
+})
