@@ -46,7 +46,7 @@ Send the request and end your turn if its answer blocks further work. Requests n
 
 Requesting extern is refused if the org mailbox is disabled. A top-level agent requesting extern is told to grant it to itself instead. Requesting yourself or an audience already held refuses. A repeat pending request updates its reason/time rather than requiring a forwarding chain.
 
-Grants to a waiting requester resolve its request and wake it with the answer. Access notices describe the new permission. Permission can still be paused/revoked later; do not infer a permanent grant from old mail.
+Grants to a waiting requester resolve its request and wake it with the answer. Access notices describe the new permission. A grant or revoke for a project is told to its manager in words that name the project ("Project @x: …"), never as the manager's own audience; the manager's own grants are unchanged by it. Permission can still be paused/revoked later; do not infer a permanent grant from old mail.
 
 ## Holder selection and revocation
 
