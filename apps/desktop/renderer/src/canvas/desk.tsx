@@ -3102,7 +3102,16 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
     // nearest its time, and the desk says so, once for one request.
     // the mail's own row is in (not the nearest one below, which is another message)
     const mailRow = mailId ? target : null
+    // A REQUEST WAITS FOR ITS ROW: a mail not found here is shown at the nearest time (an empty transcript
+    // waits silently) under its own key, so the mail's row arriving in a later refresh (a desk opened
+    // on an empty or older transcript) still takes the desk to it and flashes it (4.7.0 integration,
+    // 2026-11-25: the line flashed with the desk left at its bottom). The nearest row is gone to once.
+    const nearKey = `${scrollKey}:near`
+    let nearest = false
+    if (!target && mailId && scrolledMentionRef.current === nearKey) return
     if (!target && mailId && scrolledMentionRef.current !== scrollKey) {
+      // an empty transcript has no nearest row and says nothing yet: its rows are still to come
+      if (!chat.messages.length) return
       const want = Date.parse(mentionHighlight.at ?? '')
       const near = Number.isFinite(want) ? chat.messages
         .filter(m => m.event_id && m.ts && Number.isFinite(Date.parse(m.ts)))
@@ -3113,7 +3122,8 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
         mailMissSaid.current = scrollKey
         toast([`that message is not in ${node.id}\u2019s transcript any more${target ? ': showing the nearest time' : ''}`])
       }
-      if (!target) scrolledMentionRef.current = scrollKey
+      if (!target) { scrolledMentionRef.current = nearKey; return }
+      nearest = true
     }
     // An explicit mention jump owns this event identity. Missing source or
     // exhausted history must never redirect an old click to a newer mention.
@@ -3140,9 +3150,9 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
       const lineRect = lineEl.getBoundingClientRect()
       const wantTop = host.scrollTop + (lineRect.top - hostRect.top) - Math.max(0, (host.clientHeight - lineRect.height) / 2)
       if (centerTranscriptTarget(host, lineEl)) {
-        scrolledMentionRef.current = scrollKey
+        scrolledMentionRef.current = nearest ? nearKey : scrollKey
         scrolledMentionSeqRef.current = firstSeq
-        mentionCenterHoldRef.current = scrollKey
+        mentionCenterHoldRef.current = nearest ? nearKey : scrollKey
         knownTop.current = host.scrollTop
         followTop.current = host.scrollTop
         anchorEcho.current = host.scrollTop
