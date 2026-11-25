@@ -28,6 +28,14 @@ The user's Inbox draws their mail as chats (`orgtree-inbox-screens`, orgtree-app
 
 When you see it, send your answer with at least one [orgtree_message](../../mail/tool-message/SKILL.md) to `user`: a reply only in your turn's text does not appear there. More than one is fine, and a long report can still be a presented document with a short mail that points to it. The line is only on new messages typed there: the user's replies to your mail, their notices and their replies on a presentation or a ticket do not carry it, and are answered as usual. It changes no route and grants nothing; the ordinary mail rules still decide whether your message is delivered.
 
+## When the user writes on your desk
+
+Your desk shows your turn's text beside the mail. So mail the user wrote on your desk, replies included, arrives with this line in the same place:
+
+`↳ Sent directly, reply in your response.`
+
+Answer it in your turn's text; it needs no mail back. Their notices carry no line. Mail with neither line, such as a message from another composer, follows the usual rules.
+
 ## Keep requests current
 
 After asking, do independent work if possible and end the turn when waiting for an answer. Do not simulate a synchronous dialog with polling. Revisit an open request when new information arrives: if the need was resolved elsewhere or its premise died, use [orgtree_withdraw_ask](../tool-withdraw-ask/SKILL.md). Read that tool before withdrawing a mixed request, because the withdrawal affects its combined parts.
