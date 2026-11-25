@@ -146,6 +146,14 @@ const server = createServer(async (req, res) => {
       ...(answered ? { reply_to: { id: answered.id, kind: 'mail', from: answered.from, at: answered.at, gist: answered.body.slice(0, 120), org: 'mine', box: 'user' } } : {}) })
     return send({ accepted: true, id, ref: `@mail:${id}` })
   }
+  // the megaphone's route: one copy to each agent under the project, sharing one send id
+  const cast = p.match(/^\/nodes\/([^/]+)\/broadcast$/)
+  if (cast && req.method === 'POST') {
+    const name = decodeURIComponent(cast[1]), send_id = `g${++seq}`, to = ['member', 'mate']
+    for (const agent of to) world.sent.push({ id: `${send_id}-${agent}`, from: USER, to: agent, at: new Date().toISOString(), kind: 'message', body: body.text,
+      notice: !!body.notice, megaphone: { name, send: send_id, to: to.length } })
+    return send({ sent: to.map(agent => ({ to: agent })), refused: [] })
+  }
   if (/^\/nodes\/[^/]+\/batch$/.test(p)) return send({ resolved: 'ok' })
   if (/^\/nodes\/[^/]+\/file$/.test(p)) return /\.png$/.test(url.searchParams.get('path') ?? '') ? send(PNG, 'image/png') : send('synthetic file', 'application/octet-stream')
   if (/\/transfers$/.test(p)) return send({ transfers: [], next_cursor: null })
@@ -253,7 +261,7 @@ if (flag === '--expect') {
     { action: 'deny', node: 'drafter', target: USER }, { action: 'grant', node: 'scout' },
     { action: 'grant', node: 'clerk' }, { action: 'revoke', node: 'runner' }, { action: 'revoke', node: 'desk' }])
   // ---- 2: no confirmation
-  assert.equal(v.end.confirms, 0, 'the system\'s dialog was never used'); assert.deepEqual(v.end.toasts, [])
+  assert.equal(v.end.confirms, 0, 'the system\'s dialog was never used'); assert.deepEqual(v.end.toasts, ['sent to 2 of 2 agents under crew'], 'the line of the megaphone send and nothing else')
   assert.equal(v.workerClose.time.time, 'hidden', 'on hover the time gives way to the close control'); assert.notEqual(v.workerClose.time.close, 'none', 'which is showing')
   checked.push('close rules')
 
@@ -360,6 +368,23 @@ if (flag === '--expect') {
     'the reply and the follow-up are in the thread, each marked with the member it went to')
   assert.deepEqual(v.project.mate, [{ id: 'g1b', megaphone: 'Megaphone · crew', job: null }], 'a member\'s chat: its megaphone copy only')
   checked.push('project thread')
+
+  // ---- a project chat's message box has the desk's megaphone (USER 2026-11-25 m12fea20d9690)
+  const mega = v.megaphone
+  onScreen(mega.off.box, 'the megaphone button'); onScreen(mega.off.hint, 'the "may not be read" hint')
+  assert.deepEqual([mega.off.pressed, mega.off.disabled], ['false', false])
+  assert.equal(mega.off.label, "Megaphone: send to all 2 agents under crew instead of the project's inbox")
+  assert.match(mega.off.hintText, /^Messages sent here may not be read by anyone\./)
+  assert.deepEqual([mega.on.pressed, mega.on.armedBox], ['true', true], 'armed: the button and the box say so')
+  assert.equal(mega.on.label, 'Megaphone on: messages go to all 2 agents under crew')
+  assert.equal(mega.on.hint, null, 'armed: every agent gets it, no hint')
+  assert.notEqual(mega.on.color, mega.off.color, 'the armed button has its own colour')
+  assert.equal(mega.agentChat, false, 'an agent\'s chat has no megaphone')
+  assert.deepEqual(posts(/\/nodes\/crew\/broadcast$/).map(c => c.body), [{ text: 'All hands: the standup is at 09:30 tomorrow.' }])
+  assert.equal(mega.sent.pressed, 'false', 'one send, then off')
+  assert.equal(mega.sent.last.megaphone, 'Megaphone \u00b7 2 agents', 'the send is in the thread once, as a megaphone record')
+  assert.equal(mega.sent.toast, 'sent to 2 of 2 agents under crew')
+  checked.push('project megaphone')
 
   // ---- audiences through a project: the label, the mark on hover, the one confirmation
   assert.equal(v.via.clerk.via, 'via desk'); assert.equal(v.via.clerk.viaLink.project, 'desk'); assert.equal(v.via.clerk.viaLink.tag, 'BUTTON')

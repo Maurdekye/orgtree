@@ -557,6 +557,32 @@ module.exports = async (page) => {
   await page.waitFor('.dm-newchat', { gone: true })
   await page.eval(() => window.__dm.theme('charcoal'))
 
+  // ---------------- 14. a project chat's message box has the desk's megaphone (USER 2026-11-25 m12fea20d9690)
+  const megaOf = () => page.eval(() => {
+    const b = document.querySelector('.dm-compose .cc-broadcast-toggle'), hint = document.querySelector('.dm-compose .inbox-no-listeners')
+    const box = el => { if (!el) return null; const r = el.getBoundingClientRect(); return { x: Math.round(r.x), y: Math.round(r.y), w: Math.round(r.width), h: Math.round(r.height) } }
+    return b ? { box: box(b), pressed: b.getAttribute('aria-pressed'), disabled: b.disabled, label: b.getAttribute('aria-label'), color: getComputedStyle(b).color,
+      armedBox: !!document.querySelector('.dm-compose .broadcast-armed'), hint: box(hint), hintText: hint?.textContent ?? null } : null
+  })
+  await openChat('lead')
+  v.megaphone = { agentChat: !!(await megaOf()) }
+  await openChat('crew')
+  await page.waitFor('.dm-compose .cc-broadcast-toggle')
+  v.megaphone.off = await megaOf()
+  await shot('30-project-chat-megaphone-off-and-the-may-not-be-read-hint')
+  await page.click('.dm-compose .cc-broadcast-toggle')
+  await until('the megaphone to be armed', async () => (await megaOf()).pressed === 'true')
+  await page.click('.dm-compose textarea')
+  await page.type('All hands: the standup is at 09:30 tomorrow.')
+  v.megaphone.on = await megaOf()
+  await shot('31-project-chat-megaphone-armed')
+  await page.click('.dm-compose .mail-reply-send')
+  await until('the megaphone send to reach the engine', async () => (await posted('/nodes/crew/broadcast$')).length === 1)
+  await until('the megaphone send to show in the thread, once', async () => { const s = await snap(); return s.bubbles.filter(b => /standup is at 09:30/.test(b.text)).length === 1 })
+  const cast = await snap()
+  v.megaphone.sent = { ...(await megaOf()), last: cast.bubbles[cast.bubbles.length - 1], toast: cast.toasts[cast.toasts.length - 1] }
+  await shot('32-project-chat-megaphone-sent-once-in-the-thread')
+
   const end = await snap()
   v.end = { confirms: end.confirms, toasts: end.toasts, rows: end.rows.map(r => r.peer), hasFocus: end.hasFocus,
     opened: await page.eval(() => window.__dm.opened.slice()) }
