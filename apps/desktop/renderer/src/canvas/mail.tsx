@@ -29,7 +29,7 @@ import type { CSSProperties, KeyboardEvent, ReactNode } from 'react'
 import { mailTagKey, mailTagHue, mailMatchesTags, toggleMailTag } from './mailtags'
 import { MailTagPicker } from './mailtagpicker'
 import type { MailTagPickerProps } from './mailtagpicker'
-import type { InboxPayload, MailQueueState, NetBlocks, OrgEvent, OrgInboxEntry, ToastFn, TreePayload } from '../types'
+import type { InboxPayload, MailQueueState, NetBlocks, OrgInboxEntry, ToastFn, TreePayload } from '../types'
 import {
   audienceAction, fileBase, fileUrl, getMailById, getNetBlocks, getOrgInbox, orgInboxRead,
   setNetBlock, uploadFile,
@@ -41,7 +41,7 @@ import {
   MailIcon, NotificationsActiveIcon, NotificationsIcon, PublicIcon, ScheduleIcon,
 } from '../icons'
 import {
-  audienceGrantTooltip, EXTERN, EXTERN_WEAK, fmtCredits, isMailNotice, isSystemNotice, jumpKey, md, pileNotices, providerOf, SYSTEM, USER,
+  audienceGrantTooltip, EXTERN, EXTERN_WEAK, isMailNotice, isSystemNotice, jumpKey, md, pileNotices, providerOf, SYSTEM, USER,
   useEsc, useHideRetired,
 } from './shared'
 import type { CanvasNode, MailRow } from './shared'
@@ -73,7 +73,7 @@ import type { MenuEntry } from './contextmenu'
 import { MAIL_COPY_FAILED, fetchMailRowForCopy, mailRowCopyText, mailRowNeedsFullFetch, resolveFullMailCopyText } from './copytext'
 import type { CopyableMailRow } from './copytext'
 import { fmtFull, fmtShort } from '../timefmt'
-import { ViaName, useOtherPerson } from '../people'
+import { ViaName } from '../people'
 import { decodeEventRow } from '../events/decode'
 import { projectEvent } from '../events/project'
 import { noticeSummary } from '../events/change'
@@ -2057,60 +2057,6 @@ export function MailFolders({ folder, setFolder, unread, folders, tier, counts, 
         </button>
       ))}
       {tools && <div className="mail-folder-tools">{tools}</div>}
-    </div>
-  )
-}
-// №10: the org record — every ledger operation (the overseer was the only
-// node never told what changed). Renders the events log the server has kept
-// all along; the §4.6 cascade warnings ride each row.
-export interface OrgRecordProps {
-  events?: OrgEvent[] | null
-  /** the filter is LIFTED (perf-review round 2): the owner fetches a bounded
-   *  tail for the plain view and the FULL record while a search is active,
-   *  so the query has to live where the fetch is decided. Uncontrolled
-   *  fallback keeps old call sites working. */
-  query?: string
-  onQuery?: (q: string) => void
-}
-
-/** The user in the organization's record: "you", and someone else by "User" and their name. */
-function RecordUser({ via }: { via?: unknown }) {
-  return useOtherPerson(via) ? <>User<ViaName via={via} /></> : <>you</>
-}
-
-export function OrgRecord({ events, query, onQuery }: OrgRecordProps) {
-  const [qLocal, setQLocal] = useState('')
-  const q = query ?? qLocal
-  const setQ = onQuery ?? setQLocal
-  const qn = q.trim().toLowerCase()
-  const rows = [...(events ?? [])].reverse().filter((ev) => !qn
-    || JSON.stringify(ev).toLowerCase().includes(qn))
-  const when = fmtShort
-  const gist = (ev: OrgEvent) => {
-    const d = ev.detail || {}
-    const bits = [d.node, d.from != null || d.to != null
-      ? `${d.from ?? 'top'} → ${d.to ?? 'top'}` : null,
-    d.freed != null ? `freed ${typeof d.freed === 'number' ? fmtCredits(d.freed) : d.freed}` : null,
-    d.grant != null ? `grant ${typeof d.grant === 'number' ? fmtCredits(d.grant) : d.grant}` : null,
-    d.reason, d.predecessor].filter(Boolean)
-    return bits.join(' · ')
-  }
-  if (!rows.length && !qn) return <div className="dim pad">nothing yet</div>
-  return (
-    <div className="record">
-      <input className="mail-filter" placeholder="filter…" value={q}
-        onChange={(e) => setQ(e.target.value)} />
-      {rows.slice(0, 200).map((ev, i) => (
-        <div className="rec-row" key={i}>
-          <span className="mtime">{when(ev.at)}</span>
-          <b className="rec-kind">{ev.op}</b>
-          <span className="rec-actor">{ev.actor === USER ? <RecordUser via={ev.via} /> : ev.actor}</span>
-          <span className="dim">{gist(ev)}</span>
-          {(ev.warnings ?? []).map((w, k) => (
-            <div className="rec-warn" key={k}>⚠ {w}</div>
-          ))}
-        </div>
-      ))}
     </div>
   )
 }

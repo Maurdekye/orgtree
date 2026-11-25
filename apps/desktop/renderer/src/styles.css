@@ -6805,14 +6805,6 @@ svg.MuiSvgIcon-root {
 }
 .toast-undo:hover { background: var(--accent-soft); }
 
-/* №10: the org record folder */
-.record { overflow-y: auto; max-height: 46vh; font-size: 12px; }
-.rec-row { padding: 4px 8px; border-bottom: 1px solid var(--line-soft); }
-.rec-row .mtime { color: var(--dim); font-family: var(--mono); margin-right: 8px; }
-.rec-kind { margin-right: 8px; }
-.rec-actor { color: var(--dim); margin-right: 8px; }
-.rec-warn { color: var(--work); font-size: 11px; padding-left: 14px; }
-
 /* the composer's left column: the notice toggle ABOVE the attach button
    (user 2026-09-17), not beside it. `flex: none` and `align-items: center`
    keep both circles at their own 24px — the column never stretches them —

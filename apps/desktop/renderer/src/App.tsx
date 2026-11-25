@@ -11,7 +11,7 @@ import { useInboxTagSelection,includeSelectedMail } from './inboxselection'
 import { useMailboxHistory } from './usemailhistory'
 import { useOpenCommit } from './opentiming'
 import { publishAgentPanelEvent } from './recordevents'
-import { useRecordInbox, useRecordEvents } from './recordpanelhooks'
+import { useRecordInbox } from './recordpanelhooks'
 import type { DesktopNotice } from './notifications'
 import { notificationInboxTarget, notificationMentionTarget, useNativeNotifications } from './notifications'
 import { startPendingMirror, usePendingAttention, waitingNow } from './pending-attention'
@@ -141,7 +141,7 @@ import { TreeReadPacer } from './treepace'
 import type { TreeRequest } from './treepace'
 import { AgentNavProvider, agentNavProps } from './canvas/agentnav'
 import { ObjectNavProvider } from './canvas/objectnav'
-import { AudienceHolderRows, ConfirmModal, MailFolders, MailList, OrgCanvas, OrgRecord } from './Canvas'
+import { AudienceHolderRows, ConfirmModal, MailFolders, MailList, OrgCanvas } from './Canvas'
 import { DELETE_USER_MAIL_CONFIRM } from './canvas/mail'
 import { KillSwitch } from './KillSwitch'
 import type { KillSwitchActions } from './KillSwitch'
@@ -3331,15 +3331,6 @@ export function InboxPanel({ slug, tree, toast, refresh, close, jumpTo, jumpSeq,
       })
   }, [jumpTo, jumpSeq, box, userLookup, askAgain])
   const aud = usePolled(() => getAudiences(slug), [slug])
-  // №10: the record loads on demand — and keeps loading while that tab is up.
-  // The plain view fetches a bounded tail (the server used to materialize
-  // and ship the whole 19k-row log per poll); an ACTIVE SEARCH fetches the
-  // full record, because its filter has always looked at everything and a
-  // bounded fetch would silently hide older matches (perf-review round 2).
-  // The dep is the BOOLEAN, so typing within a search never restarts the poll.
-  const [recordQuery, setRecordQuery] = useState('')
-  const recordFull = recordQuery.trim() !== ''
-  const events = useRecordEvents(slug, folder === 'record', recordFull)
   const userAud = aud?.audiences?.filter((a) => a.grantor === USER) ?? []
   const userReqs = (aud?.requests?.filter((r) => r.target === USER && r.currently_at === USER) ?? []) as UserAudReq[]
   const act = (action: string, node: string, target?: string | null) =>
@@ -3408,16 +3399,13 @@ export function InboxPanel({ slug, tree, toast, refresh, close, jumpTo, jumpSeq,
             onFocusAgent={onFocusAgent} />
         )}
         <MailFolders folder={folder} setFolder={setFolder}
-          folders={['inbox', 'sent', 'record']}
+          folders={['inbox', 'sent']}
           unread={(rawBox?.pending??[]).filter(m=>!readLocally(slug,m.id)).length + askPending.length} />
         {folder==='inbox'&&mailTag.length>0&&taggedMail.loading&&<div role="status" className="dim">loading matching mail...</div>}
         {folder==='inbox'&&mailTag.length>0&&taggedMail.error&&<div role="alert">Could not load matching mail. <button onClick={taggedMail.retry}>Retry</button></div>}
         <div className="mailpane">
           {(folder==='sent'||(folder==='inbox'&&!mailTag.length))&&history.error&&<div role="alert">Could not load older mail. <button onClick={history.retry}>Retry</button></div>}
-          {folder === 'record'
-            ? <OrgRecord events={events} query={recordQuery}
-                onQuery={setRecordQuery} />
-            : box == null
+          {box == null
             ? <div className="dim">loading…</div>
             : folder === 'inbox'
               ? <MailList hideMailReplyKind pending={withAcks([...unreadMail, ...askPending] as MailEntry[])}

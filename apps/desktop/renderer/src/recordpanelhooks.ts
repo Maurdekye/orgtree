@@ -1,12 +1,11 @@
 import { useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
-import { getEvents, getHistory, getInbox, getNodeInbox } from './api'
+import { getHistory, getInbox, getNodeInbox } from './api'
 import { usePolled, usePolledStatus } from './canvas/shared'
 import type { PolledStatus } from './canvas/shared'
 import { OrgRecordContext, useOrgRecords, useOrgRecordSubscription } from './recordsession'
-import { projectEvents, projectHistory, projectMailbox, projectUserInbox } from './recordpanels'
+import { projectHistory, projectMailbox, projectUserInbox } from './recordpanels'
 import { RecordPanelSelection } from './recordpanelselection'
 import { resolveRecordSelection } from './recordtransport'
-import type { EventsPayload } from './types'
 
 export function useRecordsEnabled(slug: string): boolean {
   return useContext(OrgRecordContext)?.slug === slug
@@ -72,17 +71,3 @@ export function useRecordHistory(slug: string, name: string) {
   return { ...selection, value: enabled ? value : legacy }
 }
 
-export function useRecordEvents(slug: string, visible: boolean, full: boolean) {
-  const enabled = useRecordsEnabled(slug), view = useOrgRecords(slug)
-  const legacy = usePolled(() => visible ? getEvents(slug, full ? undefined : 300).then(r => r.events)
-    : Promise.resolve(null), [slug, visible, full], 5000, 0, !enabled)
-  const [search, setSearch] = useState<{ slug: string; rows: EventsPayload['events'] } | null>(null)
-  useEffect(() => {
-    if (!enabled || !visible || !full) { setSearch(null); return }
-    let dead = false
-    void getEvents(slug).then(r => { if (!dead) setSearch({ slug, rows: r.events }) }).catch(() => {})
-    return () => { dead = true }
-  }, [enabled, slug, visible, full])
-  const rows = useMemo(() => view ? projectEvents(view.records).events : null, [view])
-  return enabled ? !visible ? null : full ? search?.slug === slug ? search.rows : null : rows : legacy
-}

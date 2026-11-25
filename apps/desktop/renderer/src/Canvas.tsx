@@ -13,9 +13,9 @@ export type {
 } from './canvas/shared'
 export { ConfirmModal } from './canvas/modals'
 export type { ConfirmModalProps } from './canvas/modals'
-export { AudienceFold, AudienceHolderRows, MailFolders, MailList, OrgRecord, RetiredFold } from './canvas/mail'
+export { AudienceFold, AudienceHolderRows, MailFolders, MailList, RetiredFold } from './canvas/mail'
 export type {
-  MailFoldersProps, MailListProps, OrgRecordProps,
+  MailFoldersProps, MailListProps,
 } from './canvas/mail'
 export { OrgCanvas } from './canvas/OrgCanvas'
 export type { OrgCanvasProps } from './canvas/OrgCanvas'

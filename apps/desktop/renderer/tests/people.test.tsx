@@ -12,7 +12,6 @@ import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import { AskCard } from '../src/canvas/asks'
 import { Msg } from '../src/canvas/desk'
-import { OrgRecord } from '../src/canvas/mail'
 import { EventCard } from '../src/events/card'
 import { MailMessage, isSegments } from '../src/events/segments'
 import { HistoryController } from '../src/historycontroller'
@@ -21,7 +20,7 @@ import { HistorySurface } from '../src/historyui'
 import { otherPerson, ownOrigin, useOwnOrigin } from '../src/people'
 import { RemoteChip } from '../src/shell/remotes'
 import { setDisplayZone } from '../src/timefmt'
-import type { AskInfo, OrgEvent } from '../src/types'
+import type { AskInfo } from '../src/types'
 import { remoteFeed, remoteView } from './remotefeed.fixture'
 declare const __SRC_DIR__: string
 
@@ -94,24 +93,17 @@ test('in a window of a remote organization, one\'s own is the client this deskto
   assert.equal(actor(view.el.querySelector('#mine')!).textContent, 'User · Me')
 })
 
-test('a plain mail row and the organization record carry the name too', async (t) => {
+test('a plain mail row carries the name too', async (t) => {
   const row = (via?: unknown) => ({ id: 'm1', from: '@user', kind: 'message', body: 'hello', at: '2026-11-13T14:02:00Z', ...(via ? { via } : {}) })
   await localWindow(t)
-  const events: OrgEvent[] = [
-    { at: '2026-11-13T14:00:00Z', op: 'settings', actor: '@user', detail: {} },
-    { at: '2026-11-13T14:01:00Z', op: 'hire', actor: '@user', detail: { node: 'scout' }, via: SAM },
-    { at: '2026-11-13T14:02:00Z', op: 'status', actor: 'lead', detail: {} },
-  ]
   const view = await mountView(<div>
     <div id="theirs"><MailMessage row={row(SAM)} profile="operator" slug="org" nid="lead" /></div>
     <div id="mine"><MailMessage row={row()} profile="operator" slug="org" nid="lead" /></div>
-    <div id="record"><OrgRecord events={events} /></div>
   </div>, (el) => el)
   t.after(() => view.unmount())
   assert.equal(actor(view.el.querySelector('#theirs')!).textContent, 'User · Sam')
   assert.equal(actor(view.el.querySelector('#mine')!).textContent, 'User')
-  // newest first: the agent, Sam's hire, one's own settings change
-  assert.deepEqual([...view.el.querySelectorAll('#record .rec-actor')].map((el) => el.textContent), ['lead', 'User · Sam', 'you'])
+  // (the organization record view it also covered was removed, USER 2026-11-25 maa0bf05fb7a7)
 })
 
 test('a delivered message that names a person is still drawn as its card', async (t) => {
