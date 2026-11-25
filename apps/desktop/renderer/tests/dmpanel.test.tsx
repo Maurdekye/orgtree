@@ -2583,8 +2583,12 @@ test('the take-back × is a corner overlay of the bubble: the time and tick line
   const css = readFileSync(path.join(__SRC_DIR__, 'dm', 'dm.css'), 'utf8')
   const rule = css.match(/\.dm-bubble > button\.dm-retract\s*\{([^}]*)\}/)?.[1] ?? ''
   assert.match(rule, /position:\s*absolute/, `absolute (${rule.trim()})`)
-  assert.match(rule, /top:\s*[^;]+;/, 'pinned to the top')
-  assert.match(rule, /right:\s*[^;]+;/, 'and to the right')
+  // centred on the corner, half outside the bubble, so it never covers the text (coordinator m36c533c58a84)
+  const size = Number(rule.match(/width:\s*(\d+)px/)?.[1])
+  assert.equal(rule.match(/top:\s*(-?\d+)px/)?.[1], String(-size / 2), `its top half above the bubble (${rule.trim()})`)
+  assert.equal(rule.match(/right:\s*(-?\d+)px/)?.[1], String(-size / 2), 'and its right half past it')
+  assert.ok(bubble('u1').closest('.dm-msg')!.classList.contains('has-x'), 'the message keeps room above for it')
+  assert.match(css, /\.dm-msg\.has-x:not\(\.first\) \{ margin-top: (\d+)px; \}/)
 })
 
 // VIEW IN CHAT (USER 2026-11-25 m70e86c04946e): the user's own message, outside the loaded window, read back by id

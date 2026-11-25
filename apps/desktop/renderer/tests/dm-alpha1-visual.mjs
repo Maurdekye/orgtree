@@ -101,7 +101,7 @@ const world = {
     sent('u2', 'quoter', 4 * H, 'also there is this context dropdown under every message', { delivered: true, ev: typed('ordinary.message', { kind: 'user', id: USER }, 'also there is this context dropdown under every message') }),
     sent('u3', 'quoter', 3.5 * H, 'Here is the chart I meant.', { delivered: true, attachments: [{ name: 'chart.png', path: 'outbox/chart.png', bytes: 1532 }],
       reply_to: { id: 'q2', kind: 'mail', from: 'quoter', at: ago(4.5 * H), gist: 'Shortening the summary now; the table stays as it is.', org: 'mine', box: 'user' } }),
-    sent('u4', 'quoter', 3.2 * H, 'And the raw numbers.', { delivered: false, dnd_held: true, attachments: [{ name: 'numbers.csv', path: 'outbox/numbers.csv', bytes: 48211 }] }),
+    sent('u4', 'quoter', 3.2 * H, 'And the raw numbers, every column and every row of the export, exactly as the engine wrote them out to the file.', { delivered: false, dnd_held: true, attachments: [{ name: 'numbers.csv', path: 'outbox/numbers.csv', bytes: 48211 }] }),
     // the newest one is not read yet (the grey check), the ones before it are read (the green check)
     sent('u5', 'quoter', 3 * H, 'ok', { delivered: false }),
     // a whole card in the user's bubble: the answers to a request, as the engine records them (point 19)
@@ -581,9 +581,12 @@ if (flag === '--expect') {
     const u4 = tb.before.find(m => m.entry === 'u4')
     assert.ok(u4 && u4.x, `POSITIVE CONTROL: u4, unread, has the x (${JSON.stringify(tb.before.filter(m => m.x).map(m => m.entry))})`)
     assert.equal(u4.title, 'retract (undelivered)', 'the desk’s tooltip')
-    assert.ok(u4.inside, 'inside its bubble')
+    // coordinator m36c533c58a84: a badge centred on the bubble's top-right corner, never over the text
+    assert.ok(Math.abs(u4.xAt.centreRight) <= 1 && Math.abs(u4.xAt.centreTop) <= 1, `the x is centred on the top-right corner (${JSON.stringify(u4.xAt)})`)
+    assert.ok(u4.firstLineFull, `POSITIVE CONTROL: u4's first line runs to the bubble's right padding (${JSON.stringify(u4.text)})`)
+    assert.equal(u4.overText, 0, `the x covers none of the text (${JSON.stringify(u4.text)})`)
+    assert.ok(u4.visible, 'and it is drawn, not clipped by the timeline')
     // USER 2026-11-25 m0c7ae1b9c32d: the x in the top right, the read arrow where it is without it
-    assert.ok(u4.xAt.top <= 6 && u4.xAt.right <= 6, `the x is over the top-right corner (${JSON.stringify(u4.xAt)})`)
     const plain = tb.before.find(m => !m.x && m.tickAt && /t-(sent|read)/.test(m.tick ?? ''))
     assert.ok(plain, 'POSITIVE CONTROL: an own message without the x')
     assert.ok(Math.abs(u4.tickAt.right - plain.tickAt.right) < 0.5 && Math.abs(u4.tickAt.bottom - plain.tickAt.bottom) < 0.5,

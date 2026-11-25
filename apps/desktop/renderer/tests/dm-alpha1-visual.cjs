@@ -779,7 +779,20 @@ module.exports = async (page) => {
       inside: !!(xr && br && xr.width > 0 && xr.left >= br.left && xr.right <= br.right && xr.top >= br.top && xr.bottom <= br.bottom),
       // where the tick sits in its bubble, from the bottom-right corner; and the x, from the top-right (USER m0c7ae1b9c32d)
       tickAt: tr && br ? { right: br.right - tr.right, bottom: br.bottom - tr.bottom } : null,
-      xAt: xr && br ? { right: br.right - xr.right, top: xr.top - br.top, height: br.height } : null }
+      xAt: xr && br ? { right: br.right - xr.right, top: xr.top - br.top, height: br.height,
+        centreRight: (xr.left + xr.right) / 2 - br.right, centreTop: (xr.top + xr.bottom) / 2 - br.top } : null,
+      // the text's own line boxes (coordinator m36c533c58a84): none under the x; the first one reaches the right padding
+      ...(() => {
+        const body = b?.querySelector('.mailer-body'), lines = []
+        if (body) { const r = document.createRange(); r.selectNodeContents(body); for (const q of r.getClientRects()) if (q.width > 0 && q.height > 0) lines.push(q) }
+        const over = xr ? lines.filter(q => q.left < xr.right && q.right > xr.left && q.top < xr.bottom && q.bottom > xr.top).length : 0
+        const first = lines.length ? lines.reduce((a, q) => q.top < a.top - 1 ? q : Math.abs(q.top - a.top) <= 1 && q.right > a.right ? q : a) : null
+        const pad = b ? parseFloat(getComputedStyle(b).paddingRight) : 0
+        const tl = m.closest('.dm-timeline')?.getBoundingClientRect(), mid = xr ? document.elementFromPoint((xr.left + xr.right) / 2, (xr.top + xr.bottom) / 2) : null
+        return { overText: over, firstLineFull: !!(first && br && br.right - pad - first.right < 40),
+          visible: !!(xr && tl && xr.top >= tl.top && xr.right <= tl.right && mid && x.contains(mid)),
+          text: { lines: lines.length, first: first && br ? { right: br.right - first.right, top: first.top - br.top } : null } }
+      })() }
   }))
   v.takeBack = { before: await takeBackState() }
   await shot('27a-an-unread-message-has-the-x')
