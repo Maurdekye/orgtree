@@ -192,13 +192,26 @@ export const viewMailIn = (view: 'chat' | 'classic', org: string, mailId: string
   return true
 }
 
+/** "VIEW IN @AGENT'S INBOX" ASKS FOR THE MAILBOX ITSELF (USER 2026-11-25 md19d9582d5f0: "View in @xyz's inbox no
+ *  longer works, it just highlights the message in the chat again"). The chats' entry goes through the shell's mail
+ *  route to the canvas's mail-link router, which sends the user's mail to the chat while the chats are on. The entry
+ *  marks its mail first; the router's next look at that mail takes the mark and opens the mailbox. One use, and it
+ *  lapses after a few seconds, so a route that never reaches the router leaves no lasting exception. */
+const mailboxAsks = new Map<string, number>()
+const MAILBOX_ASK_MS = 5000
+export const askForMailbox = (id: string): void => { mailboxAsks.set(id, Date.now() + MAILBOX_ASK_MS) }
+const takeMailboxAsk = (id: string): boolean => {
+  const until = mailboxAsks.get(id)
+  mailboxAsks.delete(id)
+  return until !== undefined && until >= Date.now()
+}
 /** A MAIL LINK INTO AN AGENT'S OR PROJECT'S MAILBOX (OrgCanvas's mail router), USER 2026-11-25 m53e908235395
  *  "clicking a mail mention to you in a transcript or body elsewhere will do the same if chats is open": while
  *  the chats are the mailbox, a mail between the user and `agent` opens in that chat, flashed. The user's box
  *  answers by id for exactly the user's mail. The classic view, any other mail and a failed read go `elsewhere`
  *  (the agent's mailbox, as before). */
 export const mailLinkToChat = (slug: string, id: string, agent: string, elsewhere: () => void): void => {
-  if (classicMailbox()) { elsewhere(); return }
+  if (classicMailbox() || takeMailboxAsk(id)) { elsewhere(); return }
   getMailById(slug, 'user', id)
     .then(r => { if (!(r.found && r.mail && isChatMail(r.mail as { from?: unknown; to?: unknown }, true) && viewMailIn('chat', slug, id, agent))) elsewhere() })
     .catch(elsewhere)

@@ -110,7 +110,7 @@ import {
 } from '../icons'
 import { fmtDay, fmtFull, fmtHm, fmtStamp, isToday } from '../timefmt'
 import { useSurfaceDocument } from '../popout'
-import { CHATS_TITLE, setShownChat } from '../mailboxpref'
+import { askForMailbox, CHATS_TITLE, setShownChat } from '../mailboxpref'
 import { dmAudienceLoss, dmChats, dmClose, dmNodes, dmReceipt, dmWaiting, dmWriting } from './model'
 import type { DmChat, DmEntry, DmNode } from './model'
 import './dm.css'
@@ -1394,7 +1394,8 @@ function DmConversation({ slug, tree, chat, nodes, toast, refs, onFocusAgent, fl
     const agent = e.via ?? (chat.kind === 'agent' || chat.kind === 'project' ? peer : '')
     if (!agent || !m.id || !nodes.has(agent)) return undefined
     const target = resolveRef({ kind: 'mail', org: slug, box: 'node', node: agent, id: m.id }, refs.world)
-    return target.outcome === 'ready' ? { agent, open: () => refs.onOpen(target) } : undefined
+    // the mailbox itself, not the chat the mail-link router would choose while the chats are on (mailboxpref askForMailbox)
+    return target.outcome === 'ready' ? { agent, open: () => { askForMailbox(m.id!); refs.onOpen(target) } } : undefined
   }
   const canReplyTo = (e: DmEntry, m: MailRow): boolean =>
     !!m.id && chat.live && (!e.out || chat.kind === 'agent' || (chat.kind === 'project' && !!e.job))
