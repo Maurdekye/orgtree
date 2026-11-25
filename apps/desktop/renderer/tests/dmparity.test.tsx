@@ -276,6 +276,12 @@ test('§7 a bubble\'s attachments show their transfer\'s progress and state', as
   assert.ok(pic, 'the picture carries its transfer')
   assert.equal(pic!.querySelector('progress')?.value, 40, 'its progress, in confirmed bytes')
   assert.match(pic!.textContent ?? '', /Uploading · 40%/, 'and its state')
+  // over the picture itself, never its caption (integration bounce mc0235d6398c2: the strip covered the
+  // name, size and download control)
+  assert.equal(pic!.querySelector('.att-progress')?.parentElement?.classList.contains('attach-thumbimg'), true,
+    'the strip sits in the picture’s own box')
+  assert.equal(pic!.querySelector('.attach-thumbcap .att-progress'), null, 'and not in its caption')
+  assert.ok(pic!.querySelector('.attach-thumbcap .fdl'), 'the download control is still its caption’s')
   const doc = b!.querySelector<HTMLElement>('[data-transfer-file="report.pdf"]')
   assert.match(doc?.textContent ?? '', /Uploading · 0%/, 'the file card too')
   // a message with no transfer shows none
