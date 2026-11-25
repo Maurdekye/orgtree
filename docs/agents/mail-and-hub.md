@@ -904,6 +904,25 @@ but give it a longer timeout, say an hour" (23:06Z mac1516a71553); "Yes, widen t
   (`shared.orgInboxLines`), the drop choice (`shared.inboxDropChoice`, `InboxReplaceConfirm onWeak`), the panel's
   "weak links" row and the "org mailbox (weak)" chip. Tests: `domain/orginbox_weak_tests.rs` (ignored, the
   orginbox_queue_fixture database), `apps/desktop/renderer/tests/weaklinks.test.tsx`.
+- Failover (Stage 1, 2026-11-25; USER m872c7d4f0973, mde761f013012, m6786e284ed6c, m02f6172c9d3b, m459f4474ab14,
+  m39db776a6ae3, mc9c61d55a4ca; @coordinator-opus m22e544059017, reviews m163ffaa606f6 + mf56850ded71b, scope
+  m838cc2f28dde). Trigger `orginbox::holders_unable` (no runnable agent holder; no project holder with a worker:
+  in_charge's arms); busy keeps `holders_busy` but `acting_weak` keeps the org online. `acting_weak` = the runnable
+  weak link with the earliest unrevoked grant id. `route_tx` elects it FIRST, before agent/project destinations, the
+  top-level fallback and the auto-grant: `Route{to:[acting]}`, no job, no waiting copies. Only `Arrival::New` mail
+  (no resolved reference) outside a release (`SET LOCAL orgtree.releasing`, `release_after`, which no longer
+  pre-routes) is elected. `jobs::publish` decides threading once: `threaded` returns `(published, resolved)`; it gives
+  one copy per owner (D13 sender, D14 recipients; deduped, the earliest reference's job), waits for halted, frozen and
+  retired holders (`was_holder`: last link `@extern`), and cuts off a removed/retired weak link, a D14 agent without a
+  link and deleted/unrecoverable owners; then `Arrival::Thread` routes to the holders (archived ones included) and
+  their projects. Each publish carries `delivered_to` along (a multi-recipient D14 used to keep only the last name).
+  `in_charge` includes the acting link. State: `ot.orgs.net.acting_holder` + `acting_since`, written by the first
+  diverted mail with its notices (`failover_started`, one line on A to B); `watch_failover` (each network pass, any
+  hub state) ends it in one transaction with the user, acting-agent and returning-holder notices (contacts handled),
+  and redraws the feed (`org_inbox.acting`) when the live acting link changes. A local sender's confirmation says
+  delivered/waiting only (A10). Known limit: ownership by name (Stage 2: stable ids and roles, per-copy anchors,
+  role-time last seen). Open with the user: pull under org DND vs other owners, the backlog rule, retired/replaced
+  owners with zero holders, unresolvable references, the acked project job.
 
 ## Org mailbox: project holders, job replies, hub threading
 
