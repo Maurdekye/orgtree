@@ -36,7 +36,7 @@ import { RetiredBadge } from './retiredbadge'
 import { objectNavProps } from './objectnav'
 import { mailTargetIdentity } from './mailidentity'
 import { MailRefChip } from './mailchip'
-import { dismissUserMention, hasUnseenUserMention, useAgentMentions, useDeskMentionScope, useMentionHighlight, useOrgMentionCandidates, useSeenMentions } from './agentmentions'
+import { dismissUserMention, hasUnseenUserMention, markMentionJumpServed, useAgentMentions, useDeskMentionScope, useFreshMentionHighlight, useOrgMentionCandidates, useSeenMentions } from './agentmentions'
 import { useOrgView } from '../attention/mode'
 import { HaltControl, HaltStatus } from './haltcontrol'
 import { resolveRef } from './reflinks'
@@ -2631,7 +2631,8 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
   }, [openPresentedRequest])
   const orgView = useOrgView(slug)
   useSeenMentions()
-  const mentionHighlight = useMentionHighlight(slug, node.id)
+  // a request this desk's earlier visit already served is not served again (useFreshMentionHighlight)
+  const mentionHighlight = useFreshMentionHighlight(slug, node.id)
   // A mention jump targets transcript text even if this desk was on another tab.
   useEffect(() => {
     if (mentionHighlight) setView('chat')
@@ -2645,6 +2646,7 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
     mentionCenterHoldRef.current = null
     if (mentionHighlight) {
       scrolledMentionRef.current = `${mentionHighlight.mentionId}:${mentionHighlight.seq ?? 0}`
+      markMentionJumpServed(slug, node.id, mentionHighlight.seq)
     }
   }
   useEffect(() => {
@@ -3122,7 +3124,7 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
         mailMissSaid.current = scrollKey
         toast([`that message is not in ${node.id}\u2019s transcript any more${target ? ': showing the nearest time' : ''}`])
       }
-      if (!target) { scrolledMentionRef.current = nearKey; return }
+      if (!target) { scrolledMentionRef.current = nearKey; markMentionJumpServed(slug, node.id, mentionHighlight.seq); return }
       nearest = true
     }
     // An explicit mention jump owns this event identity. Missing source or
@@ -3152,6 +3154,8 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
       if (centerTranscriptTarget(host, lineEl)) {
         scrolledMentionRef.current = nearest ? nearKey : scrollKey
         scrolledMentionSeqRef.current = firstSeq
+        // landed: a later visit to this desk does not jump here again
+        markMentionJumpServed(slug, node.id, mentionHighlight.seq)
         mentionCenterHoldRef.current = nearest ? nearKey : scrollKey
         knownTop.current = host.scrollTop
         followTop.current = host.scrollTop

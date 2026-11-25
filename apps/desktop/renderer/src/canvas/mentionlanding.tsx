@@ -6,6 +6,9 @@ import type { RefWorld, ResolvedRef } from './reflinks'
 
 let current: { org: string; mention: NavigationMention; seq: number } | null = null
 let seq = 0
+/** the newest request a landing served (USER 2026-11-25 mb4f0703132da: one request, one jump): a reader that
+ *  mounts later does not land on it again; a new request has a higher seq */
+let served = 0
 const listeners = new Set<() => void>()
 export function requestMentionLanding(org: string, mention: NavigationMention): void {
   current = { org, mention, seq: ++seq }
@@ -21,6 +24,7 @@ export function MentionLanding({ org, kind, id, refs }: {
   const [, update] = useState(0)
   const anchor = useRef<HTMLDivElement>(null)
   const [found, setFound] = useState(false)
+  const [servedAtMount] = useState(() => served)
   useEffect(() => {
     const listener = () => update(n => n + 1)
     listeners.add(listener)
@@ -28,10 +32,12 @@ export function MentionLanding({ org, kind, id, refs }: {
     return () => { listeners.delete(listener) }
   }, [])
   const landing = current?.org === org && current.mention.target.kind === kind
-    && (kind === 'mail' ? current.mention.target.id : current.mention.target.item) === id ? current : null
+    && (kind === 'mail' ? current.mention.target.id : current.mention.target.item) === id
+    && current.seq > servedAtMount ? current : null
   useLayoutEffect(() => {
     setFound(false)
     if (!landing) return
+    served = Math.max(served, landing.seq)
     let target: HTMLElement | null = null
     const frame = requestAnimationFrame(() => {
       const root = anchor.current?.closest('.mailer-read')

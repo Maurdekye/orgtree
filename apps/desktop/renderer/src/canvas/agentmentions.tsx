@@ -1169,6 +1169,26 @@ export function useMentionHighlight(
   return mentionHighlightOf(slug, nodeId)
 }
 
+/** ONE REQUEST, ONE JUMP (USER 2026-11-25 14:47:44Z mb4f0703132da: "after i'm directed to a desk via a "show
+ *  in transcript" highlight, if i leave the desk and come back normally, it re-navigates and re-highlights
+ *  the message again every time"). A request stays in `mentionHighlights` after a desk served it, and a desk
+ *  that mounts again keeps no memory of its earlier instance, so it served the same request again. The
+ *  desk records the request it landed on here (`markMentionJumpServed`), and `useFreshMentionHighlight`
+ *  hides a request already served when this desk mounted. A new request has a higher `seq`, so it is
+ *  served; the desk that served one keeps it for its own visit (paging older rows, settling). */
+const servedJumps = new Map<string, number>()
+export function markMentionJumpServed(slug: string, nodeId: string, seq: number | undefined): void {
+  if (seq === undefined) return
+  const key = `${slug || lastActiveOrg}:${nodeId}`
+  if ((servedJumps.get(key) ?? -1) < seq) servedJumps.set(key, seq)
+}
+export function useFreshMentionHighlight(slug: string, nodeId: string): MentionHighlight | null {
+  const highlight = useMentionHighlight(slug, nodeId)
+  const [servedAtMount] = useState(() => servedJumps.get(`${slug || lastActiveOrg}:${nodeId}`) ?? null)
+  return highlight && highlight.seq !== undefined && servedAtMount !== null && highlight.seq <= servedAtMount
+    ? null : highlight
+}
+
 export function clearMentionHighlight(slug: string, nodeId: string): void {
   const org = slug || lastActiveOrg
   if (mentionHighlights.delete(`${org}:${nodeId}`)) {
@@ -1179,6 +1199,7 @@ export function clearMentionHighlight(slug: string, nodeId: string): void {
 export function resetSeenMentions(): void {
   mentionSeenLocally.clear()
   mentionHighlights.clear()
+  servedJumps.clear()
   mentionHighlightSeq = 0
   notifySeen()
 }
