@@ -542,15 +542,19 @@ export function dmWriting(nodes: ReadonlyMap<string, DmNode>, since: ReadonlyMap
   return { since: seen, peers, next }
 }
 
-/** The mark beside the time of the user's own message (USER 2026-11-24
- *  m0a5d2a5b266e: "simple 1-checkmark read receipts to show when they're
- *  queued vs accepted by the chat"): waiting until the agent's CLI has taken
- *  the mail, then one check. null: no mark (not the user's own mail to an
- *  agent, a retracted mail, or an engine that does not say). */
+/** The mark beside the time of the user's own message: one check (USER
+ *  2026-11-24 m0a5d2a5b266e: "simple 1-checkmark read receipts"), grey while
+ *  sent, green once read (USER 2026-11-25 ma76e93d834d1: "it should go from
+ *  grey check to green check on sent and read"). Read is the engine's
+ *  `delivered`: the moment the agent's CLI took the mail into its context
+ *  (mail::acknowledge, acknowledge_turn, settle_claimed), which is the agent
+ *  reading it; an explicit inbox fetch (state 'read') is folded into it.
+ *  null: no mark (not the user's own mail to an agent, a retracted mail, or
+ *  an engine that does not say). */
 export function dmReceipt(mail: { delivered?: unknown; delivering?: unknown; dnd_held?: unknown; retracted?: unknown }, to: string):
-  { delivered: boolean; label: string } | null {
+  { read: boolean; label: string } | null {
   if (typeof mail.delivered !== 'boolean' || mail.retracted === true) return null
-  if (mail.delivered) return { delivered: true, label: `Delivered: ${to} has it` }
-  return { delivered: false, label: mail.dnd_held === true ? `Waiting: ${to} is on Do Not Disturb`
-    : mail.delivering === true ? `Waiting: handed to ${to}\u2019s running turn, not taken yet` : `Waiting: ${to} has not taken it yet` }
+  if (mail.delivered) return { read: true, label: `Read: ${to} has it` }
+  return { read: false, label: mail.dnd_held === true ? `Sent: ${to} is on Do Not Disturb`
+    : mail.delivering === true ? `Sent: handed to ${to}\u2019s running turn, not read yet` : `Sent: ${to} has not read it yet` }
 }

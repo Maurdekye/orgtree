@@ -103,7 +103,7 @@ import { sendLinkedReply, sendPanelMessage } from '../events/reply'
 import type { ReplyTarget } from '../generated/events'
 import type { SelectionTarget } from '../replySelection'
 import {
-  ArrowDownIcon, CampaignIcon, ChatBubbleIcon, CheckIcon, ChipIcon, CloseIcon, CopyIcon, HearingIcon, NewChatIcon, ReplyIcon, ScheduleIcon,
+  ArrowDownIcon, CampaignIcon, ChatBubbleIcon, CheckIcon, ChipIcon, CloseIcon, CopyIcon, HearingIcon, NewChatIcon, ReplyIcon,
   SettingsIcon,
 } from '../icons'
 import { fmtDay, fmtFull, fmtHm, fmtStamp, isToday } from '../timefmt'
@@ -1529,10 +1529,9 @@ function DmBubble({ entry, m, first, slug, refs, toast, flash, replying, system,
               : <>{job.state === 'done' ? 'acknowledged by' : 'held by'} {holder ? sender(holder, m) : 'a listener'}</>}
           </div>}
           <div className="dm-meta"><time dateTime={m.at} title={fmtFull(m.at)} aria-label={fmtFull(m.at)}>{fmtHm(m.at)}</time>
-            {/* Hubchat's tick, after the time: waiting, then one check */}
-            {receipt && <span className={'dm-tick ' + (receipt.delivered ? 't-delivered' : 't-queued')} role="img"
-              title={receipt.label} aria-label={receipt.label}>
-              {receipt.delivered ? <CheckIcon fontSize="inherit" /> : <ScheduleIcon fontSize="inherit" />}</span>}
+            {/* Hubchat's tick, after the time: one check, grey while sent, green once read */}
+            {receipt && <span className={'dm-tick ' + (receipt.read ? 't-read' : 't-sent')} role="img"
+              title={receipt.label} aria-label={receipt.label}><CheckIcon fontSize="inherit" /></span>}
           </div>
         </div>
         <div className="dm-actions">
