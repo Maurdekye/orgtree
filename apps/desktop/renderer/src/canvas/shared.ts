@@ -1676,6 +1676,18 @@ export const EXTERN_WEAK = '@extern-weak'  // a weak link to the org mailbox: se
 /** The acting holder's tooltip (failover, USER 2026-11-25 m872c7d4f0973). */
 export const ACTING_HOLDER_TIP = 'Acting holder: no holder of the org mailbox can receive mail now, so new outside mail with no reply reference comes here. The link stays weak.'
 
+/** The org mailbox tile's hover title (@coordinator-opus edge 5, me3ba3bf828a2): who acts as the holder, if anyone. */
+export const ORG_INBOX_TITLE = 'the org mailbox — outside mail addressed to this organization'
+export function orgInboxTileTitle(acting?: string | null): string {
+  void acting
+  return ORG_INBOX_TITLE
+}
+/** The tile's small line naming the acting holder; null when none acts. */
+export function orgInboxActingLine(acting?: string | null): string | null {
+  void acting
+  return null
+}
+
 /** The org mailbox's lines on the canvas, `[node, class]`: a holder's solid, a weak link's long-dashed
  *  (`aud-line weak`, USER 2026-11-24 m020bbd1926c3), on the same path. */
 export function orgInboxLines(inbox?: { holders?: string[]; weak?: string[]; acting?: string | null } | null): [string, string][] {

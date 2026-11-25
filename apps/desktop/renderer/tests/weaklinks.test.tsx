@@ -14,7 +14,7 @@ import { preferencesPatch } from '../../main/policy'
 import type { DesktopPreferences } from '../../../../packages/contracts'
 import { DEFAULT_NOTIFICATIONS } from '../../../../packages/contracts/notifications'
 import { eventFanout } from './heldevents'
-import { audienceGrantTooltip, EXTERN_WEAK, inboxDropChoice, orgInboxLines, type CanvasNode, inboxDropAction, inboxDropHint, ACTING_HOLDER_TIP } from '../src/canvas/shared'
+import { audienceGrantTooltip, EXTERN_WEAK, inboxDropChoice, orgInboxLines, type CanvasNode, inboxDropAction, inboxDropHint, ACTING_HOLDER_TIP, ORG_INBOX_TITLE, orgInboxTileTitle, orgInboxActingLine } from '../src/canvas/shared'
 
 declare const __SRC_DIR__: string
 const WEAK_TIP = "Weak link: can send mail as the org; new outside mail goes to the org mailbox's holder, and replies to its own mail come back to it"
@@ -196,4 +196,17 @@ test('W8 failover: the acting weak link is marked on its canvas line and its mai
   assert.equal(scout.title, ACTING_HOLDER_TIP + '\n' + WEAK_TIP)
   assert.ok(!kid.classList.contains('acting') && !/acting/.test(kid.textContent ?? ''), 'only the acting link')
   assert.equal(kid.title, WEAK_TIP)
+})
+
+test('W9 failover: the org mailbox tile names the acting holder in its title and a small line', () => {
+  // @coordinator-opus me3ba3bf828a2: the line stays a style mark; the label goes on the tile the line ends at
+  assert.equal(orgInboxTileTitle(null), ORG_INBOX_TITLE)
+  assert.equal(orgInboxTileTitle('scout'), ORG_INBOX_TITLE + '\nActing holder: @scout (no holder can receive mail now)')
+  assert.equal(orgInboxActingLine(null), null)
+  assert.equal(orgInboxActingLine('scout'), 'acting: scout')
+  const canvas = readFileSync(path.join(__SRC_DIR__, 'canvas', 'OrgCanvas.tsx'), 'utf8')
+  assert.match(canvas, /title=\{orgInboxTileTitle\(tree\.org_inbox\?\.acting\)\}/, 'the tile takes its title from the helper')
+  assert.match(canvas, /className="oi-acting"/, 'and shows the acting line')
+  const css = readFileSync(path.join(__SRC_DIR__, 'styles.css'), 'utf8')
+  assert.match(css, /\.sq\.orginbox \.oi-acting\s*\{/, 'styled outside the fixed-height tile body')
 })
