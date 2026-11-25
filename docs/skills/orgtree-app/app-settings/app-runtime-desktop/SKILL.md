@@ -1,6 +1,6 @@
 ---
 name: orgtree-app-runtime-desktop
-description: Explain desktop startup, closing, automatic updates, administrator rights and data location.
+description: Explain desktop startup, closing, automatic updates, administrator rights, data location and the org-mailbox drag setting.
 ---
 
 Up: [orgtree-app-settings](../SKILL.md)
@@ -100,6 +100,16 @@ Choosing **Change location…** (or **Use default location…** when a custom fo
 - **Failed start.** When the desktop itself cannot start, it appends one `{at, event: "startup-failed", message}` line (message cut at 500 characters) to `diagnostics/desktop-engine-exits.jsonl` in the data folder, waiting at most 2 s, marks the tray ("Orgtree could not start - right-click for the error"; first menu row "Orgtree could not start: show the error"), and then shows the error box.
 - **No program launches on the main thread.** Status checks (the 2 s core-control check, the streamer task list), credential helpers, registry and PowerShell queries and similar bounded programs run in one background worker process, and settings are saved in the background, so a slow antivirus scan or disk does not freeze windows. The engine itself, the interactive provider login, the AppImage relaunch and the updater handoff still start from the main process.
 - **Shader warm-up.** On every launch, 15 s after launch and once you have been idle for 5 s (but no more than 30 s later: then it runs anyway), Orgtree draws a sample canvas in an offscreen window that is never shown or focused, so the graphics card's shaders are ready in this run before real windows need them. It is skipped when the GPU does not rasterize; `ORGTREE_SHADER_WARMUP=0` turns it off.
+
+## Org mailbox
+
+**Dragging an agent onto the org mailbox** (Runtime > Org mailbox) decides what happens when an agent is dropped on an organization's org mailbox tile while the mailbox already has a holder. It applies to every organization on this computer.
+
+- **Make it the holder** (default): the agent gets the org-mailbox audience at once, without asking. With one holder allowed it takes over from the current holder; with several allowed it is added as another holder.
+- **Ask each time**: a dialog asks whether to replace the holder (or add one) or give the agent a weak link instead.
+- **Add a weak link if it already has a holder**: the agent gets a weak link at once. If it already has one, nothing changes and a message says so.
+
+With no holder yet, every choice makes the dropped agent the holder. Dropping the current holder changes nothing. Projects never get a weak link: under the weak-link choice a project is handled as under **Ask each time**, and so is an agent on an engine that doesn't offer weak links. While an agent is dragged over the tile, a label under the tile says what dropping it will do. See [orgtree-org-mailbox-tile](../../canvas/org-mailbox-tile/SKILL.md).
 
 ## See also
 
