@@ -897,6 +897,8 @@ mod dm_panel_tests {
 
     // USER 2026-11-25 14:50:16Z mc6794469e5e7: "simplify that to \"sent from the chats panel, reply with mail\""
     const LINE: &str = "↳ Sent from the chats panel, reply with mail.";
+    // USER 2026-11-25 15:06:22Z m05cea69c12e9: "add an annotation to desk-sent mail such as \"sent directly, reply in your response\""
+    const DESK: &str = "↳ Sent directly, reply in your response.";
 
     fn row(extra: Value, notice: bool, sender: &str) -> Value {
         json!({ "uid": "m1", "sender": sender, "kind": "message", "body": "hello", "notice": notice,
@@ -933,5 +935,37 @@ mod dm_panel_tests {
         assert!(!block(&agent).contains("chats panel"), "only the user's own mail");
         let other = crate::runtime::actor::mail_of(&row(json!({ "surface": "desk" }), false, "@user"));
         assert!(!other.dm_panel && !block(&other).contains("chats panel"));
+    }
+
+    /// USER 2026-11-25 15:06:22Z m05cea69c12e9: mail the user wrote on the agent's desk says so, in the
+    /// chats-panel line's place, so the agent answers it in turn text (MAIL-ONLY REPLIES).
+    #[test]
+    fn a_message_written_on_the_desk_says_to_reply_in_the_response() {
+        let m = crate::runtime::actor::mail_of(&row(json!({ "surface": "desk" }), false, "@user"));
+        assert!(m.desk, "the stored surface is read back");
+        let text = block(&m);
+        let lines: Vec<&str> = text.lines().collect();
+        assert!(lines[1].starts_with("FROM user ("), "{text}");
+        assert_eq!(lines[2], DESK, "one line, right under the header");
+        assert_eq!(lines[3], "hello");
+        assert_eq!(text.matches("Sent directly").count(), 1);
+        assert!(!text.contains("chats panel"));
+        let chats = block(&crate::runtime::actor::mail_of(&row(json!({ "surface": "dm" }), false, "@user")));
+        assert!(!chats.contains("Sent directly"), "the chats panel's mail has only its own line");
+    }
+
+    #[test]
+    fn mail_from_anywhere_else_carries_neither_line() {
+        for (extra, notice, sender, why) in [
+            (json!({}), false, "@user", "no surface: another composer or an older window"),
+            (json!({ "surface": "phone" }), false, "@user", "an unknown surface"),
+            (json!({ "surface": "desk" }), true, "@user", "a notice expects no reply"),
+            (json!({ "surface": "desk" }), false, "lead", "only the user's own mail"),
+        ] {
+            let m = crate::runtime::actor::mail_of(&row(extra, notice, sender));
+            let text = block(&m);
+            assert!(!text.contains("Sent directly") && !text.contains("chats panel"), "{why}: {text}");
+            assert!(!text.contains("↳ Sent"), "{why}");
+        }
     }
 }

@@ -15,10 +15,11 @@ async function fixture(two = false) {
   const server = new FakeServer()
   installFetch(server)
   const readers = withReaderContent(globalThis.fetch,[{id:'writer'},{id:'other'}])
-  const calls: string[] = [], warnings: string[] = []
+  const calls: string[] = [], warnings: string[] = [], bodies: Record<string, unknown>[] = []
   let accept: (() => void) | undefined, refuse: (() => void) | undefined
   globalThis.fetch = (url, init) => {
     if (!String(url).endsWith('/message')) return readers(url, init)
+    bodies.push(JSON.parse(String(init?.body)))
     calls.push(JSON.parse(String(init?.body)).text)
     return new Promise<Response>((resolve, reject) => {
       accept = () => resolve(new Response(JSON.stringify({ queued: 0 }), {
@@ -60,7 +61,7 @@ async function fixture(two = false) {
     assert.equal(typeof (success ? accept : refuse), 'function', 'the request is pending')
     await inAct(async () => { (success ? accept : refuse)!(); await flush(8) })
   }
-  return { view, host, selected, tab, send, finish, warnings,
+  return { view, host, selected, tab, send, finish, warnings, bodies,
     close: async () => { await view.unmount(); resetConvos(); globalThis.fetch = originalFetch } }
 }
 
@@ -104,5 +105,17 @@ test('sending from a pinned desk body retains its host and leaves another desk t
     assert.equal(f.selected(other), 'presented', 'the change belongs to the sending desk only')
     assert.equal(f.host.isConnected && other.isConnected, true, 'both hosts stay mounted')
     assert.equal(f.host.querySelector('textarea[data-first-use-chat]') === composer, true, 'the pinned composer is retained')
+  } finally { await f.close() }
+})
+
+// USER 2026-11-25 15:06:22Z m05cea69c12e9: "add an annotation to desk-sent mail such as "sent directly, reply
+// in your response"". The desk composer names its surface; the engine adds the line for the agent.
+test('a desk send names the desk as its surface, so the agent is told to reply in its response', async () => {
+  const f = await fixture()
+  try {
+    await f.send()
+    assert.equal(f.bodies.length, 1)
+    assert.equal(f.bodies[0]!.surface, 'desk', 'written on the desk')
+    await f.finish(true)
   } finally { await f.close() }
 })

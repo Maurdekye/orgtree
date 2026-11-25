@@ -995,6 +995,13 @@ mod dm_panel_extra_tests {
     }
 
     #[test]
+    fn a_desk_message_stores_its_surface() {
+        let mut out = Outgoing::new(From::User, "worker", "hello");
+        out.desk = true;
+        assert_eq!(out.delivery_extra(), json!({ "surface": "desk" }));
+    }
+
+    #[test]
     fn a_megaphone_copy_stores_its_project_mark() {
         let mut out = Outgoing::new(From::User, "member", "hello all");
         let mark = json!({ "id": 7, "name": "crew", "send": "g1", "to": 3 });

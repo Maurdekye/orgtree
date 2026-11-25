@@ -1901,7 +1901,18 @@ mod stream_download_tests {
 
 #[cfg(test)]
 mod dm_panel_mark_tests {
-    use super::dm_panel_mark;
+    use super::{desk_mark, dm_panel_mark};
+
+    /// USER 2026-11-25 15:06:22Z m05cea69c12e9: mail the user wrote on the agent's desk is marked,
+    /// replies included (the desk answer comes in turn text either way); a notice is not.
+    #[test]
+    fn desk_mail_is_marked_except_a_notice() {
+        assert!(desk_mark(Some("desk"), false), "a message or reply written on the desk");
+        assert!(!desk_mark(Some("desk"), true), "a notice expects no reply");
+        assert!(!desk_mark(None, false), "an older window, or any other composer");
+        assert!(!desk_mark(Some("dm"), false), "the chats panel has its own line");
+        assert!(!desk_mark(Some("Desk"), false), "the value is exact");
+    }
 
     #[test]
     fn only_a_new_message_typed_in_the_chats_is_marked() {
@@ -1909,7 +1920,8 @@ mod dm_panel_mark_tests {
         assert!(!dm_panel_mark(Some("dm"), true, false), "a notice expects no reply");
         assert!(!dm_panel_mark(Some("dm"), false, true), "a reply is not marked");
         assert!(!dm_panel_mark(None, false, false), "an older window, or any other composer");
-        assert!(!dm_panel_mark(Some("desk"), false, false), "an unknown surface is ordinary mail");
+        assert!(!dm_panel_mark(Some("desk"), false, false), "the desk is not the DM panel");
+        assert!(!dm_panel_mark(Some("phone"), false, false), "an unknown surface is ordinary mail");
         assert!(!dm_panel_mark(Some("DM"), false, false), "the value is exact");
     }
 }
