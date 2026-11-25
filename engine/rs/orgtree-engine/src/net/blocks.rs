@@ -131,7 +131,7 @@ pub(super) async fn heard(engine: &Arc<Engine>, addr: &str, members: &[(Part, St
 /// A notice from `@system` to the user and to `agent` (the sender of a refused
 /// message), or to the org mailbox holders when `agent` is None.
 #[logged]
-async fn tell(engine: &Arc<Engine>, org_id: i64, agent: Option<(i64, i32)>, body: &str, extra: Value) -> Result<()> {
+pub(super) async fn tell(engine: &Arc<Engine>, org_id: i64, agent: Option<(i64, i32)>, body: &str, extra: Value) -> Result<()> {
     let mut c = engine.db.get().await?;
     let tx = c.transaction().await?;
     tx.execute(

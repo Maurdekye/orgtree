@@ -27,13 +27,58 @@ pub fn mode(settings: &Value) -> &'static str {
     else { "normal" }
 }
 
+/// The user's "Outside communication" value (USER 2026-11-25 14:10:26Z m16ef9bb35e25): `org` (Org decides,
+/// the default: the org mailbox holders choose open or closed), or an explicit `normal`, `dnd` or `closed` that
+/// overrides the org's choice. A stored legacy `false` without a mode is the user's `closed`.
+#[nolog]
+pub fn user_mode(settings: &Value) -> &'static str {
+    match settings["org_inbox_mode"].as_str() {
+        Some("normal") => "normal",
+        Some("dnd") => "dnd",
+        Some("closed") => "closed",
+        Some("org") => "org",
+        _ if settings["org_inbox_enabled"] == json!(false) => "closed",
+        _ => "org",
+    }
+}
+
+/// The org's own choice under Org decides: `normal` (open, the default) or `closed`.
+#[nolog]
+pub fn org_choice(settings: &Value) -> &'static str {
+    if settings["org_inbox_org_mode"] == "closed" { "closed" } else { "normal" }
+}
+
+/// After `normalize_patch`, with the stored settings read under the writer's row lock: Org decides takes the
+/// effective gate from the org's choice (stored, or set in the same patch).
+#[nolog]
+pub fn resolve_patch(patch: &mut Map<String, Value>, stored: &Value) {
+    let user = patch.get("org_inbox_mode").and_then(Value::as_str).map(str::to_owned).unwrap_or_else(|| user_mode(stored).to_owned());
+    if user == "org" && (patch.contains_key("org_inbox_mode") || patch.contains_key("org_inbox_org_mode")) {
+        let choice = patch.get("org_inbox_org_mode").and_then(Value::as_str).map(str::to_owned).unwrap_or_else(|| org_choice(stored).to_owned());
+        patch.insert("org_inbox_enabled".into(), json!(choice != "closed"));
+    }
+}
+
 /// All policy writers keep the new enum and legacy isolation boolean in step.
 #[logged]
 pub fn normalize_patch(patch: &mut Map<String, Value>) -> Result<()> {
+    if let Some(value) = patch.get("org_inbox_org_mode") {
+        if !value.as_str().is_some_and(|m| matches!(m, "normal" | "closed")) {
+            crate::refuse!(BadRequest,"org_inbox_org_mode must be normal or closed");
+        }
+    }
     if let Some(value) = patch.get("org_inbox_mode") {
-        let Some(mode) = value.as_str().filter(|m| matches!(*m,"normal"|"dnd"|"closed")) else {
-            crate::refuse!(BadRequest,"org_inbox_mode must be normal, dnd or closed");
+        let Some(mode) = value.as_str().filter(|m| matches!(*m,"org"|"normal"|"dnd"|"closed")) else {
+            crate::refuse!(BadRequest,"org_inbox_mode must be org, normal, dnd or closed");
         };
+        if mode == "org" {
+            // the gate follows the org's choice: `resolve_patch` sets it once the stored settings are read
+            if patch.get("org_inbox_enabled").is_some_and(|v| !v.is_boolean()) {
+                crate::refuse!(BadRequest,"org_inbox_enabled must be true or false");
+            }
+            patch.insert("org_inbox_enabled".into(), json!(org_choice(&Value::Object(patch.clone())) != "closed"));
+            return Ok(());
+        }
         let on = mode != "closed";
         if patch.get("org_inbox_enabled").is_some_and(|v| v.as_bool() != Some(on)) {
             crate::refuse!(BadRequest,"org_inbox_mode conflicts with org_inbox_enabled");
@@ -46,17 +91,71 @@ pub fn normalize_patch(patch: &mut Map<String, Value>) -> Result<()> {
     Ok(())
 }
 
-/// RED STUBS (lockdown / Org decides): today's behaviour.
-#[nolog]
-pub fn user_mode(settings: &Value) -> &'static str { mode(settings) }
-#[nolog]
-pub fn org_choice(_settings: &Value) -> &'static str { "normal" }
-#[nolog]
-pub fn resolve_patch(_patch: &mut Map<String, Value>, _stored: &Value) {}
+/// An org mailbox holder (primary or weak link) chooses open (`normal`) or `closed` for the org under Org decides
+/// (USER 2026-11-25 14:10:26Z m16ef9bb35e25). The user's explicit value wins: then agents can't change it.
+/// The holder's link and the user's value are checked under the settings writer's row lock.
 #[logged]
-pub async fn set_org_choice(_engine: &Arc<Engine>, _org_id: i64, _agent: &str, _choice: &str) -> Result<Value> { anyhow::bail!("not built yet") }
+pub async fn set_org_choice(engine: &Arc<Engine>, org_id: i64, agent: &str, choice: &str) -> Result<Value> {
+    if !matches!(choice, "normal" | "closed") {
+        crate::refuse!(BadRequest, "mode must be normal (open) or closed");
+    }
+    let pause = engine.net.isolation.pause(org_id).await;
+    let mut conn = engine.db.get().await?;
+    let tx = conn.transaction().await?;
+    let stored: Value = tx.query_one("SELECT settings FROM ot.orgs WHERE id = $1 FOR NO KEY UPDATE", &[&org_id]).await?.get(0);
+    if mailbox_link(&*tx, org_id, agent).await?.is_none() {
+        crate::refuse!(Forbidden, "only an agent holding the org mailbox (primary or weak link) may open or close it");
+    }
+    let user = user_mode(&stored);
+    if user != "org" {
+        crate::refuse!(Forbidden, "the user set outside communication to {user}; only the user can change it (set it to Org decides to hand it back)");
+    }
+    let mut patch = Map::new();
+    patch.insert("org_inbox_org_mode".into(), json!(choice));
+    resolve_patch(&mut patch, &stored);
+    let changed = stored["org_inbox_enabled"].as_bool().unwrap_or(true) != patch["org_inbox_enabled"].as_bool().unwrap_or(true);
+    tx.execute("UPDATE ot.orgs SET settings = settings || $2, row_version = row_version + 1 WHERE id = $1", &[&org_id, &Value::Object(patch.clone())]).await?;
+    tx.execute("INSERT INTO ot.events (org_id, op, actor, detail, via) VALUES ($1, 'settings', $2, $3, $4)",
+        &[&org_id, &agent, &Value::Object(patch), &crate::caller::via()]).await?;
+    tx.commit().await?;
+    drop(conn);
+    drop(pause);
+    if changed {
+        crate::net::kick(engine);
+        changes::notify_id(engine, org_id, vec![Change::OrgInbox, Change::Net, Change::Org]);
+        resume_pending(engine, org_id).await;
+    } else {
+        changes::notify_id(engine, org_id, vec![Change::Org]);
+    }
+    Ok(json!({ "setting": "org", "org_choice": choice, "actual": choice }))
+}
+
+/// Lockdown (USER 2026-11-25 13:37Z Q5): keep an unlisted sender's letter out of delivery. Only its envelope and
+/// inline body are kept: a long body or files are not downloaded (the hub's retention may remove them before
+/// anyone reads it). Nothing routes it: no copies, jobs, promotion, grants, phone setup or notices.
 #[logged]
-pub async fn set_aside_inbound(_engine: &Engine, _org_id: i64, _hub: &str, _m: &Value) -> Result<()> { Ok(()) }
+pub async fn set_aside_inbound(engine: &Engine, org_id: i64, hub: &str, m: &Value) -> Result<()> {
+    let Some(net_id) = m["id"].as_str().filter(|s| !s.is_empty()) else { return Ok(()) };
+    let from = m["from"].as_str().unwrap_or("unknown");
+    let mut body = m["body"].as_str().unwrap_or("").to_owned();
+    if m["body_bytes"].is_number() {
+        body.push_str("\n\n[set aside by the lockdown: the rest of this long message was not downloaded]");
+    }
+    let files: Vec<Value> = m["attachments"].as_array().into_iter().flatten()
+        .map(|a| json!({ "name": a["name"], "bytes": a["bytes"], "not_downloaded": true })).collect();
+    if !files.is_empty() {
+        body.push_str(&format!("\n\n[set aside by the lockdown: {} file(s) were not downloaded]", files.len()));
+    }
+    engine.db.get().await?.execute(
+        "INSERT INTO ot.org_inbox (uid, org_id, dir, peer, body, net_id, hub, set_aside_at, set_aside_meta)
+         SELECT $1, $2, 'in', $3, $4, $5, $6, now(), $7
+          WHERE NOT EXISTS (SELECT 1 FROM ot.org_inbox WHERE org_id = $2 AND dir = 'in' AND net_id = $5)",
+        &[&uid("m"), &org_id, &format!("@net:{from}"), &crate::util::pg_text(&body).as_ref(), &net_id, &hub,
+          &crate::util::pg_json(&json!({ "files": files, "body_bytes": m["body_bytes"], "reply_to": m["reply_to"], "sent_at": m["sent_at"] })).as_ref()],
+    ).await?;
+    changes::notify_id(engine, org_id, vec![Change::OrgInbox]);
+    Ok(())
+}
 
 #[nolog]
 pub fn check(settings: &Value) -> Result<()> {
@@ -1057,7 +1156,7 @@ pub(crate) async fn record_delivered(tx:&tokio_postgres::Transaction<'_>,row:&Va
 /// org-mailbox holder existed (USER 2026-11-09 m01535356a9d7; docket
 /// `org-mail-that-arrives-before-any-mailbox-holder-e`). The partial indexes `org_inbox_dnd_held` and
 /// `org_inbox_waiting` serve the two halves, so an idle org costs two index probes.
-const RELEASABLE: &str = "(dnd_held OR (dir='in' AND NOT read AND pulled_by IS NULL AND delivered_to='[]'::jsonb))";
+const RELEASABLE: &str = "(set_aside_at IS NULL AND (dnd_held OR (dir='in' AND NOT read AND pulled_by IS NULL AND delivered_to='[]'::jsonb)))";
 
 /// One bounded transaction. Retained inactive history is never scanned.
 #[logged]
@@ -1205,7 +1304,8 @@ mod org_dnd_tests {
         assert!(normalize_patch(json!({"org_inbox_mode":"dnd","org_inbox_enabled":false}).as_object_mut().unwrap()).is_err());
         let app=json!({"org_inbox_mode":"dnd","org_inbox_enabled":false}).as_object().unwrap().clone();
         let effective=crate::feed::groups::effective_settings(&json!({}),&app);
-        assert_eq!(effective["org_inbox_mode"],"normal");assert_eq!(effective["org_inbox_enabled"],true);
+        // USER 2026-11-25 14:10:26Z: the setting shows the user's value (Org decides by default) and what is in force
+        assert_eq!(effective["org_inbox_mode"],"org");assert_eq!(effective["org_inbox_actual"],"normal");assert_eq!(effective["org_inbox_enabled"],true);
     }
 }
 

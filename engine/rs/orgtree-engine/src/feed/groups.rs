@@ -77,7 +77,10 @@ pub fn effective_settings(org_settings: &Value, app_defaults: &Map<String, Value
     for k in RETIRED_SETTINGS {
         obj.remove(*k);
     }
-    obj.insert("org_inbox_mode".into(),json!(crate::domain::orginbox::mode(org_settings)));
+    // the user's value (Org decides by default), the org's own choice under it, and what is in force
+    obj.insert("org_inbox_mode".into(),json!(crate::domain::orginbox::user_mode(org_settings)));
+    obj.insert("org_inbox_org_mode".into(),json!(crate::domain::orginbox::org_choice(org_settings)));
+    obj.insert("org_inbox_actual".into(),json!(crate::domain::orginbox::mode(org_settings)));
     out
 }
 

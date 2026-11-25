@@ -160,8 +160,8 @@ fn checked(e: &Engine, org: Option<&str>, key: &str, v: &Value) -> ApiResult<Val
     let bad = |why: String| Err(ApiError::unprocessable(why));
     match key {
         "org_inbox_mode" => match v.as_str() {
-            Some("normal"|"dnd"|"closed") => Ok(v.clone()),
-            _ => bad("org_inbox_mode must be normal, dnd or closed".into()),
+            Some("org"|"normal"|"dnd"|"closed") => Ok(v.clone()),
+            _ => bad("org_inbox_mode must be org, normal, dnd or closed".into()),
         },
         "default_fast_mode" => Ok(crate::providers::fast_mode::validate_defaults(&e.providers.state.load(),v)?),
         // Quick chat's starting choices in this org (set by a template)
@@ -355,6 +355,8 @@ pub async fn save_org(State(e): State<Arc<Engine>>, Path(slug): Path<String>, Js
     // No referenced org key is changed. Keep settings writers exclusive to
     // each other while allowing FK KEY SHARE from ordinary node operations.
     let old: Value = client.query_one("SELECT settings FROM ot.orgs WHERE id = $1 FOR NO KEY UPDATE", &[&o.id]).await?.get(0);
+    // Org decides: the gate follows the org's stored choice (USER 2026-11-25 14:10:26Z)
+    crate::domain::orginbox::resolve_patch(&mut patch, &old);
     if let Some(expect) = &expect {
         let effective = effective_settings(&old, &e.settings.defaults());
         let name = o.name.load_full();

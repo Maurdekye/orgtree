@@ -223,6 +223,10 @@ pub struct Net {
     /// hub address → (lists the `blocking` feature, when read): its
     /// `/healthz`, read again after `blocks::FEATURE_TTL`
     pub(crate) blocking_feature: papaya::HashMap<String, (bool, Instant)>,
+    /// hub address → (lists the `lockdown` feature, when read)
+    pub(crate) lockdown_feature: papaya::HashMap<String, (bool, Instant)>,
+    /// org id → when its last lockdown list-edit notice went out (one a minute)
+    pub(crate) lockdown_noticed: papaya::HashMap<i64, Instant>,
     /// Live requests only; durable intent remains in PostgreSQL.
     pub(crate) transfer_stops: papaya::HashMap<String, CancellationToken>,
     #[cfg(debug_assertions)]
@@ -379,6 +383,7 @@ async fn participants(engine: &Engine) -> Result<Vec<Part>> {
         client.query("SELECT id, slug, name, net, settings FROM ot.orgs WHERE state = 'active' ORDER BY id", &[]).await?
     };
     let hosted = engine.hub.address.load_full().map(|a| a.as_str().to_string());
+    let locked = lockdown::locked_orgs(&**engine.db.get().await?).await?;
     let mut out = Vec::new();
     for r in rows {
         if !crate::domain::orginbox::enabled(&r.get::<_,Value>(4)) { continue; }
@@ -437,6 +442,17 @@ async fn participants(engine: &Engine) -> Result<Vec<Part>> {
         // a rig run reaches the hub it hosts, never another
         if crate::rig::hub() {
             hubs.retain(|(_, a)| hosted.as_deref() == Some(a.as_str()));
+        }
+        // lockdown: a hub that can't enforce it carries none of the org's
+        // mail, presence or registration while it is on (user 2026-11-25 14:08Z, answer 5)
+        if locked.contains(&org_id) {
+            let mut kept = Vec::with_capacity(hubs.len());
+            for (id, addr) in hubs {
+                if !lockdown::suspended(engine, true, &addr).await {
+                    kept.push((id, addr));
+                }
+            }
+            hubs = kept;
         }
         // a registration counts only for the address it was earned against
         let state = net["state"].as_object().cloned().unwrap_or_default();
@@ -624,6 +640,7 @@ async fn pass(engine: &Arc<Engine>) -> Result<()> {
     drain(engine, &parts).await?;
     flush_receipts(engine, &parts).await;
     blocks::reconcile(engine, &parts).await;
+    lockdown::reconcile(engine, &parts).await;
     pictures::dispatch(engine, &parts);
     Ok(())
 }
@@ -635,14 +652,28 @@ async fn register_pending(engine: &Arc<Engine>, parts: &[Part]) {
             if p.registered.contains(hid) || backed_off(engine, addr) {
                 continue;
             }
+            let mut body = json!({ "slug": p.net_slug, "org_name": p.name, "username": username() });
+            // lockdown: a new registration is never open (review I4); only a hub that keeps lockdowns is told
+            let lock = match lockdown::for_hub(engine, p.org_id, hid).await {
+                Ok(Some(l)) if lockdown::supports(engine, addr).await => Some(l),
+                _ => None,
+            };
+            if let Some(l) = &lock {
+                body["lockdown"] = l.clone();
+            }
             let res = request(engine, &[p.org_id], HTTP
                 .post(format!("{addr}/api/register"))
                 .timeout(Duration::from_secs(10))
                 .header("X-Org-Auth", p.auth())
-                .json(&json!({ "slug": p.net_slug, "org_name": p.name, "username": username() }))).await;
+                .json(&body)).await;
             match res {
                 Ok(r) if r.status().is_success() => {
                     let data: Value = r.json().await.unwrap_or(Value::Null);
+                    if let Some(l) = &lock {
+                        let held = data["lockdown"]["rev"].as_i64();
+                        let state = if held == l["rev"].as_i64() { "enforced" } else { "pending" };
+                        let _ = lockdown::acked(engine, p.org_id, hid, held, state, None).await;
+                    }
                     set_roster(engine, addr, data["name"].as_str(), data["version"].as_str(), data["roster"].as_array().cloned().unwrap_or_default());
                     if let Err(e) = set_registered(engine, p.org_id, hid, Some(addr)).await {
                         tracing::warn!(error = %format!("{e:#}"), "registration could not be recorded");
@@ -854,6 +885,17 @@ async fn deliver_inbound(engine: &Arc<Engine>, p: &Part, hub_id: &str, addr: &st
     if seen {
         return Ok(Some(mid.to_string()));
     }
+    // lockdown (review B2): before staging, downloads, phone setup or any wake
+    let from = m["from"].as_str().unwrap_or("unknown");
+    match lockdown::admit(&**engine.db.get().await?, p.org_id, hub_id, from).await? {
+        lockdown::Admission::Deliver => {}
+        // custody is acknowledged: the hub holds nothing more for it
+        lockdown::Admission::Drop => return Ok(Some(mid.to_string())),
+        lockdown::Admission::SetAside => {
+            crate::domain::orginbox::set_aside_inbound(engine, p.org_id, hub_id, m).await?;
+            return Ok(Some(mid.to_string()));
+        }
+    }
     let earlier = engine.db.get().await?.query_opt("SELECT 1 FROM ot.net_incoming WHERE org_id=$1 AND hub=$2 AND envelope->>'from'=$3 AND state<>'complete' LIMIT 1", &[&p.org_id,&hub_id,&m["from"].as_str().unwrap_or("unknown")]).await?.is_some();
     if earlier || m["body_bytes"].is_number() || m["attachments"].as_array().is_some_and(|a| !a.is_empty()) {
         incoming::stage(engine, p, hub_id, addr, m).await?;
@@ -869,6 +911,15 @@ async fn publish_inbound(engine: &Arc<Engine>, p: &Part, hub_id: &str, addr: &st
     crate::domain::orginbox::require_enabled(engine, p.org_id).await?;
     let mid = m["id"].as_str().unwrap_or("");
     let from = m["from"].as_str().unwrap_or("unknown");
+    // lockdown, again for staged mail: the policy may have changed meanwhile (review B2)
+    match lockdown::admit(&**engine.db.get().await?, p.org_id, hub_id, from).await? {
+        lockdown::Admission::Deliver => {}
+        lockdown::Admission::Drop => return Ok(()),
+        lockdown::Admission::SetAside => {
+            crate::domain::orginbox::set_aside_inbound(engine, p.org_id, hub_id, m).await?;
+            return Ok(());
+        }
+    }
     if let Some(sent) = m["sent_at"].as_str().and_then(crate::util::parse_ts) {
         let age = (chrono::Utc::now() - sent).num_seconds();
         if age > STALE_AFTER_S {
