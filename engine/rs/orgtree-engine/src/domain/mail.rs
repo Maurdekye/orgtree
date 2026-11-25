@@ -198,6 +198,9 @@ pub struct Outgoing {
     /// A new message the user typed in their chats (the DM panel): stored as
     /// `extra.surface = "dm"`, read back for the agent's wrapper line.
     pub dm_panel: bool,
+    /// Written on the agent's desk (USER 2026-11-25 m05cea69c12e9): stored as
+    /// `extra.surface = "desk"`, read back for the agent's wrapper line.
+    pub desk: bool,
     /// One copy of the user's megaphone send to a project (`http/nodes.rs`
     /// `megaphone_mark`): stored as `extra.megaphone`, so the user's chats can
     /// show the send once in the project's chat (USER 2026-11-23 mb52269db6058).
@@ -228,6 +231,7 @@ impl Outgoing {
             wake: true,
             job_reply: None,
             dm_panel: false,
+            desk: false,
             megaphone: None,
         }
     }
@@ -244,6 +248,7 @@ impl Outgoing {
         if self.one_time { extra["one_time"] = json!(true); }
         if let Some(j) = &self.job_reply { extra["job_reply"] = j.clone(); }
         if self.dm_panel { extra["surface"] = json!("dm"); }
+        else if self.desk { extra["surface"] = json!("desk"); }
         if let Some(m) = &self.megaphone { extra["megaphone"] = m.clone(); }
         extra
     }

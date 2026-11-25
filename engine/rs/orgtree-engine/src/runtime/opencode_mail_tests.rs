@@ -172,6 +172,7 @@ fn opencode_mail_uncertain_warning_survives_typed_events_and_reference_budget() 
         via_project_ack: false, via_project_outside: false,
         uncertain_mid_turn: true,
         dm_panel: false,
+        desk: false,
         private_app: false,
     };
     let result =

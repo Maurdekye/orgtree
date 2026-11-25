@@ -1760,8 +1760,10 @@ export const sendMessage = (
   /** where the user typed it, when the agent is told: `dm` is a new message
    *  typed in the user's chats (dm/DmPanel.tsx), never a reply or a notice.
    *  The engine then tells the agent to answer by mail to the user (USER
-   *  2026-11-23 m79c022311f95). An older engine ignores the field. */
-  surface?: 'dm',
+   *  2026-11-23 m79c022311f95). `desk` is written on the agent's desk (desk.tsx
+   *  DeskChat, any notice excepted): the agent is told to reply in its response
+   *  (USER 2026-11-25 m05cea69c12e9). An older engine ignores the field. */
+  surface?: 'dm' | 'desk',
 ): Promise<SendMessageResult> =>
   req(`/api/orgs/${slug}/nodes/${nid}/message`, {
     method: 'POST',

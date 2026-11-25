@@ -41,6 +41,10 @@ pub struct Mail {
     /// by mail to the user. Absent from other mail's serialization.
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub dm_panel: bool,
+    /// The user wrote it on this agent's desk (USER 2026-11-25 m05cea69c12e9):
+    /// the wrapper says to reply in the response. Absent from other mail's serialization.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub desk: bool,
     /// App content (`trace::private_app_content` of its row: the app's mail, a
     /// notice of what it did, its named event's delivery): the log names this
     /// mail by its id alone. Absent from ordinary mail's serialization.
@@ -324,7 +328,7 @@ x
     fn mail(uid: &str, sender: &str, body: &str) -> Mail {
         Mail { uid: uid.into(), sender: sender.into(), kind: "message".into(), body: body.into(),
             at: chrono::DateTime::from_timestamp(0, 0).unwrap(), attachments: json!([]), notice: false, one_time: false, urgent: false,
-            reply_to: json!({}), replies: json!([]), ev: json!({}), via_project: None, via_project_ack: false, via_project_outside: false, uncertain_mid_turn: false, dm_panel: false, private_app: false }
+            reply_to: json!({}), replies: json!([]), ev: json!({}), via_project: None, via_project_ack: false, via_project_outside: false, uncertain_mid_turn: false, dm_panel: false, desk: false, private_app: false }
     }
     /// User 2026-10-27 m7c48d80b13f4, m90b8a18987ea: each message counts as if it were
     /// sent alone, with its framing; the conditional parts sent with it are listed apart.
@@ -365,7 +369,7 @@ mod mail_size_tests {
     fn mail(body: String) -> Mail {
         Mail { uid: "large-mail".into(), sender: "sender".into(), kind: "message".into(), body,
             at: chrono::DateTime::from_timestamp(0, 0).unwrap(), attachments: json!([]),
-            notice: false, one_time: false, urgent: false, reply_to: json!({}), replies: json!([]), ev: json!({}), via_project: None, via_project_ack: false, via_project_outside: false, uncertain_mid_turn: false, dm_panel: false, private_app: false }
+            notice: false, one_time: false, urgent: false, reply_to: json!({}), replies: json!([]), ev: json!({}), via_project: None, via_project_ack: false, via_project_outside: false, uncertain_mid_turn: false, dm_panel: false, desk: false, private_app: false }
     }
 
     #[test]
@@ -593,6 +597,7 @@ mod phone_authority_tests {
                 via_project_ack: false, via_project_outside: false,
                 uncertain_mid_turn: false,
                 dm_panel: false,
+                desk: false,
                 private_app: false,
             };
             let mail = [m];

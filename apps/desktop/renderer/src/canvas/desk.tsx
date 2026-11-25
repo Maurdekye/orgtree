@@ -3693,7 +3693,9 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
     toBottom()
     const pluralWire = sentReplies.length > 1 || sentReplies.some(r => !!r.mailId || !!r.docId || !!r.workItemId || !!r.selection)
     sendMessage(slug, node.id, t, paths, pluralWire ? undefined : sentReply ? replyWire(sentReply) : undefined, op, armedNotice,
-      pluralWire ? sentReplies.map(replyWire) : undefined, undefined, node.dnd ? urgentMail : undefined)
+      pluralWire ? sentReplies.map(replyWire) : undefined, undefined, node.dnd ? urgentMail : undefined,
+      // written on the desk: the agent answers in its turn text (USER 2026-11-25 m05cea69c12e9)
+      armedNotice ? undefined : 'desk')
       .then((r) => {
         // User 2026-10-18: reveal this desk's conversation after a successful
         // send. Pending/refused sends retain the tab the reader selected.

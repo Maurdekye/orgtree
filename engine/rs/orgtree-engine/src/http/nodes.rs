@@ -194,7 +194,8 @@ pub struct MessageBody {
     #[serde(default)]
     urgent_reason: Option<String>,
     /// Where the user typed it, when the agent is told: `dm` is a new message
-    /// typed in the user's chats (USER 2026-11-23 m79c022311f95). Any other
+    /// typed in the user's chats (USER 2026-11-23 m79c022311f95); `desk` is
+    /// written on the agent's desk (USER 2026-11-25 m05cea69c12e9). Any other
     /// value, and an older window that sends none, is ordinary mail.
     #[serde(default)]
     surface: Option<String>,
@@ -206,6 +207,14 @@ pub struct MessageBody {
 #[nolog]
 fn dm_panel_mark(surface: Option<&str>, notice: bool, reply: bool) -> bool {
     surface == Some("dm") && !notice && !reply
+}
+
+/// Whether a user's message is marked as written on the agent's desk, where
+/// the agent's answer is its turn text (USER 2026-11-25 15:06:22Z
+/// m05cea69c12e9). Replies too: a desk reply is read on the desk. Never a notice.
+#[nolog]
+fn desk_mark(surface: Option<&str>, notice: bool) -> bool {
+    surface == Some("desk") && !notice
 }
 
 #[logged]
@@ -258,6 +267,7 @@ pub async fn message(
         if b.reply_to.as_ref().is_some_and(|q| replies.first().is_none_or(|first| q != first)) { return Err(ApiError::bad_request("reply_to must match the first replies target")); }
     }
     out.dm_panel = dm_panel_mark(b.surface.as_deref(), b.notice, out.reply_to.is_some() || !out.replies.is_empty());
+    out.desk = desk_mark(b.surface.as_deref(), b.notice);
     let sent = mail::send(&e, org.id, out).await?;
     let halted = sent.delivery.contains("is halted");
     // the user writing to a project grants it an audience to the user, after

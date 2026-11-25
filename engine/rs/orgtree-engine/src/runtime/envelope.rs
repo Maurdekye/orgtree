@@ -788,6 +788,11 @@ pub fn mail_block(mail: &[&Mail], rels: &HashMap<String, String>, turn_start: bo
         if m.dm_panel && !m.notice && m.sender == "@user" {
             b.push_str("\n↳ Sent from the chats panel, reply with mail.");
         }
+        // written on this agent's desk, which shows the turn's text: the answer
+        // goes there (USER 2026-11-25 15:06:22Z m05cea69c12e9). Same rules.
+        if m.desk && !m.notice && m.sender == "@user" {
+            b.push_str("\n↳ Sent directly, reply in your response.");
+        }
         // someone over the mail hub reads only what is sent to them (user 2026-10-09)
         if !m.notice && m.sender.starts_with("@net:") {
             b.push_str(&format!("\n↳ Answer with orgtree_message to {}: a reply only in your turn's text never reaches them.", m.sender));
