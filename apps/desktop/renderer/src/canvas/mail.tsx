@@ -39,7 +39,7 @@ import { AttachThumb, fmtBytes, isImg } from './img'
 import { fileTransferView, TransferPanel, type TransferSummary } from './transfers'
 import {
   ArrowUpIcon, AttachIcon, BlockIcon, CampaignIcon, CloseIcon, DownloadIcon, FileIcon, HearingIcon,
-  MailIcon, NotificationsActiveIcon, NotificationsIcon, PublicIcon, ScheduleIcon,
+  MailIcon, NotificationsIcon, NotificationsOffIcon, PublicIcon, ScheduleIcon,
 } from '../icons'
 import {
   audienceGrantTooltip, EXTERN, EXTERN_WEAK, isMailNotice, isSystemNotice, jumpKey, md, pileNotices, providerOf, SYSTEM, USER,
@@ -1580,7 +1580,7 @@ export function MailReplyBox({ target, slug, onSend, placeholder, sendDisabled =
               aria-label={noticeArmed ? 'Notice-send armed: this reply arrives as a passive notice' : 'Notice-send: send this reply as a passive notice'}
               title={noticeArmed ? 'Notice-send armed: this reply will arrive as a passive notice without waking the recipient (Alt+N)' : 'Send this reply as a passive notice without waking the recipient (Alt+N)'}
               onClick={() => setNoticeArmed((v) => !v)}>
-              {noticeArmed ? <NotificationsActiveIcon fontSize="inherit" /> : <NotificationsIcon fontSize="inherit" />}
+              {noticeArmed ? <NotificationsOffIcon fontSize="inherit" /> : <NotificationsIcon fontSize="inherit" />}
           </button>
           {!desk && megaphone}
           <button type="button" className="cc-attach" disabled={!attachable}

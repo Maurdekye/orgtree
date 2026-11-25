@@ -73,6 +73,8 @@ export { default as TuneIcon } from '@mui/icons-material/Tune'
 export { default as WarnIcon } from '@mui/icons-material/WarningAmber'
 export { default as NotificationsIcon } from '@mui/icons-material/NotificationsOutlined'
 export { default as NotificationsActiveIcon } from '@mui/icons-material/NotificationsActive'
+/** the armed notice toggle: a notice wakes nobody, so the quiet bell (USER 2026-11-25 m8fa7fe204469) */
+export { default as NotificationsOffIcon } from '@mui/icons-material/NotificationsOffOutlined'
 export { default as CampaignIcon } from '@mui/icons-material/Campaign'
 // the Changelog: its app menu entry and its panel's heading
 export { default as ChangelogIcon } from '@mui/icons-material/NewReleasesOutlined'

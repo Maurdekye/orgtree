@@ -103,7 +103,7 @@ import PushPinIcon from '@mui/icons-material/PushPinOutlined'
 import {
   ArrowDownIcon, ArrowRightIcon, ArrowUpIcon, AttachIcon, AutorenewIcon, CloseIcon, DocIcon, DotIcon,
   DownloadIcon, EditIcon, EyeIcon, FileIcon, FolderIcon, FrozenIcon,
-  DocketIcon, HearingIcon, LayersIcon, LockIcon, NotificationsActiveIcon,
+  DocketIcon, HearingIcon, LayersIcon, LockIcon, NotificationsOffIcon,
   NotificationsIcon, PlayIcon, PsychologyIcon,
   SettingsIcon, SparkIcon, StopIcon, ViewListIcon, WarnIcon,
 } from '../icons'
@@ -4806,7 +4806,7 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
               setActiveChatKey(chatKey)
               toggleNoticeArmed(chatKey)
             }}>
-            {noticeArmed ? <NotificationsActiveIcon fontSize="inherit" /> : <NotificationsIcon fontSize="inherit" />}
+            {noticeArmed ? <NotificationsOffIcon fontSize="inherit" /> : <NotificationsIcon fontSize="inherit" />}
           </button>
           {/* ONE attachment glyph everywhere (user 2026-09-17). This button
               used to draw FileIcon (a document sheet) while every OTHER attach

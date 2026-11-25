@@ -20,7 +20,7 @@ import { createPortal } from 'react-dom'
 import PushPinIcon from '@mui/icons-material/PushPinOutlined'
 import type { ToastFn, TreePayload, TurnStat } from '../types'
 import type { ReplyTarget } from '../generated/events'
-import { ArrowUpIcon, AttachIcon, AutorenewIcon, CampaignIcon, CloseIcon, FileIcon, MailIcon, NotificationsActiveIcon, NotificationsIcon, SettingsIcon } from '../icons'
+import { ArrowUpIcon, AttachIcon, AutorenewIcon, CampaignIcon, CloseIcon, FileIcon, MailIcon, NotificationsIcon, NotificationsOffIcon, SettingsIcon } from '../icons'
 import { broadcastMessage, fileUrl, retractMail, sendMessage, uploadFile } from '../api'
 import { useComposerEnter } from '../enterkey'
 import { readHistory, recordSent, type HistoryEntry } from '../composerhistory'
@@ -534,7 +534,7 @@ function ProjectComposer({ node, slug, tree, map, toast, members, recipients, ba
           title={notice ? 'Notice-send armed: the next message arrives as a passive notice, waking nobody (Alt+N)'
             : 'Send the next message as a passive notice, waking nobody (Alt+N)'}
           onClick={toggleNotice}>
-          {notice ? <NotificationsActiveIcon fontSize="inherit" /> : <NotificationsIcon fontSize="inherit" />}
+          {notice ? <NotificationsOffIcon fontSize="inherit" /> : <NotificationsIcon fontSize="inherit" />}
         </button>
         <button className="cc-attach" type="button" disabled={!can}
           title="attach a file: every agent under the project gets it" onClick={() => fileRef.current?.click()}>

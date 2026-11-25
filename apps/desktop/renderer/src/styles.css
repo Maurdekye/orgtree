@@ -2345,12 +2345,24 @@ button.cc-name:focus-visible {
    the org accent under agent-colors-organization). The transcript card keeps
    the neutral --notice-edge-color: a passive card in the reading column must
    not shout, an armed composer must. */
+/* SPARSER DASHES WHILE ARMED (USER 2026-11-25 m2e0562ae73e8 "increase the spacing of the dashes on the border of
+   the messagebox when the notice toggle is enabled"): CSS's own `dashed` has no gap length, so the 1px border
+   stays (transparent: the box does not move) and its dashes are drawn over it, as the chats' notice bubble does
+   (dm.css `.dm-bubble.notice::before`): a layer in --accent cut by a mask whose rect is stroked 2px on the edge,
+   1px of it inside the box. 4px dashes, 7px gaps (a 1px `dashed` draws 3 and 3). rx = the box's radius. */
 .cc-composer.notice-armed {
-  border-style: var(--notice-edge-style);
+  border-style: solid;
   border-width: 1px;
-  border-color: var(--accent);
+  border-color: transparent;
+  position: relative;
 }
-.cc-composer.notice-armed:focus-within { border-color: var(--accent); }
+.cc-composer.notice-armed:focus-within { border-color: transparent; }
+.cc-composer.notice-armed::before {
+  content: ""; position: absolute; inset: -1px; border-radius: inherit; pointer-events: none;
+  background: var(--accent);
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg'%3E%3Crect width='100%25' height='100%25' rx='8' fill='none' stroke='%23000' stroke-width='2' stroke-dasharray='4 7'/%3E%3C/svg%3E") 0 0 / 100% 100% no-repeat;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg'%3E%3Crect width='100%25' height='100%25' rx='8' fill='none' stroke='%23000' stroke-width='2' stroke-dasharray='4 7'/%3E%3C/svg%3E") 0 0 / 100% 100% no-repeat;
+}
 .cc-composer.off { opacity: .6; }
 /* TOP-ALIGNED, NOT RIDING THE BASELINE (user 2026-09-17: top-align the text
    entry instead of centering it vertically).
@@ -6795,12 +6807,24 @@ svg.MuiSvgIcon-root {
    --notice-edge-style token so it can never drift from the notice mail card's,
    and the provider's COLOUR from --accent, because an armed composer must say
    so. See `.cc-composer.notice-armed`; these two must stay in step. */
+/* SPARSER DASHES WHILE ARMED (USER 2026-11-25 m2e0562ae73e8 "increase the spacing of the dashes on the border of
+   the messagebox when the notice toggle is enabled"): CSS's own `dashed` has no gap length, so the 1px border
+   stays (transparent: the box does not move) and its dashes are drawn over it, as the chats' notice bubble does
+   (dm.css `.dm-bubble.notice::before`): a layer in --accent cut by a mask whose rect is stroked 2px on the edge,
+   1px of it inside the box. 4px dashes, 7px gaps (a 1px `dashed` draws 3 and 3). rx = the box's radius. */
 .mail-reply.notice-armed {
-  border-style: var(--notice-edge-style);
+  border-style: solid;
   border-width: 1px;
-  border-color: var(--accent);
+  border-color: transparent;
+  position: relative;
 }
-.mail-reply.notice-armed:focus-within { border-color: var(--accent); }
+.mail-reply.notice-armed:focus-within { border-color: transparent; }
+.mail-reply.notice-armed::before {
+  content: ""; position: absolute; inset: -1px; border-radius: inherit; pointer-events: none;
+  background: var(--accent);
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg'%3E%3Crect width='100%25' height='100%25' rx='6' fill='none' stroke='%23000' stroke-width='2' stroke-dasharray='4 7'/%3E%3C/svg%3E") 0 0 / 100% 100% no-repeat;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg'%3E%3Crect width='100%25' height='100%25' rx='6' fill='none' stroke='%23000' stroke-width='2' stroke-dasharray='4 7'/%3E%3C/svg%3E") 0 0 / 100% 100% no-repeat;
+}
 .mail-reply.broadcast-armed {
   border-color: var(--accent);
   box-shadow: 0 0 0 1px var(--accent), 0 0 10px color-mix(in srgb, var(--accent) 45%, transparent);
