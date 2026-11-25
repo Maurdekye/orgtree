@@ -2017,8 +2017,9 @@ test('a project chat says its inbox may not be read, as the desk does, until a l
 // doesnt stick to the bottom (i want a jump to bottom button like in hubchat thats visible while not
 // stuck)"; m694bf862b15a: "it doesnt seem stuck to the bottom at all, any new message i receive i have to
 // scroll for"; m279ace747448: "use the same sticky logic that hubchat uses, it just works there").
-// Hubchat's Conversation.tsx: pinned within 80 px of the end, the button from 300 px, a ResizeObserver on
-// the timeline and its content for what grows late. ----
+// Hubchat's Conversation.tsx: pinned within 80 px of the end, a ResizeObserver on the timeline and its
+// content for what grows late. The button shows whenever the chat is not stuck, from 80 px (@coordinator-opus
+// 2026-11-25 m66f9dc335c98, after the user's "visible while not stuck"; Hubchat itself waits for 300 px). ----
 
 const timeline = () => document.querySelector('.dm-timeline') as HTMLElement
 const jumpButton = () => document.querySelector<HTMLButtonElement>('.dm-conv .dm-jump')
@@ -2070,16 +2071,18 @@ test('sending goes to the newest message from anywhere in a long chat, and stays
   assert.equal(jumpButton(), null)
 })
 
-test('Hubchat\'s jump button: there from 300 px above the newest message, and it goes down and sticks again', async (t) => {
+test('Hubchat\'s jump button: there whenever the chat is not stuck (80 px up), and it goes down and sticks again', async (t) => {
   const height = layOut(t)
   const s = await setup(t, { audiences: [grant('worker')], delivered: many(60) }, { active: false })
   await s.openChat('worker')
   assert.equal(jumpButton(), null, 'at the newest message: none')
-  await scrollTo(4150)   // 250 px above the end
-  assert.equal(jumpButton(), null, 'within 300 px: none')
+  await scrollTo(4950)   // 50 px above the end: still stuck
+  assert.equal(jumpButton(), null, 'within 80 px (stuck): none')
+  await scrollTo(4150)   // 250 px above the end: not stuck
+  assert.ok(jumpButton(), 'not stuck, even if less than 300 px up: the button')
   await scrollTo(4000)   // 400 px above the end
   const b = jumpButton()
-  assert.ok(b, 'more than 300 px above the newest message: the button')
+  assert.ok(b, 'far above the newest message: the button')
   assert.equal(b.getAttribute('aria-label'), 'Jump to the newest message')
   assert.equal(b.getAttribute('title'), 'Jump to the newest message')
   // the reader is not at the end: what grows below does not move the view
