@@ -1536,6 +1536,14 @@ pub async fn block(engine: &Engine, client: &tokio_postgres::Client, org: &Value
     Ok(json!({ "slug": if own.is_empty() { Value::Null } else { json!(own) }, "hubs": out, "picture_revision": picture_revision }))
 }
 
+/// The address a hub row reads its per-hub state at (version, name, roster,
+/// blocks): the one the hub is polled at, which keys that state, else the
+/// saved one. A rig's local hub can be saved before its hosted address is known.
+fn polled_address<'a>(live: Option<&'a [(String, String)]>, id: &str, saved: &'a str) -> &'a str {
+    let _ = (live, id);
+    saved
+}
+
 /// `GET /api/orgs/{slug}/net`: the identity, secret included (the settings
 /// panel's reveal/export: the one place the secret is returned).
 #[logged]

@@ -256,3 +256,14 @@ async fn redirect_to_closed_port_never_replays_streamed_post(){accepted_post_is_
 async fn read_failure_after_accepted_post_never_replays(){accepted_post_is_not_replayed(false,false).await;}
 #[tokio::test]
 async fn read_failure_after_accepted_stream_never_replays(){accepted_post_is_not_replayed(true,false).await;}
+
+#[test]
+fn a_hub_row_reads_its_state_at_the_polled_address() {
+    // measured in the net-blocks rig: local hub saved as 127.0.0.1:7370, polled at the hosted port; the row showed version null
+    let live=vec![("local".to_string(),"http://127.0.0.1:60095".to_string()),("ab12".to_string(),"https://hub.example".to_string())];
+    assert_eq!(polled_address(Some(&live),"local","http://127.0.0.1:7370"),"http://127.0.0.1:60095");
+    assert_eq!(polled_address(Some(&live),"ab12","https://hub.example"),"https://hub.example");
+    // not polled (disabled, or before the first poll): the saved address
+    assert_eq!(polled_address(Some(&live),"cd34","https://other.example"),"https://other.example");
+    assert_eq!(polled_address(None,"local","http://127.0.0.1:7370"),"http://127.0.0.1:7370");
+}
