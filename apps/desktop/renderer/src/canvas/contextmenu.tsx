@@ -92,7 +92,7 @@
 // event's React propagation — the same reason ModalOverPins swallows
 // pointerdown.
 
-import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react'
 import type { CSSProperties, HTMLAttributes, KeyboardEvent as ReactKeyboardEvent, MouseEvent as ReactMouseEvent,
   ReactNode, SyntheticEvent } from 'react'
 import { createPortal } from 'react-dom'
@@ -562,9 +562,26 @@ export function useContextMenu(toast?: ToastFn): ContextMenuHandle {
 
 const stop = (e: SyntheticEvent) => e.stopPropagation()
 
+// ---- WHETHER A CONTEXT MENU IS OPEN, anywhere: a list that scrolls by itself (a chat following its newest
+// message) holds still while one is, because a scroll that moves a menu's anchor closes the menu (`scrolled`
+// below). USER 2026-11-25 m1f747c2836f9: "make sure new messages in either hubchat or the new inbox dont close
+// any context menu".
+let openMenuCount = 0
+const openMenuListeners = new Set<() => void>()
+const subscribeOpenMenus = (listener: () => void) => { openMenuListeners.add(listener); return () => { openMenuListeners.delete(listener) } }
+/** true while any context menu is open */
+export function useContextMenuOpen(): boolean {
+  return useSyncExternalStore(subscribeOpenMenus, () => openMenuCount > 0, () => false)
+}
+
 function ContextMenu({ state, anchorRef, close }:
 { state: MenuState; anchorRef: { current: Element | null }; close: () => void }) {
   const ref = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    openMenuCount++
+    for (const listener of [...openMenuListeners]) listener()
+    return () => { openMenuCount--; for (const listener of [...openMenuListeners]) listener() }
+  }, [])
   // the anchor is read through the ref its OWNER holds, so the listener effect
   // below stays keyed on `close` alone (re-registering four document listeners
   // on every anchor change would be a second behaviour, not a fix) — and so

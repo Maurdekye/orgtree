@@ -85,7 +85,7 @@ import { ListAge } from '../canvas/listage'
 import { SenderChip } from '../canvas/senderchip'
 import { HubContactChip, isHubAddress, requestTranscriptMail } from '../canvas/agentmentions'
 import { isCurrentOrgAddress } from '../canvas/netmentions'
-import { agentCopyEntry, copyToClipboard, useContextMenu } from '../canvas/contextmenu'
+import { agentCopyEntry, copyToClipboard, useContextMenu, useContextMenuOpen } from '../canvas/contextmenu'
 import type { MenuEntry } from '../canvas/contextmenu'
 import { mailMenuEntries } from '../canvas/mailidentity'
 import { mailRowCopyText } from '../canvas/copytext'
@@ -905,6 +905,12 @@ function DmConversation({ slug, tree, chat, nodes, toast, refs, onFocusAgent, fl
     if (el) { jumpHold.current = false; el.scrollTop = el.scrollHeight; pinned.current = true; setFar(false) }
   }
   const userMoves = () => { jumpHold.current = false }
+  // A CONTEXT MENU STAYS OPEN while messages, the typing dots and checks arrive: a chat at its newest message
+  // holds still while a menu is open (following the new message would move the menu's message, which closes
+  // it), and goes to the newest message when the menu closes (USER 2026-11-25 m1f747c2836f9)
+  const menuOpen = useContextMenuOpen()
+  const menuOpenRef = useRef(menuOpen)
+  menuOpenRef.current = menuOpen
   const count = entries.length
   useLayoutEffect(() => {
     const el = scroller.current
@@ -924,12 +930,12 @@ function DmConversation({ slug, tree, chat, nodes, toast, refs, onFocusAgent, fl
         return
       }
     }
-    if (pinned.current) el.scrollTop = el.scrollHeight
-  }, [all, count, peer, newFrom, replies.length, writing])
+    if (pinned.current && !menuOpen) el.scrollTop = el.scrollHeight
+  }, [all, count, peer, newFrom, replies.length, writing, menuOpen])
   useEffect(() => {
     const el = scroller.current
     if (!el || typeof ResizeObserver === 'undefined') return
-    const ro = new ResizeObserver(() => { if (pinned.current) el.scrollTop = el.scrollHeight })
+    const ro = new ResizeObserver(() => { if (pinned.current && !menuOpenRef.current) el.scrollTop = el.scrollHeight })
     ro.observe(el)
     if (el.firstElementChild) ro.observe(el.firstElementChild)
     return () => ro.disconnect()
