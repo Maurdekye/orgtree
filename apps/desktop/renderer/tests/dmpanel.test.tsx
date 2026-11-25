@@ -64,6 +64,8 @@ interface World {
   byId?: Record<string, unknown>
   /** the engine refuses every message */
   refuse?: boolean
+  /** the engine refuses every audience grant */
+  refuseGrant?: boolean
   /** an engine from before the chat folder: `folder=chat` is refused, as it refuses any unknown folder */
   noChatFolder?: boolean
   /** what the engine's @ menu read answers (tickets and the rest), in the engine's own order */
@@ -89,6 +91,7 @@ function engine(world: World) {
     if (/\/audiences$/.test(path)) {
       if (method === 'POST') {
         const b = body as { action: string; node: string }
+        if (world.refuseGrant && b.action === 'grant') return json({ error: 'the grant is refused' }, 403)
         if (b.action === 'revoke') world.audiences = (world.audiences ?? []).filter(g => (g as { grantee: string }).grantee !== b.node)
         if (b.action === 'grant') world.audiences = [...(world.audiences ?? []), grant(b.node)]
         if (b.action === 'grant' || b.action === 'deny') world.requests = (world.requests ?? []).filter(r => (r as { from: string }).from !== b.node)
@@ -167,7 +170,7 @@ function engine(world: World) {
 }
 
 async function setup(t: TestContext, world: World, opts: {
-  tree?: TreePayload; jumpTo?: string | null; active?: boolean; openChat?: { peer: string; seq: number } | null
+  tree?: TreePayload; jumpTo?: string | null; active?: boolean; openChat?: { peer: string; seq: number; grant?: boolean } | null
 } = {}) {
   const oldFetch = globalThis.fetch
   const server = engine(world)
@@ -354,6 +357,31 @@ test('New chat on an agent that can already write to the user opens its chat and
   await s.click(s.all<HTMLElement>('.dm-newchat .tray-row').find(r => r.dataset.dmPick === 'worker'), 'worker\'s row')
   assert.equal(posts(s.server.calls, /\/audiences$/).length, 0)
   assert.equal(document.querySelector('.dm-head')?.getAttribute('data-dm-peer'), 'worker')
+})
+
+// INBOX LINKS' OPEN CHAT (USER 2026-11-25 14:24:01Z ma84dfc37f5a6): a request with `grant` takes New chat's path
+test('an Open chat request that grants: an agent without an audience is granted one, then its chat opens', async (t) => {
+  const s = await setup(t, { audiences: [] }, { openChat: { peer: 'helper', seq: 1, grant: true } })
+  await inAct(async () => { await flush(12) })
+  assert.deepEqual(posts(s.server.calls, /\/audiences$/).map(c => c.body), [{ action: 'grant', node: 'helper' }],
+    'the existing grant, once')
+  assert.equal(document.querySelector('.dm-head')?.getAttribute('data-dm-peer'), 'helper', "and helper's chat is open")
+  assert.equal(s.row('helper') !== undefined, true, 'with its row in the list')
+})
+
+test('an Open chat request that grants, for one that can already write to the user, opens it and grants nothing', async (t) => {
+  const s = await setup(t, { audiences: [grant('worker')] }, { openChat: { peer: 'worker', seq: 1, grant: true } })
+  await inAct(async () => { await flush(12) })
+  assert.equal(posts(s.server.calls, /\/audiences$/).length, 0, 'worker holds a grant')
+  assert.equal(document.querySelector('.dm-head')?.getAttribute('data-dm-peer'), 'worker')
+})
+
+test('an Open chat request whose grant is refused shows the error and opens no empty chat', async (t) => {
+  const s = await setup(t, { audiences: [], refuseGrant: true }, { openChat: { peer: 'helper', seq: 1, grant: true } })
+  await inAct(async () => { await flush(12) })
+  assert.deepEqual(posts(s.server.calls, /\/audiences$/).map(c => c.body), [{ action: 'grant', node: 'helper' }], 'it tried')
+  assert.notEqual(document.querySelector('.dm-head')?.getAttribute('data-dm-peer'), 'helper', 'no chat with helper is open')
+  assert.ok(s.state.toasts.some(line => /could not open a chat with helper/.test(line)), `the error is shown: ${JSON.stringify(s.state.toasts)}`)
 })
 
 test('a notice keeps its fill and has a thick, widely dashed border in the chat background\'s colour, and no label; a request has its label, and files are chips', async (t) => {
