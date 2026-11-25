@@ -25,4 +25,7 @@
 - **Each chat has the agent's controls**: its name is a link to the agent, a gear opens its settings over the chat, and its fast mode and effort are in the message box.
 - **Agents answer you by mail.** A new message you type in a chat tells the agent to reply by mail, so its answer shows up in the chat.
 - **Replying to a presentation or a ticket opens that agent's chat**, with your reply as the latest message. You can turn this off in App settings > Display > Mailbox.
+- **Take back a message the agent hasn't taken yet** with the small × after its check, as on the desk.
+- **View in classic inbox and View in chat.** A chat message's menu opens it in the classic mailbox, selected. Your mail with an agent or a project, in the classic mailbox or an agent's mailbox, opens in its chat with **View in chat**, flashed. While the chats are on, clicking a mail link to such a mail opens it in the chat, and a mail link's menu offers both views.
+- **A notice's bell is crossed out** while notice sending is on, and the message box's dashes are wider apart.
 - **Prefer the mailbox as it was?** Tick **classic** in the Inbox's title bar, or turn on App settings > Display > Mailbox > Classic mailbox. It brings back the previous panel and its mail icon on this computer. See [your Inbox as chats](messages-and-work.md#your-inbox-as-chats).
