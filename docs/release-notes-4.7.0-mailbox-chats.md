@@ -5,7 +5,7 @@
 - **New chat** slides the agents list out over the chat list. Picking an agent opens its chat and gives it an audience if it had none.
 - **The message box is the desk's**: the same buttons in the same places, Up and Down to recall what you sent, and your unsent text and files are kept per chat.
 - **Long chats stay quick to open**: the newest 50 messages first, older ones as you scroll up, with nothing jumping.
-- **A reply's quote shows the original in the chat.** Right-click a message for **View in @agent's inbox** or **View in transcript**.
+- **A reply's quote shows the original in the chat.** Right-click a message for **View in @agent's inbox** or **View in transcript**; in the transcript, the message or the line of the call that sent it flashes once as it arrives.
 - **Your messages show when the agent has them**: a clock while a message waits, one check once the agent has taken it.
 - **Typing dots** while a Claude Code agent is writing to you.
 - **`@ticket:` is how a ticket is mentioned.** Type `@ticket:` to list every ticket; picking one writes `@ticket:<org>/<slug>`, and so do Mention and Copy reference. `@item:` still lists tickets, and every older `@item:` mention keeps working and is shown as it was written. Agents are taught the new form, which changes each agent's instructions once, at its next start.
@@ -15,7 +15,7 @@
 - **Reply to your own message**, walk the messages with Shift+Tab and Tab and reply with R, as in Hubchat, and press Escape to remove an attached file.
 - **Questions and requests appear in the chat** of the agent that asked, one bubble per question with one submit. Notices have a thick dashed border, requests a small label, and files are chips.
 - **An audience request is a new chat**, at the top of the list. Approve or deny it in the chat, or just write back, which approves it.
-- **A project's chat is one thread.** Your message to a project shows whether it waits in the queue or which agent holds it, and that agent's answer appears in the same chat under its name. Reply on an agent's bubble to write to that agent, or follow up on your own message to reach the agent holding it. A megaphone send shows in each member's chat and once in the project's chat, in teal.
+- **A project's chat is one thread.** Your message to a project shows whether it waits in the queue or which agent holds it, and that agent's answer appears in the same chat under its name. Reply on an agent's bubble to write to that agent, or follow up on your own message to reach the agent holding it. A project chat's message box has the desk's megaphone (Alt+B), which sends your next message to every agent under the project. A megaphone send shows in each member's chat and once in the project's chat, in teal.
 - **Your follow-up to a project now reaches the agent already working on it.** Before, a second message to a project was always a new job for any listener.
 - **Agents that reach you through a project sit under it** in the list, indented, and say **via** the project. Closing a project's audience shows who would lose theirs and asks first when anyone would; every other close still acts at once.
 - **Right-click a chat** for the agent's or project's full menu.

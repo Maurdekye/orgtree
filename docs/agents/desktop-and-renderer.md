@@ -40,7 +40,12 @@ are a second view over the same reads and calls.
   no mark); the tick sits after the time and must not change the time row's height. VIEW IN TRANSCRIPT rides the
   desk's mention jump: `requestTranscriptMail` (canvas/agentmentions.tsx) and desk.tsx `centerMentionRef`, which
   finds the message whose tool chip carries the mail, else `data-reply-event="mail:<id>"`, pages older rows, and
-  falls back to the row nearest in time with a toast; do not build a second jump. AGENT LINKS: a plain click
+  falls back to the row nearest in time with a toast; do not build a second jump. The mail's own row flashes once
+  per request when the desk has centred it (`flashTranscriptRow` in deskscroll.ts puts the classic mailbox's `jflash`
+  on the call's `.tline`, else the message or the delivery row; never on the nearest-time row). A PROJECT CHAT'S
+  MEGAPHONE is `MailReplyBox`'s `broadcast` prop with `inbox: true` (the desk's words, `megaphoneWords` in
+  inboxwarning.tsx, shared with projectdesk.tsx) and `onArmed`; the send is `broadcastMessage` to
+  `projectBroadcastRecipients`, and the hint is the desk's `InboxNoListeners`. AGENT LINKS: a plain click
   on an agent link opens its chat when `mailboxpref.ts` `agentLinkChat` says so (a live agent with a user audience,
   the chats on, not the chat already shown: `setShownChat`); the route is the third field of the agent-nav
   registry (`useProvideAgentNav`, read with `useAgentLinkChat` in `NodeLink`, `AgentName`, `SenderChip`). A new
