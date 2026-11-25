@@ -119,3 +119,43 @@ test('a mention landing is served once: reopening the mail does not highlight or
     } finally { await again.unmount() }
   } finally { HTMLElement.prototype.scrollIntoView = saved }
 })
+
+// A landing is served when it lands, not when it is scheduled (bounce by @integ-sol-c 2026-11-25 ma3099fca93b1,
+// fixture S:/orgtree/build/integ-sol-c/jump-once/interrupted-mention.tsx): a reader closed before its first
+// animation frame leaves the request for the next reader, which lands it once.
+test('a reader closed before its landing frame leaves the request pending; the next reader lands it once', async t => {
+  const restore = { request: globalThis.requestAnimationFrame, cancel: globalThis.cancelAnimationFrame,
+    scroll: HTMLElement.prototype.scrollIntoView }
+  const frames = new Map<number, FrameRequestCallback>()
+  const scrolls: string[] = []
+  let next = 0
+  globalThis.requestAnimationFrame = cb => { frames.set(++next, cb); return next }
+  globalThis.cancelAnimationFrame = id => { frames.delete(id) }
+  HTMLElement.prototype.scrollIntoView = function () { scrolls.push(this.textContent ?? '') }
+  t.after(() => {
+    globalThis.requestAnimationFrame = restore.request
+    globalThis.cancelAnimationFrame = restore.cancel
+    HTMLElement.prototype.scrollIntoView = restore.scroll
+  })
+  const reader = () => <div className="mailer-read">
+    <MentionLanding org="org" kind="mail" id="mail-one" />
+    <div className="md"><p>Ready for review, @user. The change is complete.</p></div>
+  </div>
+  const runFrames = () => inAct(() => { for (const [id, cb] of [...frames]) { frames.delete(id); cb(0) } })
+  const first = await mountView(reader(), el => el)
+  await inAct(() => requestMentionLanding('org', entry('5')))
+  assert.equal(frames.size, 1, 'POSITIVE CONTROL: the landing is scheduled')
+  await first.unmount()
+  assert.equal(frames.size, 0, 'closing the reader cancels the frame')
+  const again = await mountView(reader(), el => el)
+  try {
+    await runFrames()
+    assert.equal(scrolls.length, 1, 'the next reader lands the pending request')
+    assert.equal(again.el.querySelectorAll('p.mention-navigation-highlight').length, 1)
+  } finally { await again.unmount() }
+  const third = await mountView(reader(), el => el)
+  try {
+    await runFrames()
+    assert.equal(scrolls.length, 1, 'once landed, a later reader does not land it again')
+  } finally { await third.unmount() }
+})
