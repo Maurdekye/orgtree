@@ -20,6 +20,7 @@
 - **Your follow-up to a project now reaches the agent already working on it.** Before, a second message to a project was always a new job for any listener.
 - **Agents that reach you through a project sit under it** in the list, indented, and say **via** the project. Closing a project's audience shows who would lose theirs and asks first when anyone would; every other close still acts at once.
 - **Right-click a chat** for the agent's or project's full menu.
+- **A menu stays open while messages arrive.** New messages, the typing dots and read checks no longer close a message's or a chat's menu; a chat at its newest message waits until you close the menu, then shows what came in.
 - **Each chat has the agent's controls**: its name is a link to the agent, a gear opens its settings over the chat, and its fast mode and effort are in the message box.
 - **Agents answer you by mail.** A new message you type in a chat tells the agent to reply by mail, so its answer shows up in the chat.
 - **Replying to a presentation or a ticket opens that agent's chat**, with your reply as the latest message. You can turn this off in App settings > Display > Mailbox.
