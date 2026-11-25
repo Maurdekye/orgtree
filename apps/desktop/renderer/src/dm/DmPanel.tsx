@@ -161,6 +161,9 @@ export interface DmPanelProps {
   /** the chat header's gear; without it the panel asks for the settings
    *  window itself (`openSettingsAt`, which the canvas answers) */
   onAgentSettings?: (agentId: string) => void
+  /** "View in classic inbox" (USER 2026-11-25 ma79665bf7f2e): switch to the classic mailbox on this mail,
+   *  through its own reference jump (folder, filter, lookup, not-found notice). Absent: no entry. */
+  onViewClassic?: (mailId: string) => void
   /** the panel's reference routes, exactly as the classic mailbox's bodies use them */
   refs: RefRoutes
   /** the title bar's actions: the switch back to the classic mailbox */
@@ -240,7 +243,7 @@ const remembered = (slug: string): string | null => {
 }
 
 export function DmPanel({ slug, tree, toast, refresh, close, jumpTo, jumpSeq, openChat,
-  onFocusAgent, onAgentSettings, refs, headerActions }: DmPanelProps) {
+  onFocusAgent, onAgentSettings, onViewClassic, refs, headerActions }: DmPanelProps) {
   const nodes = useMemo(() => dmNodes(tree), [tree])
   // ⚠ THE SAME READS THE CLASSIC MAILBOX MAKES, nothing more: the pushed inbox
   // record, the two history folders it pages, and the audiences. `readBump`
@@ -606,7 +609,7 @@ export function DmPanel({ slug, tree, toast, refresh, close, jumpTo, jumpSeq, op
                   onClose={() => closeChat(current)}
                   onCloseHover={on => closeHover(on ? current : null)}
                   onApprove={() => approve(current.peer)}
-                  onAgentSettings={agentSettings}
+                  onAgentSettings={agentSettings} onViewClassic={onViewClassic}
                   readNow={readNow}
                   onDelete={(m) => {
                     if (!m.id || !window.confirm(DELETE_USER_MAIL_CONFIRM)) return
@@ -803,7 +806,7 @@ function DmStanding({ chat, onFocusAgent }: { chat: DmChat; onFocusAgent?: (id: 
 }
 
 function DmConversation({ slug, tree, chat, nodes, toast, refs, onFocusAgent, flash, onFlash, writing, ownPages, hasMore, loadingMore, loadingOlder, historyMark,
-  onLoadMore, historyError, onRetryHistory, onClose, onCloseHover, onApprove, onAgentSettings, readNow, onDelete, onChanged }: {
+  onLoadMore, historyError, onRetryHistory, onClose, onCloseHover, onApprove, onAgentSettings, onViewClassic, readNow, onDelete, onChanged }: {
   slug: string; tree: TreePayload; chat: DmChat; nodes: Map<string, DmNode>
   toast: ToastFn; refs: RefRoutes
   onFocusAgent?: (id: string) => void
@@ -825,6 +828,7 @@ function DmConversation({ slug, tree, chat, nodes, toast, refs, onFocusAgent, fl
   /** grant this chat's pending audience request */
   onApprove: () => Promise<unknown>
   onAgentSettings: (id: string) => void
+  onViewClassic?: (mailId: string) => void
   readNow: (mails: MailEntry[]) => Promise<unknown>
   onDelete: (m: MailEntry) => void
   onChanged: () => void
@@ -1399,7 +1403,8 @@ function DmConversation({ slug, tree, chat, nodes, toast, refs, onFocusAgent, fl
         flash={flash?.key === e.key ? flash.seq : null}
         replying={replyIds.includes(e.key)} system={chat.kind === 'system'}
         sender={senderChip} fileHref={fileHref} mdBase={mdBase} locateMail={locateMail}
-        inbox={inboxOf(e, m)} onTranscript={transcriptOf(e, m)} transfer={m.id ? transfers.get(m.id) : undefined}
+        inbox={inboxOf(e, m)} onTranscript={transcriptOf(e, m)}
+        onClassic={onViewClassic && m.id ? () => onViewClassic(m.id!) : undefined} transfer={m.id ? transfers.get(m.id) : undefined}
         /* the user's own message can be answered too (USER 2026-11-24 mf2cbc358ad35 "need to be able to
            reply to myself"): in an agent's chat the reply goes to that agent with the user's earlier mail
            as its target; in a project's chat it follows up on that job */
@@ -1561,7 +1566,7 @@ interface DmLocal {
 }
 
 function DmBubble({ entry, m, first, slug, refs, toast, flash, replying, system, sender, fileHref, mdBase,
-  locateMail, inbox, onTranscript, onReply, onRead, onDelete, onAckJob, highlighted, local, transfer }: {
+  locateMail, inbox, onTranscript, onClassic, onReply, onRead, onDelete, onAckJob, highlighted, local, transfer }: {
   entry: DmEntry; m: MailRow; first: boolean; slug: string; refs: RefRoutes; toast: ToastFn
   /** the transfer carrying this message's files, while it is unfinished */
   transfer?: MailTransfer
@@ -1572,6 +1577,8 @@ function DmBubble({ entry, m, first, slug, refs, toast, flash, replying, system,
   inbox?: { agent: string; open: () => void }
   /** this message's row in the agent's transcript; absent while it has none (the user's mail not yet delivered) */
   onTranscript?: () => void
+  /** this message in the classic mailbox, selected (USER 2026-11-25 ma79665bf7f2e); none on a message still sending */
+  onClassic?: () => void
   /** the keyboard walk stands on this message */
   highlighted?: boolean
   /** a message the system sent: tagged S (USER 2026-11-23 mf47548121ae5) */
@@ -1631,6 +1638,7 @@ function DmBubble({ entry, m, first, slug, refs, toast, flash, replying, system,
       ...(inbox ? [{ label: `View in @${inbox.agent}\u2019s inbox`, onSelect: inbox.open }] : []),
       ...(onTranscript ? [{ label: 'View in transcript', onSelect: onTranscript }] : []),
       ...(senderEntry ? [senderEntry] : []),
+      ...(onClassic ? [{ label: 'View in classic inbox', onSelect: onClassic }] : []),
     ],
     copy, canCopy: mailRowCopyText(m as CopyableMailRow, PROFILE).trim() !== '', reference,
     copyReference: () => { if (reference) void copyToClipboard(ref.current, reference).then(ok => toast([ok ? `copied the reference ${reference}` : 'could not copy the reference — clipboard unavailable'])) },

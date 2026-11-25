@@ -155,7 +155,7 @@ import {
 import { MailboxIcon } from './dm/mailboxicon'
 import { ClassicMailboxToggle } from './dm/classictoggle'
 import { DmPanel } from './dm/DmPanel'
-import { onChatRequest, useClassicMailbox } from './mailboxpref'
+import { onChatRequest, setClassicMailbox, useClassicMailbox } from './mailboxpref'
 import { DirList } from './forms'
 import { FolderPickerHost } from './picker'
 import { activeDocCount, ALL_TIERS, attentionPip, deskDpi, fmtCredits, formatCount, isOpenRouterTier, jumpKey, jumpTo, orgPxc, presenceOfPayload, primedRestartChip, setDeskDpi, syncProviderRegistries, TIER_LETTER, tierLabel, unicodeLength, usePolled } from './canvas/shared'
@@ -3150,13 +3150,21 @@ export function UserMailbox(props: Parameters<typeof InboxPanel>[0] & {
   const classic = useClassicMailbox()
   const toggle = <ClassicMailboxToggle />
   const { openChat, onAgentSettings, ...mail } = props
+  // "View in classic inbox" (USER 2026-11-25 ma79665bf7f2e): the same switch as the toggle, then the classic
+  // mailbox's own reference jump to that mail (its folder, a cleared tag filter, a lookup outside the loaded
+  // window, the not-found notice). Held only while the classic view shows, and given up to a newer outside jump.
+  const [classicJump, setClassicJump] = useState<{ id: string; seq: number } | null>(null)
+  useEffect(() => { if (!classic) setClassicJump(null) }, [classic])
+  useEffect(() => { setClassicJump(null) }, [mail.jumpTo, mail.jumpSeq])
+  const viewClassic = useCallback((id: string) => { setClassicJump({ id, seq: Date.now() }); setClassicMailbox(true) }, [])
   return classic
-    ? <InboxPanel {...mail} headerActions={toggle} />
-    : <UserChats {...props} headerActions={toggle} />
+    ? <InboxPanel {...mail} headerActions={toggle}
+        {...(classicJump ? { jumpTo: classicJump.id, jumpSeq: classicJump.seq } : {})} />
+    : <UserChats {...props} headerActions={toggle} onViewClassic={viewClassic} />
 }
 
 function UserChats({ slug, tree, onFocusAgent, onOpenItem, onOpenDoc, onOpenMail, ...rest }:
-  Parameters<typeof UserMailbox>[0]) {
+  Parameters<typeof UserMailbox>[0] & { onViewClassic?: (mailId: string) => void }) {
   // the same reference world the classic mailbox's bodies are read against
   const refs = useShellRefs(slug, tree, { onOpenItem, onFocusAgent, onOpenDoc, onOpenMail })
   return <DmPanel slug={slug} tree={tree} refs={refs} onFocusAgent={onFocusAgent} {...rest} />
