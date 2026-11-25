@@ -301,7 +301,9 @@ uiTest('§3 every navigation target on screen offers the SAME menu as that agent
       // USER 2026-10-20: the shared renderer keeps Open second even
       // after a desk adds Mention. Keep the whole canonical menu comparison.
       const open = want.indexOf('Open ▸')
-      const end = want.findIndex((label, i) => i > open && !label.startsWith('· '))
+      const after = want.findIndex((label, i) => i > open && !label.startsWith('· '))
+      // Open chat travels with Open (MenuItem.withOpen; USER 2026-11-25 m0a8fdb69edb9: every agent menu has it)
+      const end = after >= 0 && want[after] === 'Open chat' ? after + 1 : after
       const branch = want.slice(open, end < 0 ? want.length : end)
       const rest = want.filter((_, i) => i < open || (end >= 0 && i >= end))
       const expected = target.el.closest('[data-desk-mention-scope]')

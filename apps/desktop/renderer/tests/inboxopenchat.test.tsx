@@ -6,8 +6,12 @@
 // grants an audience in the hover tooltip. clicking still focuses if they don't
 // already have a chat open."; docket inbox-links-open-chat-on-every-agent-project-lin).
 //
-// The inbox context is the user's chats panel (`.dm-panel`). The grant is the
-// inbox's own New chat path (DmPanel startChat); its tests are in dmpanel.test.tsx.
+// WIDENED (USER 14:33:44Z m0a8fdb69edb9 "make it a universal entry in every
+// agent's context menu"; 14:33:50Z m6da526799148 "everywhere throughout the
+// app"; 14:34:30Z m46b47955f2ac: a classic mailbox switches to the chats first,
+// and the tooltip lists exactly the changes): every live agent and project menu.
+// The grant is the inbox's own New chat path (DmPanel startChat); its tests are
+// in dmpanel.test.tsx; the canvas row and card wiring in agentrowmenu.test.tsx.
 //
 // Run:  cd apps/desktop/renderer && node tests/run.mjs inboxopenchat
 
@@ -46,80 +50,73 @@ const entry = (entries: MenuEntry[], label: string) => {
 const H = { onInbox() {}, onOpenDesk() {}, onSettings() {} } as never
 const GRANTS = /opening it grants .* an audience with you/i
 
-function inPanel(t: { after: (fn: () => void) => void }) {
-  const panel = document.createElement('div')
-  panel.className = 'settings wide dm-panel'
-  const link = document.createElement('span')
-  panel.appendChild(link)
-  document.body.appendChild(panel)
-  const outside = document.createElement('span')
-  document.body.appendChild(outside)
-  t.after(() => { panel.remove(); outside.remove() })
-  return { link, outside }
-}
-
-test('inbox context: a link inside the chats panel, for a live agent or project; it needs a grant unless it can already write to the user', t => {
+test('every live agent and project is a chat target; it needs a grant unless it can already write to the user', t => {
   window.localStorage.removeItem(CLASSIC_MAILBOX_KEY)
   t.after(() => window.localStorage.removeItem(CLASSIC_MAILBOX_KEY))
-  assert.equal(typeof pref.inboxChatFor, 'function', 'mailboxpref exports inboxChatFor')
-  const { link, outside } = inPanel(t)
-  const at = (el: Element | undefined, n: CanvasNode) => pref.inboxChatFor(el, nodes, n)
-  assert.deepEqual(at(link, PLAIN), { needsGrant: true }, 'an agent with no audience: the chat grants one')
-  assert.deepEqual(at(link, CREW), { needsGrant: true }, 'a project with no audience too')
-  assert.deepEqual(at(link, OWN), { needsGrant: false }, 'its own audience')
-  assert.deepEqual(at(link, HELD), { needsGrant: false }, 'a project holding one')
-  assert.deepEqual(at(link, node('member', { parent: 'held', audiences_held: [USER] })), { needsGrant: false },
+  assert.equal(typeof pref.chatTargetFor, 'function', 'mailboxpref exports chatTargetFor')
+  const at = (n: CanvasNode) => pref.chatTargetFor(nodes, n)
+  assert.deepEqual(at(PLAIN), { needsGrant: true }, 'an agent with no audience: the chat grants one')
+  assert.deepEqual(at(CREW), { needsGrant: true }, 'a project with no audience too')
+  assert.deepEqual(at(OWN), { needsGrant: false }, 'its own audience')
+  assert.deepEqual(at(HELD), { needsGrant: false }, 'a project holding one')
+  assert.deepEqual(at(node('member', { parent: 'held', audiences_held: [USER] })), { needsGrant: false },
     'an audience through its project (the tree lists it in audiences_held)')
-  assert.deepEqual(at(link, LEAD), { needsGrant: false }, 'a top-level agent writes to the user without a grant')
-  assert.deepEqual(at(link, UNDERTOP), { needsGrant: false }, 'so does one under a top-level project: a project is not a superior')
-  assert.deepEqual(at(link, MATE), { needsGrant: true }, 'one under a project under an agent is not top level')
-  assert.equal(at(link, GONE), null, 'a retired agent cannot be granted an audience')
-  assert.equal(at(outside, PLAIN), null, 'outside the inbox: no inbox chat')
-  assert.equal(at(undefined, PLAIN), null, 'no link element: no inbox chat')
+  assert.deepEqual(at(LEAD), { needsGrant: false }, 'a top-level agent writes to the user without a grant')
+  assert.deepEqual(at(UNDERTOP), { needsGrant: false }, 'so does one under a top-level project: a project is not a superior')
+  assert.deepEqual(at(MATE), { needsGrant: true }, 'one under a project under an agent is not top level')
+  assert.equal(at(GONE), null, 'a retired agent cannot be granted an audience')
   window.localStorage.setItem(CLASSIC_MAILBOX_KEY, '1')
-  assert.equal(at(link, PLAIN), null, 'the classic mailbox has no chats')
+  assert.deepEqual(at(PLAIN), { needsGrant: true }, 'the classic mailbox too: Open chat switches it')
 })
 
-test('in the inbox, every agent and project link gets Open chat right after Open; the tooltip says when opening grants an audience', t => {
+test('every agent and project menu gets Open chat right after Open; the tooltip says when opening grants an audience', t => {
   window.localStorage.removeItem(CLASSIC_MAILBOX_KEY)
   t.after(() => window.localStorage.removeItem(CLASSIC_MAILBOX_KEY))
   const asked: unknown[] = []
   const off = onChatRequest((org, peer, opts) => { asked.push([org, peer, opts?.grant ?? false]) }); t.after(off)
   for (const [n, needsGrant] of [[PLAIN, true], [OWN, false], [CREW, true], [HELD, false]] as const) {
-    const entries = agentMenuEntries(n, H, { tiers: [{ tier: 'opus' }], inboxChat: { needsGrant } } as never)
+    const entries = agentMenuEntries(n, H, { tiers: [{ tier: 'opus' }], chat: { needsGrant } } as never)
     const labels = top(entries)
     assert.equal(labels[labels.indexOf('Open') + 1], 'Open chat', `${n.id}: Open chat follows Open: ${JSON.stringify(labels)}`)
     const open = entry(entries, 'Open chat')!
     assert.equal(open.withOpen, true, `${n.id}: it travels with Open when the renderer moves Open second`)
     assert.match(open.title ?? '', new RegExp(`your chat with ${n.id}`), `${n.id}: what it opens`)
     if (needsGrant) assert.match(open.title ?? '', GRANTS, `${n.id}: the tooltip says opening grants an audience`)
-    else assert.doesNotMatch(open.title ?? '', GRANTS, `${n.id}: no grant warning when it already has one`)
+    else assert.equal(open.title, `your chat with ${n.id}, in Chats`, `${n.id}: nothing changes, so it only says what it opens`)
     open.onSelect?.()
   }
   assert.deepEqual(asked, [['', 'plain', true], ['', 'own', true], ['', 'crew', true], ['', 'held', true]],
     'each asks the inbox for the chat, granting first where needed (the inbox decides, as New chat does)')
 })
 
-test('outside the inbox the 4e1df11 rule stands: Open chat only for a live agent already holding a user audience', t => {
+test('a retired target gets no Open chat; a builder given no chat state keeps the 4e1df11 rule', t => {
   window.localStorage.removeItem(CLASSIC_MAILBOX_KEY)
   t.after(() => window.localStorage.removeItem(CLASSIC_MAILBOX_KEY))
-  const asked: unknown[] = []
-  const off = onChatRequest((org, peer, opts) => { asked.push([org, peer, opts?.grant ?? false]) }); t.after(off)
-  for (const n of [PLAIN, CREW, HELD])
-    assert.equal(top(agentMenuEntries(n, H, { inboxChat: null } as never)).includes('Open chat'), false, `${n.id}: none`)
-  const open = entry(agentMenuEntries(OWN, H), 'Open chat')
-  assert.ok(open, 'POSITIVE CONTROL: own still has it')
-  assert.doesNotMatch(open!.title ?? '', GRANTS)
-  open!.onSelect?.()
-  assert.deepEqual(asked, [['', 'own', false]], 'and it grants nothing')
+  assert.equal(top(agentMenuEntries(GONE, H, { chat: null } as never)).includes('Open chat'), false, 'retired: none')
+  for (const n of [PLAIN, CREW]) assert.equal(top(agentMenuEntries(n, H)).includes('Open chat'), false, `${n.id}: no state, no audience: none`)
+  assert.ok(entry(agentMenuEntries(OWN, H), 'Open chat'), 'POSITIVE CONTROL: own still has it')
 })
 
-test('in the drawn inbox menu, Open chat comes right after Open for an agent and a project without an audience', async t => {
+test('in the classic mailbox, Open chat switches to the chats with the toggle\'s setting, then asks for the chat (granting where needed); the tooltip lists each change', t => {
+  window.localStorage.setItem(CLASSIC_MAILBOX_KEY, '1')
+  t.after(() => window.localStorage.removeItem(CLASSIC_MAILBOX_KEY))
+  const asked: unknown[] = []
+  const off = onChatRequest((org, peer, opts) => { asked.push([org, peer, opts?.grant ?? false, pref.classicMailbox()]) }); t.after(off)
+  const plain = entry(agentMenuEntries(PLAIN, H, { chat: { needsGrant: true } } as never), 'Open chat')!
+  assert.equal(plain.title, 'your chat with plain, in Chats. Opening it switches your mailbox from the classic view to Chats and grants plain an audience with you')
+  const own = entry(agentMenuEntries(OWN, H, { chat: { needsGrant: false } } as never), 'Open chat')!
+  assert.equal(own.title, 'your chat with own, in Chats. Opening it switches your mailbox from the classic view to Chats')
+  plain.onSelect?.()
+  assert.equal(pref.classicMailbox(), false, 'the classic view is off: the same setting the toggle writes')
+  assert.deepEqual(asked, [['', 'plain', true, false]], 'switched BEFORE the chat is asked for, with the grant')
+})
+
+test('in the drawn menu, Open chat comes right after Open for an agent and a project without an audience', async t => {
   window.localStorage.removeItem(CLASSIC_MAILBOX_KEY)
   t.after(() => window.localStorage.removeItem(CLASSIC_MAILBOX_KEY))
   for (const n of [PLAIN, CREW]) {
     const entries = agentMenuEntries(n, { ...(H as object), onHire() {}, onNewProject() {} } as never,
-      { tiers: [{ tier: 'opus' }], inboxChat: { needsGrant: true } } as never)
+      { tiers: [{ tier: 'opus' }], chat: { needsGrant: true } } as never)
     function Host() {
       const menu = useContextMenu()
       return <><button data-copy-agent-name={n.id} onContextMenu={e => menu.open(e, entries)}>{n.id}</button>{menu.node}</>

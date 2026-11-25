@@ -228,10 +228,38 @@ uiTest('§1 a row offers the agent\'s own menu — the same entries, in the same
       // USER 2026-10-18 07:19Z–07:28Z: "Copy mention", no "Open" inside Open, Presentations always offered
       'Copy mention', 'Open ▸', '· Desk', '· Desk as a pinned window', '· Desk in a separate window',
       '· Mail', '· Team', '· Docket', '· Team docket', '· Presentations', '· Team presentations',
+      // 4.7.0 (USER 2026-11-25 m0a8fdb69edb9): Open chat right after Open, in every agent menu
+      'Open chat',
       // 4.7.0 (USER 2026-11-23 mb05f4fda0d92): Export…, Import here… and Duplicate… after the audience entry
       'Focus', 'Hire a subordinate ▸', 'New project…', 'Settings', 'Acquire audience', 'Export…', 'Import here…', 'Duplicate…',
       'Compact…', 'Halt', 'Retire…',
     ], 'the agent menu, in order')
+  })
+
+// OPEN CHAT EVERYWHERE (USER 2026-11-25 14:33:44Z m0a8fdb69edb9, 14:33:50Z m6da526799148): the row and
+// the card both offer it for every live agent, with the grant named when the agent has no audience
+uiTest('§1c Open chat on the row and the card of every live agent, naming the grant where one is missing',
+  async (t) => {
+    window.localStorage.removeItem('orgtree-classic-mailbox')
+    const c = await mountCanvas(t, [mkNode('boss', { children: [mkNode('kid', { parent: 'boss' }),
+      mkNode('pal', { parent: 'boss', audiences_held: ['@user'], audiences_explicit: ['@user'] }),
+      mkNode('old', { parent: 'boss', state: 'archived' })] })])
+    await openTray(c.el)
+    const titleOn = async (target: Element) => {
+      assert.equal(await rightClick(target), true)
+      const it = itemNamed('Open chat')
+      const title = it ? (it.getAttribute('title') ?? '') : null
+      await esc()
+      return title
+    }
+    for (const [id, grant] of [['kid', true], ['pal', false], ['boss', false]] as const) {
+      for (const [where, el] of [['row', rowFor(c.el, id)], ['card', cardFor(c.el, id)]] as const) {
+        assert.ok(el, `${id}: its ${where}`)
+        const title = await titleOn(el!)
+        assert.ok(title !== null, `${id} (${where}): Open chat is offered`)
+        assert.equal(/grants .* an audience with you/.test(title!), grant, `${id} (${where}): grant named iff missing: ${title}`)
+      }
+    }
   })
 
 uiTest('§1a user audience action reflects current access on both menu surfaces',
