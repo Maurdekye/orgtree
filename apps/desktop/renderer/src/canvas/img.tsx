@@ -5,6 +5,7 @@
 
 import { CloseIcon, DownloadIcon } from '../icons'
 import { openLightbox } from './lightbox'
+import type { ReactNode } from 'react'
 
 // what renders in an <img>: the browser decodes these regardless of the
 // served content-type (image sniffing), so the extension is the whole test
@@ -88,7 +89,7 @@ export function ImgCardCaption({ name, bytes, href, note }: {
  *  composer's staged copies — the remove ✕. Non-images keep their existing
  *  chips at every call site; this component is only ever handed an image. */
 export function AttachThumb({ href, name, meta, note, dim, onRemove,
-  removeTitle }: {
+  removeTitle, overlay }: {
   href: string
   name: string
   /** pre-formatted size/detail suffix (call sites hold bytes OR a size string) */
@@ -99,12 +100,17 @@ export function AttachThumb({ href, name, meta, note, dim, onRemove,
   /** what the ✕ actually does here — the composer default says "remove from
    *  this message", which is wrong for a surface where removal is permanent */
   removeTitle?: string
+  /** drawn over the picture's lower edge only, never its caption (a transfer's progress) */
+  overlay?: ReactNode
 }) {
   return (
     <span className={'attach-thumbwrap' + (dim ? ' dim' : '')}>
-      <img className="attach-thumb" src={href} alt={name} loading="lazy"
-        title={`${name} — click to view`}
-        onClick={() => openLightbox(href, { name, download: href })} />
+      {(() => {
+        const img = <img className="attach-thumb" src={href} alt={name} loading="lazy"
+          title={`${name} — click to view`}
+          onClick={() => openLightbox(href, { name, download: href })} />
+        return overlay ? <span className="attach-thumbimg">{img}{overlay}</span> : img
+      })()}
       <span className="attach-thumbcap">
         <span className="atc-name">{name}</span>
         {meta && <span className="dim">{meta}</span>}

@@ -1216,15 +1216,19 @@ export function MailAttachments({ m, fileHref, transfer }: {
         const href = (a.path && fileHref?.(a.path, m)) || ''
         const name = a.name ?? a.path ?? 'file'
         const moving = fileTransferView(transfer, name)
-        const card = attachmentCard(a, href, name)
-        if (!moving) return card
-        return <span key={a.path ?? a.name} className={'attach-transfer' + (href && isImg(name) ? ' pic' : '')}
+        if (!moving) return attachmentCard(a, href, name)
+        const progress = <span className="att-progress">
+          <progress aria-label={`${name} confirmed bytes`} max={moving.total ?? 1} value={moving.total == null ? undefined : moving.confirmed} />
+          <small className={moving.state === 'failed' ? 'err' : undefined}>{moving.label}</small>
+        </span>
+        // a picture carries it over its own lower edge (its caption, name and download stay clear);
+        // any other file, under its card
+        const pic = !!href && !mediaFormat(name) && isImg(name)
+        return <span key={a.path ?? a.name} className={'attach-transfer' + (pic ? ' pic' : '')}
           data-transfer-file={name} data-transfer-state={moving.state}>
-          {card}
-          <span className="att-progress">
-            <progress aria-label={`${name} confirmed bytes`} max={moving.total ?? 1} value={moving.total == null ? undefined : moving.confirmed} />
-            <small className={moving.state === 'failed' ? 'err' : undefined}>{moving.label}</small>
-          </span>
+          {pic ? <AttachThumb href={href} name={name} overlay={progress}
+              meta={a.bytes != null ? `${Math.round(a.bytes / 1024)} KB` : undefined} />
+            : <>{attachmentCard(a, href, name)}{progress}</>}
         </span>
       })}
     </div>

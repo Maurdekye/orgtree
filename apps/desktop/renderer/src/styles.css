@@ -7215,7 +7215,8 @@ svg.MuiSvgIcon-root {
 .attach-transfer { display: inline-flex; flex-direction: column; gap: 2px; position: relative; }
 .attach-transfer .att-progress { display: flex; flex-direction: column; gap: 1px; font-size: 11px; color: var(--dim); }
 .attach-transfer .att-progress progress { width: 100%; height: 4px; }
-.attach-transfer.pic .att-progress { position: absolute; left: 4px; right: 4px; bottom: 4px; padding: 3px 5px;
+.attach-thumbimg { position: relative; display: block; width: fit-content; }
+.attach-thumbimg .att-progress { position: absolute; left: 4px; right: 4px; bottom: 4px; padding: 3px 5px;
   border-radius: 5px; background: rgb(0 0 0 / .55); color: #fff; }
 .attach-transfer .att-progress .err { color: var(--bad); }
 /* ticket attachments (docket pane): same section margins as .docket-list,
