@@ -6,17 +6,22 @@ module.exports=async(page)=>{
   const paint=()=>page.eval(async()=>{await new Promise(requestAnimationFrame);await new Promise(requestAnimationFrame);await new Promise(r=>setTimeout(r,150))})
   const park=async()=>{await page.mouse('mouseMoved',W-4,H-4);await paint()}
   const servers=async()=>{await page.waitFor('.adv-tab');await page.eval(()=>[...document.querySelectorAll('.adv-tab')].find(b=>/mailservers/.test(b.textContent)).click());await page.waitFor('.oi-net');await paint()}
-  // contacts by address (the chips show @net:<address>); the button on a contact's roster line (hub A) or in the blocked contacts list
+  // contacts by address (the chips show @net:<address>); the control on a contact's row in hub A's list (the shared
+  // ConnectionList: the red × or unblock) or in the blocked contacts list
   const button=(name,where)=>page.eval(([name,where])=>{
     const lines=where==='list'?[...document.querySelectorAll('.oi-net .oi-hub')].filter(h=>/blocked contacts/.test(h.textContent)).flatMap(h=>[...h.querySelectorAll('.oi-peer')])
-      :[...document.querySelectorAll('.oi-net .oi-hub')][0]?.querySelectorAll('.oi-peer > span, .oi-peer')??[]
-    const line=[...lines].find(l=>l.textContent.includes(name));const b=line&&[...line.querySelectorAll('button.link')].pop()
+      :[...document.querySelectorAll('.oi-net > .oi-hub')][0]?.querySelectorAll('.conn-row')??[]
+    const line=[...lines].find(l=>l.textContent.includes(name));const b=line&&[...line.querySelectorAll('button.link, button.conn-x')].pop()
     return b?b.textContent:null},[name,where])
-  const press=(name)=>page.eval(name=>{const hub=[...document.querySelectorAll('.oi-net .oi-hub')][0]
-    const line=[...hub.querySelectorAll('.oi-peer > span, .oi-peer')].find(l=>l.textContent.includes(name));[...line.querySelectorAll('button.link')].pop().click()},name)
+  const press=(name)=>page.eval(name=>{const hub=[...document.querySelectorAll('.oi-net > .oi-hub')][0]
+    const line=[...hub.querySelectorAll('.conn-row')].find(l=>l.textContent.includes(name));[...line.querySelectorAll('button.link, button.conn-x')].pop().click()},name)
+  const xLook=(name)=>page.eval(name=>{const hub=[...document.querySelectorAll('.oi-net > .oi-hub')][0]
+    const x=[...hub.querySelectorAll('.conn-row')].find(l=>l.textContent.includes(name))?.querySelector('button.conn-x');if(!x)return null
+    const r=x.getBoundingClientRect(),row=x.closest('.conn-row').getBoundingClientRect()
+    return {title:x.title,color:getComputedStyle(x).color,w:r.width,h:r.height,rightGap:row.right-r.right}},name)
   const state=()=>page.eval(()=>{
-    const hubs=[...document.querySelectorAll('.oi-net .oi-hub')]
-    const sign=name=>{const l=[...(hubs[0]?.querySelectorAll('.oi-peer > span, .oi-peer')??[])].find(x=>x.textContent.includes(name));const s=l?.querySelector('.oi-blocked');
+    const hubs=[...document.querySelectorAll('.oi-net > .oi-hub')]
+    const sign=name=>{const l=[...(hubs[0]?.querySelectorAll('.conn-row')??[])].find(x=>x.textContent.includes(name));const s=l?.querySelector('.oi-blocked');
       return s?{label:s.getAttribute('aria-label'),color:getComputedStyle(s).color,w:s.getBoundingClientRect().width}:null}
     const list=hubs.find(h=>/blocked contacts/.test(h.textContent))
     return {hubText:hubs.map(h=>h.textContent),alice:sign('alice.fixture'),cy:sign('cy.fixture'),bob:sign('bob.fixture'),
@@ -26,11 +31,13 @@ module.exports=async(page)=>{
   await page.resize(`${W}x${H}`)
   const r={}
   await servers();await park()
-  r.initial={...await state(),aliceButton:await button('alice.fixture'),cyButton:await button('cy.fixture')}
+  r.initial={...await state(),aliceButton:await button('alice.fixture'),cyButton:await button('cy.fixture'),aliceX:await xLook('alice.fixture')}
   await page.screenshot('1-servers-blocked-by-and-old-hub')
-  await press('alice.fixture');await paint();await park()
-  r.asking={...await state(),aliceButton:await button('alice.fixture')}
-  await page.screenshot('2-block-sure')
+  await page.eval(()=>{const hub=[...document.querySelectorAll('.oi-net > .oi-hub')][0];const row=[...hub.querySelectorAll('.conn-row')].find(l=>l.textContent.includes('alice.fixture'));row.scrollIntoView({block:'center'})})
+  const xr=await page.eval(()=>{const hub=[...document.querySelectorAll('.oi-net > .oi-hub')][0];const x=[...hub.querySelectorAll('.conn-row')].find(l=>l.textContent.includes('alice.fixture')).querySelector('.conn-x').getBoundingClientRect();return [x.left+x.width/2,x.top+x.height/2]})
+  await page.mouse('mouseMoved',xr[0],xr[1]);await paint()
+  r.hoverX=await xLook('alice.fixture')
+  await page.screenshot('2-block-x-hover')
   await press('alice.fixture');await page.waitFor('.oi-net .oi-blocked[aria-label="blocked"]');await paint();await park()
   r.blocked={...await state(),aliceButton:await button('alice.fixture'),listButton:await button('alice.fixture','list')}
   await page.screenshot('3-blocked-sign-unblock-and-list')
@@ -42,6 +49,32 @@ module.exports=async(page)=>{
   await press('alice.fixture');await page.waitFor('.oi-net .oi-blocked[aria-label="blocked"]',{gone:true});await paint();await park()
   r.unblocked={...await state(),aliceButton:await button('alice.fixture')}
   await page.screenshot('5-unblocked')
+  // the lockdown list (LIST UX REDESIGN, USER 2026-11-25 21:48-21:51Z): the shared list under its hub, × takes off, Add searches
+  const lock=()=>page.eval(()=>{const l=document.querySelector('.oi-lockdown .oi-lock-list');if(!l)return null
+    l.scrollIntoView({block:'start'})
+    return {rows:[...l.querySelectorAll('.conn-row')].map(r=>({address:r.querySelector('[data-hub-address]')?.getAttribute('data-hub-address'),
+      x:r.querySelector('button.conn-x')?.title??null,blocked:!!r.querySelector('.oi-blocked')})),
+      sharedList:!!l.querySelector('.conn-rows[role="list"]'),addressBox:!!document.querySelector('.oi-lockdown input[aria-label="Address to allow"]'),
+      allowLinks:[...document.querySelectorAll('.oi-net button')].filter(b=>/^(allow|unlist)$/.test(b.textContent)).length}})
+  r.lockList=await lock();await paint();await park()
+  await page.screenshot('6-lockdown-list')
+  await page.eval(()=>[...document.querySelectorAll('.oi-lockdown button')].find(b=>b.textContent==='Add').click());await page.waitFor('.oi-lock-add');await paint()
+  const options=()=>page.eval(()=>[...document.querySelectorAll('.oi-lock-add [role="option"]')].map(o=>o.dataset.address))
+  r.addAll=await options()
+  await page.screenshot('7-lockdown-add-dropdown')
+  await page.eval(()=>{const i=document.querySelector('.oi-lock-add input');const set=Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set
+    i.focus();set.call(i,'ali');i.dispatchEvent(new Event('input',{bubbles:true}))});await paint()
+  r.addSearch=await options()
+  await page.screenshot('8-lockdown-add-search')
+  await page.eval(()=>document.querySelector('.oi-lock-add [role="option"]').click());await page.waitFor('.oi-lock-add',{gone:true})
+  await page.waitFor('.oi-lock-list [data-hub-address="@net:alice.fixture.aa0011"]');await paint();await park()
+  r.lockAdded=await lock()
+  await page.screenshot('9-lockdown-added')
+  await page.eval(()=>[...document.querySelectorAll('.oi-lock-list .conn-row')].find(r=>r.textContent.includes('gone.fixture')).querySelector('button.conn-x').click())
+  await page.waitFor('.oi-lock-list [data-hub-address="@net:gone.fixture.ee0055"]',{gone:true});await paint();await park()
+  r.lockRemoved=await lock()
+  await page.screenshot('10-lockdown-removed')
+  r.lockCalls=await page.eval(()=>window.__blocks.calls.filter(c=>c.url.endsWith('/net/lockdown')&&c.method==='POST').map(c=>c.body))
   r.calls=await page.eval(()=>window.__blocks.calls.filter(c=>c.url.endsWith('/net/blocks')))
   return r
 }

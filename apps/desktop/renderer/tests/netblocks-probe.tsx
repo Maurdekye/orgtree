@@ -9,7 +9,7 @@ import { OrgInboxModal } from '../src/canvas/mail'
 import { setNetRoster } from '../src/canvas/netmentions'
 import type { NetBlock, NetBlocks, OrgInboxEntry } from '../src/types'
 
-const ALICE = 'alice.fixture.aa0011', CY = 'cy.fixture.cc0033', BOB = 'bob.fixture.bb0022'
+const ALICE = 'alice.fixture.aa0011', CY = 'cy.fixture.cc0033', BOB = 'bob.fixture.bb0022', DEE = 'dee.fixture.dd0044', GONE = 'gone.fixture.ee0055'
 const NET: NetBlock = {
   slug: 'home.fixture.123abc',
   hubs: [
@@ -18,6 +18,7 @@ const NET: NetBlock = {
       roster: [
         { slug: ALICE, org_name: 'Alice', kind: 'person', online: true },
         { slug: CY, org_name: 'Cy Labs', kind: 'org', online: true },
+        { slug: DEE, org_name: 'Dee', kind: 'person', online: false },
       ] },
     { id: 'b', address: 'http://hub-b.invalid:7370', name: 'Hub B', version: '2.5.0', enabled: true, connected: true, queued: 0,
       roster: [{ slug: BOB, org_name: 'Bob', kind: 'person', online: true }] },
@@ -30,6 +31,10 @@ const FAILED: OrgInboxEntry = {
   last_err: `you have been blocked by @net:${CY} and cannot message them`,
 }
 let blocks: NetBlocks = { blocked: [], blocked_by: [CY] }
+// the lockdown (LIST UX REDESIGN, USER 2026-11-25 21:48-21:51Z): on, Dee listed and one listed address no longer connected
+let allow = [DEE, GONE].map((address) => ({ hub: 'a', hub_name: 'Hub A', address, added_by: '@user', at: '2026-11-25T21:00:00Z' }))
+const lockdown = () => ({ setting: 'org', on: true, org_on: true, set_aside: false, rev: 4, set_by: '@user', set_at: '2026-11-25T21:00:00Z',
+  refused: 0, agents_may_change: true, coverage: 'enforced', allow, hubs: [{ hub: 'a', hub_name: 'Hub A', state: 'enforced', rev: 4, detail: null }] })
 const calls: { method: string; url: string; body?: unknown }[] = []
 const json = (v: unknown) => new Response(JSON.stringify(v), { headers: { 'Content-Type': 'application/json' } })
 window.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -45,6 +50,14 @@ window.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     }
     return json(blocks)
   }
+  if (url.endsWith('/net/lockdown')) {
+    if (method === 'POST') {
+      const c = body as { add?: { hub: string; address: string }[]; remove?: { hub: string; address: string }[] }
+      allow = [...allow.filter((a) => !c.remove?.some((r) => r.hub === a.hub && r.address === a.address)),
+        ...(c.add ?? []).map((a) => ({ ...a, hub_name: 'Hub A', added_by: '@user', at: '2026-11-25T21:05:00Z' }))]
+    }
+    return json(lockdown())
+  }
   if (url.includes('/org_inbox')) return json({ entries: [FAILED], total: 1, unread: 0 })
   return json({ entries: [], total: 0, transfers: [] }) // the transfer panel's list, as the other fixtures answer
 }) as typeof fetch
@@ -54,5 +67,5 @@ const show = (jumpTo: string | null) => root.render(
   <OrgInboxModal key={jumpTo ?? 'servers'} slug="blocks-fixture" net={NET} map={new Map()} toast={() => {}} close={() => {}}
     jumpTo={jumpTo} jumpSeq={jumpTo ? 1 : null}
     inbox={{ entries: [FAILED], total: 1, unread: 0, holders: ['helper-opus'], visible: true, multi_holder_enabled: false }} />)
-Object.assign(window, { __blocks: { show, calls, ALICE, CY, BOB } })
+Object.assign(window, { __blocks: { show, calls, ALICE, CY, BOB, DEE, GONE } })
 show(null)

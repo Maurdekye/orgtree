@@ -2,7 +2,8 @@
 // blocking-contacts-on-the-hub-hubchat-1-4-0-orgtr; @coordinator-opus m366025ce9de1
 // ruling C): the probe netblocks-probe.tsx (real OrgInboxModal, synthetic
 // engine API, no engine or hub) in offscreen Electron through tools/rig/desktop.
-// The six states: (1) block -> "block — sure?" -> blocked; (2) the red cancel
+// The six states: (1) the row's red × blocks at once (USER 2026-11-25 21:49:37Z
+// m8ee22829e340, no confirm); (2) the red cancel
 // sign and unblock; (3) "blocked contacts" says "blocked by you"; (4) a contact
 // that blocks the org shows "has blocked this org"; (5) a refused message shows
 // the red cancel sign with the engine's words; (6) a 2.5.x hub says it needs an
@@ -63,10 +64,13 @@ check('6: a 2.5.x hub says it needs an update, and offers no block', () => {
 check('4: a contact that blocks the org shows the red sign and "has blocked this org"', () => {
   assert.equal(v.initial.cy?.label, 'has blocked this org'); assert.ok(red(v.initial.cy.color), v.initial.cy.color)
   assert.ok(v.initial.list?.some(l => /has blocked this org: no messages either way/.test(l)), JSON.stringify(v.initial.list))
-  assert.equal(v.initial.alice, null); assert.equal(v.initial.aliceButton, 'block')
+  assert.equal(v.initial.alice, null); assert.equal(v.initial.aliceButton, '×')
 })
-check('1: block asks once more ("block — sure?"), and only the second press blocks', () => {
-  assert.equal(v.asking.aliceButton, 'block — sure?'); assert.equal(v.asking.alice, null)
+check('1: each row of the hub list ends in a small red × that blocks at once', () => {
+  const x = v.initial.aliceX
+  assert.equal(x?.title, `Block @net:${ALICE}: no messages either way`); assert.ok(red(x.color), x.color)
+  assert.ok(x.w > 8 && x.w < 30 && x.h < 30, `small: ${x.w}x${x.h}`); assert.ok(x.rightGap >= 0 && x.rightGap < 20, `at the row's end: ${x.rightGap}`)
+  assert.ok(red(v.hoverX.color), v.hoverX.color)
   const posts = v.calls.filter(c => c.method === 'POST')
   assert.deepEqual(posts.map(c => c.body), [{ address: ALICE, blocked: true }, { address: ALICE, blocked: false }])
 })
@@ -82,6 +86,20 @@ check('5: a refused message shows the red cancel sign with the engine\'s words',
   assert.equal(v.refused.label, words); assert.equal(v.refused.title, words); assert.ok(v.refused.svg); assert.ok(red(v.refused.color), v.refused.color)
 })
 check('unblock acts at once and the sign goes', () => {
-  assert.equal(v.unblocked.alice, null); assert.equal(v.unblocked.aliceButton, 'block'); assert.equal(v.unblocked.err, null)
+  assert.equal(v.unblocked.alice, null); assert.equal(v.unblocked.aliceButton, '×'); assert.equal(v.unblocked.err, null)
+})
+const DEE = 'dee.fixture.dd0044', GONE = 'gone.fixture.ee0055'
+check('7: the lockdown list is the shared list under its hub, each with a × that takes it off; no address box or allow/unlist', () => {
+  const l = v.lockList
+  assert.ok(l?.sharedList); assert.equal(l.addressBox, false); assert.equal(l.allowLinks, 0)
+  assert.deepEqual(l.rows.map(r => r.address).sort(), [`@net:${DEE}`, `@net:${GONE}`])
+  assert.deepEqual(l.rows.map(r => r.x).sort(), [`Take @net:${DEE} off the lockdown list`, `Take @net:${GONE} off the lockdown list`])
+})
+check('8: Add opens a searchable dropdown of connected contacts not listed; a choice adds at once; × removes', () => {
+  assert.deepEqual(v.addAll, [ALICE, CY], 'Dee is listed already; Gone is not connected')
+  assert.deepEqual(v.addSearch, [ALICE])
+  assert.deepEqual(v.lockAdded.rows.map(r => r.address).sort(), [`@net:${ALICE}`, `@net:${DEE}`, `@net:${GONE}`])
+  assert.deepEqual(v.lockRemoved.rows.map(r => r.address).sort(), [`@net:${ALICE}`, `@net:${DEE}`])
+  assert.deepEqual(v.lockCalls, [{ add: [{ hub: 'a', address: ALICE }] }, { remove: [{ hub: 'a', address: GONE }] }])
 })
 console.log(JSON.stringify({ ok: true, checked: checks, shots: result.shots?.length, out: evidence }))
