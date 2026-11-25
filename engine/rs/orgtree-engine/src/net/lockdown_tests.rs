@@ -222,3 +222,65 @@ async fn holders_open_and_close_outside_communication_under_org_decides() {
     let why = format!("{:#}", orginbox::set_org_choice(&w.e, w.org, "front", "closed").await.unwrap_err());
     assert!(why.contains("only the user can change it"), "{why}");
 }
+
+/// An inbound @net letter delivered the ordinary way (copies to the holder).
+#[nolog]
+async fn arrive(w: &World, from: &str, id: &str, body: &str) {
+    orginbox::deliver_inbound_replies(&w.e, w.org, &format!("@net:{from}"), body, vec![], id, "h1", &[]).await.unwrap();
+}
+
+#[tokio::test]
+#[ignore = "requires an isolated orginbox_queue_fixture database"]
+#[nolog]
+async fn turning_on_with_set_aside_takes_unread_unlisted_mail_out_of_delivery() {
+    // USER 13:37Z Q5 + 14:08Z answer 2: waiting mail and unread delivered copies from unlisted addresses
+    let w = world().await;
+    arrive(&w, "eve.000000", "n-1", "flood 1").await;
+    arrive(&w, "eve.000000", "n-2", "flood 2").await;
+    arrive(&w, "ann.1a2b3c", "n-3", "friend").await;
+    arrive(&w, "bob.4d5e6f", "n-4", "already read").await;
+    w.c.execute("UPDATE ot.mail SET state='read', read_at=now() WHERE org_id=$1 AND net_id='n-4'", &[&w.org]).await.unwrap();
+    let s = super::lockdown::change(&w.e, w.org, Who::Agent("front"), Edit { on: Some(true), set_aside: Some(true), allow: Some(vec![entry("h1", "ann.1a2b3c")]), ..Edit::default() }).await.unwrap();
+    assert_eq!(s["set_aside_now"], json!({"letters": 2, "unread_copies": 2, "unclaimed_jobs": 0}), "{s}");
+    let rows = w.c.query("SELECT net_id, set_aside_at IS NOT NULL FROM ot.org_inbox WHERE org_id=$1 AND dir='in' ORDER BY net_id", &[&w.org]).await.unwrap();
+    let got: Vec<(String, bool)> = rows.iter().map(|r| (r.get(0), r.get(1))).collect();
+    assert_eq!(got, vec![("n-1".into(), true), ("n-2".into(), true), ("n-3".into(), false), ("n-4".into(), false)], "listed and already-read letters stay");
+    let states: Vec<(String, String)> = w.c.query("SELECT net_id, state FROM ot.mail WHERE org_id=$1 AND recipient_kind='agent' AND net_id IS NOT NULL ORDER BY net_id", &[&w.org]).await.unwrap()
+        .iter().map(|r| (r.get(0), r.get(1))).collect();
+    assert_eq!(states, vec![("n-1".into(), "retracted".into()), ("n-2".into(), "retracted".into()), ("n-3".into(), "pending".into()), ("n-4".into(), "read".into())]);
+    // lifting keeps them aside (answer 3); turning on again takes nothing twice
+    super::lockdown::change(&w.e, w.org, Who::Agent("front"), Edit { on: Some(false), ..Edit::default() }).await.unwrap();
+    let aside: i64 = w.c.query_one("SELECT count(*) FROM ot.org_inbox WHERE org_id=$1 AND set_aside_at IS NOT NULL", &[&w.org]).await.unwrap().get(0);
+    assert_eq!(aside, 2, "set-aside stays set aside when the lockdown lifts");
+}
+
+#[tokio::test]
+#[ignore = "requires an isolated orginbox_queue_fixture database"]
+#[nolog]
+async fn set_aside_letters_are_read_one_at_a_time_by_the_user_and_real_holders() {
+    // USER 14:08Z answer 8; Fable I3
+    let w = world().await;
+    for (i, from) in ["eve.000000", "eve.000000", "mal.111111"].iter().enumerate() {
+        let m = json!({"id": format!("s-{i}"), "from": from, "to": "lock-a", "body": format!("letter {i}")});
+        orginbox::set_aside_inbound(&w.e, w.org, "h1", &m).await.unwrap();
+    }
+    let page = super::lockdown::set_aside_list(&w.e, w.org, Some("front"), 2, None).await.unwrap();
+    assert_eq!((page["total"].clone(), page["unread"].clone(), page["set_aside"].as_array().unwrap().len()), (json!(3), json!(3), 2), "{page}");
+    assert!(page["set_aside"][0].get("body").is_none(), "a list carries envelopes, never bodies");
+    assert_eq!(page["top_senders"][0], json!({"from": "@net:eve.000000", "letters": 2}));
+    let next = super::lockdown::set_aside_list(&w.e, w.org, Some("front"), 2, page["next_before"].as_str()).await.unwrap();
+    assert_eq!(next["set_aside"].as_array().unwrap().len(), 1);
+    let id = page["set_aside"][0]["id"].as_str().unwrap().to_string();
+    let one = super::lockdown::set_aside_read(&w.e, w.org, Some("front"), &id).await.unwrap();
+    assert_eq!(one["body"], json!("letter 2"));
+    let still: bool = w.c.query_one("SELECT set_aside_at IS NOT NULL AND set_aside_read_by = 'front' FROM ot.org_inbox WHERE uid=$1", &[&id]).await.unwrap().get(0);
+    assert!(still, "read, recorded, and still set aside");
+    let copies: i64 = w.c.query_one("SELECT count(*) FROM ot.mail WHERE org_id=$1 AND recipient_kind='agent'", &[&w.org]).await.unwrap().get(0);
+    assert_eq!(copies, 0, "reading routes nothing");
+    let why = format!("{:#}", super::lockdown::set_aside_list(&w.e, w.org, Some("idle"), 20, None).await.unwrap_err());
+    assert!(why.contains("only the user and agents holding the org mailbox"), "{why}");
+    let weak = super::lockdown::set_aside_list(&w.e, w.org, Some("scout"), 20, None).await.unwrap();
+    assert_eq!(weak["total"], json!(0), "a weak link reads only replies to its own mail");
+    let user = super::lockdown::set_aside_read(&w.e, w.org, None, &id).await.unwrap();
+    assert_eq!(user["from"], json!("@net:mal.111111"));
+}

@@ -573,3 +573,14 @@ fn notify(engine: &Arc<Engine>, org_id: i64) {
         changes::notify(engine, &o, vec![Change::OrgInbox, Change::Net]);
     }
 }
+
+/// RED STUBS (set-aside reading).
+#[logged]
+pub async fn set_aside_list(_engine: &Engine, _org_id: i64, _who: Option<&str>, _limit: i64, _before: Option<&str>) -> Result<Value> {
+    anyhow::bail!("not built yet")
+}
+
+#[nolog]
+pub async fn set_aside_read(_engine: &Engine, _org_id: i64, _who: Option<&str>, _id: &str) -> Result<Value> {
+    anyhow::bail!("not built yet")
+}
