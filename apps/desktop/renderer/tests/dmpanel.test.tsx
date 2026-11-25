@@ -56,6 +56,8 @@ const grant = (grantee: string) => ({ grantee, grantor: USER, granted_at: '2026-
 
 interface Call { method: string; path: string; body: Record<string, unknown> | null }
 interface World {
+  /** the time of what is sent from now on: the fake engine then keeps sent mail in the mailbox */
+  keepSent?: string
   pending?: unknown[]; delivered?: unknown[]; sent?: unknown[]
   audiences?: unknown[]; requests?: unknown[]
   /** a mail the by-id lookup knows, outside the loaded window */
@@ -106,8 +108,12 @@ function engine(world: World) {
       const found = world.byId?.[decodeURIComponent(byId[1]!)] ?? null
       return json({ found: !!found, mail: found })
     }
-    if (/\/nodes\/[^/]+\/message$/.test(path)) return world.refuse ? json({ error: 'the agent is not taking mail' }, 500)
-      : json({ accepted: true, id: 'm-new', ref: '@mail:m-new' })
+    if (/\/nodes\/[^/]+\/message$/.test(path)) {
+      if (world.refuse) return json({ error: 'the agent is not taking mail' }, 500)
+      // `keepSent`: the sent mail is in the mailbox at the next read, as on the engine
+      if (world.keepSent) world.sent = [...(world.sent ?? []), sent(`m-new-${(world.sent ?? []).length}`, path.match(/\/nodes\/([^/]+)\/message$/)![1]!, world.keepSent)]
+      return json({ accepted: true, id: 'm-new', ref: '@mail:m-new' })
+    }
     // a desk's own chat read (the desk box mounted beside the chats' box)
     if (/\/nodes\/[^/]+\/chat(\?|$)/.test(path)) return json({ messages: [], live: [], pending_mail: [], busy: false, responding: false,
       windowed: true, has_older: false, before: null, draft_epoch: 'synthetic:0' })
@@ -2005,4 +2011,91 @@ test('a project chat says its inbox may not be read, as the desk does, until a l
   const listened = { ...crewTree(), watchdogs: [{ id: 'q1', owner: 'member', name: 'q1', kind: 'fair_queue', target: 'crew', interval_s: 5, state: 'armed' }] } as unknown as TreePayload
   await inAct(async () => { s.rerender({ tree: listened }); await flush(8) })
   assert.equal(hint(), null, 'an agent listens on the inbox: no hint')
+})
+
+// ---- the chat stays at its newest message (USER 2026-11-25 m9165e9874f48: "when i send a message it
+// doesnt stick to the bottom (i want a jump to bottom button like in hubchat thats visible while not
+// stuck)"; m694bf862b15a: "it doesnt seem stuck to the bottom at all, any new message i receive i have to
+// scroll for"; m279ace747448: "use the same sticky logic that hubchat uses, it just works there").
+// Hubchat's Conversation.tsx: pinned within 80 px of the end, the button from 300 px, a ResizeObserver on
+// the timeline and its content for what grows late. ----
+
+const timeline = () => document.querySelector('.dm-timeline') as HTMLElement
+const jumpButton = () => document.querySelector<HTMLButtonElement>('.dm-conv .dm-jump')
+/** the mailbox is read again every five seconds: what arrived meanwhile is in */
+const nextRead = async () => { await inAct(async () => { await new Promise(r => setTimeout(r, 5300)); await flush(30) }) }
+
+test('MEASURED CAUSE: a chat of more than fifty messages stays at its newest message when one arrives', async (t) => {
+  const height = layOut(t)
+  const world: World = { audiences: [grant('worker')], delivered: many(60) }
+  const s = await setup(t, world, { active: false })
+  await s.openChat('worker')
+  assert.equal(s.all('.dm-msg').length, 50, 'POSITIVE CONTROL: the newest fifty are drawn, of sixty')
+  assert.equal(timeline().scrollTop, 5000, 'POSITIVE CONTROL: the chat opened at its newest message')
+  // a message arrives: the timeline is one row taller, and still fifty rows are drawn
+  height.scroll = 5100
+  world.delivered = [...world.delivered!, mail('fresh', 'worker', '2026-11-21T09:00:00Z')]
+  await nextRead()
+  assert.equal(s.all<HTMLElement>('.dm-msg').some(m => m.dataset.dmEntry === 'fresh'), true, 'POSITIVE CONTROL: the new message is drawn')
+  assert.equal(s.all('.dm-msg').length, 50, 'POSITIVE CONTROL: the drawn window is still fifty rows (why a count of rows cannot tell)')
+  assert.equal(timeline().scrollTop, 5100, 'the view is at the new message')
+  assert.equal(jumpButton(), null, 'at the newest message there is no jump button')
+})
+
+test('POSITIVE CONTROL: a short chat stays at its newest message when one is sent', async (t) => {
+  const height = layOut(t)
+  const s = await setup(t, { audiences: [grant('worker')], delivered: many(6), keepSent: '2026-11-21T09:00:00Z' }, { active: false })
+  await s.openChat('worker')
+  assert.equal(timeline().scrollTop, 5000)
+  height.scroll = 5100
+  await s.type('A short one.')
+  await s.send()
+  await inAct(async () => { await flush(30) })
+  assert.equal(s.all('.dm-msg').length, 7, 'the sent message is in')
+  assert.equal(timeline().scrollTop, 5100)
+})
+
+test('sending goes to the newest message from anywhere in a long chat, and stays there as the sent message comes in', async (t) => {
+  const height = layOut(t)
+  const s = await setup(t, { audiences: [grant('worker')], delivered: many(60), keepSent: '2026-11-21T09:00:00Z' }, { active: false })
+  await s.openChat('worker')
+  await scrollTo(2000)
+  assert.equal(timeline().scrollTop, 2000, 'POSITIVE CONTROL: the reader is far up')
+  await s.type('Read this.')
+  height.scroll = 5100
+  await s.send()
+  await inAct(async () => { await flush(30) })
+  assert.equal(s.all<HTMLElement>('.dm-msg').some(m => /^m-new-/.test(m.dataset.dmEntry ?? '')), true, 'POSITIVE CONTROL: the sent message is drawn')
+  assert.equal(timeline().scrollTop, 5100, 'the view is at the sent message')
+  assert.equal(jumpButton(), null)
+})
+
+test('Hubchat\'s jump button: there from 300 px above the newest message, and it goes down and sticks again', async (t) => {
+  const height = layOut(t)
+  const s = await setup(t, { audiences: [grant('worker')], delivered: many(60) }, { active: false })
+  await s.openChat('worker')
+  assert.equal(jumpButton(), null, 'at the newest message: none')
+  await scrollTo(4150)   // 250 px above the end
+  assert.equal(jumpButton(), null, 'within 300 px: none')
+  await scrollTo(4000)   // 400 px above the end
+  const b = jumpButton()
+  assert.ok(b, 'more than 300 px above the newest message: the button')
+  assert.equal(b.getAttribute('aria-label'), 'Jump to the newest message')
+  assert.equal(b.getAttribute('title'), 'Jump to the newest message')
+  // the reader is not at the end: what grows below does not move the view
+  height.scroll = 5300
+  await inAct(async () => { fireResize(timeline()); fireResize(timeline().firstElementChild as HTMLElement); await flush(8) })
+  assert.equal(timeline().scrollTop, 4000, 'a reader who scrolled up stays where they are')
+  await s.click(jumpButton(), 'the jump button')
+  assert.equal(timeline().scrollTop, 5300, 'it goes to the newest message')
+  assert.equal(jumpButton(), null, 'and is gone there')
+  // stuck again: a picture that loads late, or the typing row, makes the content taller
+  height.scroll = 5450
+  await inAct(async () => { fireResize(timeline().firstElementChild as HTMLElement); await flush(8) })
+  assert.equal(timeline().scrollTop, 5450, 'content that grows late keeps the view at the end')
+  // the look is Hubchat's: a round 40 px button at the lower right of the timeline
+  const { readFileSync } = await import('node:fs')
+  const { default: path } = await import('node:path')
+  const css = readFileSync(path.join(__SRC_DIR__, 'dm', 'dm.css'), 'utf8')
+  assert.match(css, /\.dm-jump \{ position: absolute; right: 22px; bottom: 16px; width: 40px; height: 40px; border-radius: 50%; border: 1px solid var\(--line\); background: var\(--panel\); color: var\(--ink\);/)
 })
