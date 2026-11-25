@@ -143,13 +143,16 @@ are a second view over the same reads and calls.
   `onOpenDesk` in Focus (agent and project menus). The registry's builder (OrgCanvas `trayRowMenu`) wires it to
   modalpin `closeFloatingPanels(slug)`; listeners: App (`closeCentredPanels`, the view shortcut's list) and
   OrgCanvas (`closeCanvasFloating`: `useModalInstances().closeCentred()` per kind, lineage, org-inbox, desk
-  glance, retired list). Floating = centred (`closeIfCentred`). "Open chat" is spliced right after Open when
-  `canChatWith`. [verified: `tests/linkmenufocus.test.tsx`]
+  glance, retired list). Floating = centred (`closeIfCentred`). The chat entry is Open > Chat (below).
+  [verified: `tests/linkmenufocus.test.tsx`]
 - OPEN CHAT EVERYWHERE (USER 2026-11-25 ma84dfc37f5a6, widened m0a8fdb69edb9/m6da526799148, classic m46b47955f2ac):
   all three builders' callers (OrgCanvas `trayRowMenu` for links and rows, cards.tsx NodeSquare, projectcard.tsx)
   pass `chat: chatTargetFor(map, node)` (mailboxpref: live target; `needsGrant` unless it holds `@user` in
-  `audiences_held` or is a top-level agent). `placeOpenChat` adds Open chat after Open (`withOpen`), titled by
-  `openChatTitle` (lists the classic switch and/or the grant). `openChatFrom` turns the classic view off, then
+  `audiences_held` or is a top-level agent). `chatEntry` is Open > Chat (agent: after the desk entries, before
+  Mail; project: before Project mailbox), titled by `openChatTitle` (lists the classic switch and/or the grant).
+  There is no top-level Open chat and no `withOpen` carry (USER 2026-11-25 21:32:43Z m05fbc02357a7 "open chat
+  should be in the open submenu everywhere"). The chats panel's own chat-row menu, which has no Open submenu,
+  keeps its "Open chat". `openChatFrom` turns the classic view off, then
   `openAgentChat(..., { grant: true })` reaches DmPanel's `openChat.grant`, which runs New chat's `startChat` once
   the audiences read is in. A builder given no `chat` keeps the 4e1df11 rule (canChatWith).
   [verified: `tests/inboxopenchat.test.tsx`, `tests/dmpanel.test.tsx`, `tests/agentrowmenu.test.tsx` §1c]
