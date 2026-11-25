@@ -1653,7 +1653,7 @@ test('alpha.1 point 15: a bubble\u2019s menu has "View in transcript" for the ag
   // the agent's own mail: always
   let menu = await menuOf('in1')
   assert.equal(menu.labels.includes('View in transcript'), true, `the agent\u2019s mail has it (${menu.labels.join(' | ')})`)
-  assert.equal(menu.labels.indexOf('View in transcript'), menu.labels.findIndex(l => l.startsWith('View in @worker')) + 1, 'next to "View in @worker\u2019s inbox"')
+  assert.equal(menu.labels.indexOf('View in transcript') + 1, menu.labels.findIndex(l => l.startsWith('View in @worker')), 'next to "View in @worker\u2019s inbox" (the View in group, USER 2026-11-25 md7da554ce837)')
   await s.click(menu.item('View in transcript'), 'View in transcript')
   assert.deepEqual([mentionHighlightOf('mine', 'worker')?.mailId, mentionHighlightOf('mine', 'worker')?.at], ['in1', '2026-11-20T10:00:00Z'], 'the desk of that agent is asked for that mail\u2019s row')
   assert.deepEqual(s.state.focused, ['worker'], 'and its desk is shown')
@@ -1767,7 +1767,7 @@ test('a chat\u2019s header shows the model icon once: beside the name there is n
   if (system) { await s.click(system, 'the System chat'); assert.equal(icons(), 1, 'the System chat keeps its icon') }
 })
 
-test('alpha.1 point 24: a bubble\u2019s menu has "Sender…" with the agent\u2019s full menu from the shared builder, after "View in transcript"; the user\u2019s own bubble has none', async (t) => {
+test('alpha.1 point 24: a bubble\u2019s menu has "Sender…" with the agent\u2019s full menu from the shared builder, right above the View in group; the user\u2019s own bubble has none', async (t) => {
   const { AgentNavProvider, useProvideAgentNav } = await import('../src/canvas/agentnav')
   const { agentLinkMenuEntries } = await import('../src/canvas/contextmenu')
   // the canonical menu, as the surface that owns the handlers registers it
@@ -1797,8 +1797,8 @@ test('alpha.1 point 24: a bubble\u2019s menu has "Sender…" with the agent\u201
   let m = await menuOf('in1')
   const at = m.labels.findIndex(l => l.startsWith('Sender'))
   assert.equal(at >= 0, true, `the agent\u2019s bubble has Sender… (${m.labels.join(' | ')})`)
-  assert.equal(m.labels[at - 1], 'View in transcript', 'after View in transcript')
-  assert.equal(m.labels.indexOf('Reply') < at && m.labels.findIndex(l => l.startsWith('View in @worker')) < at, true, 'the bubble\u2019s own entries stay at the top level, before it')
+  assert.equal(m.labels[at + 1]?.startsWith('View in'), true, `the View in group follows it, USER 2026-11-25 md7da554ce837 (${m.labels.join(' | ')})`)
+  assert.equal(m.labels.indexOf('Reply') < at, true, 'the bubble\u2019s own entries stay at the top level, before it')
   assert.deepEqual(built.at(-1), 'worker', 'built by the shared builder, for the bubble\u2019s author')
   // its submenu is the agent link's menu: the same labels in the same order
   const sender = m.item('Sender')!
