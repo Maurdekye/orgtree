@@ -2239,3 +2239,18 @@ test('MEASURED CAUSE (real browser): in a long chat an arriving message slides t
   await escape()
   assert.equal(timeline().scrollTop, 5100, 'closing the menu goes to the newest message')
 })
+
+test('MEASURED CAUSE (real browser): the mailbox\u2019s regular read does not show "loading older messages\u2026" at the top of an open chat (its row made the browser scroll under an open menu)', async (t) => {
+  layOut(t)
+  const world: World = { audiences: [grant('worker')], delivered: many(60) }
+  const s = await setup(t, world, { active: false })
+  await s.openChat('worker')
+  const seen: string[] = []
+  const watch = new W.MutationObserver(ms => { for (const m of ms) for (const n of m.addedNodes) if ((n as Element).classList?.contains('dm-older')) seen.push((n as Element).textContent ?? '') })
+  watch.observe(timeline(), { childList: true, subtree: true })
+  t.after(() => watch.disconnect())
+  world.delivered = [...world.delivered!, mail('fresh', 'worker', '2026-11-21T09:00:00Z')]
+  await nextRead()
+  assert.ok(bubbleOf('fresh'), 'POSITIVE CONTROL: the read brought the new message')
+  assert.deepEqual(seen, [], 'no "loading older" row for a read of the newest mail')
+})
