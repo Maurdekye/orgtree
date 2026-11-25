@@ -30,7 +30,7 @@ import { STREAMER_ZONES } from '../src/streamer-boundary'
 import { withoutMailTransfers } from './mailtransfers.fixture'
 import type { TreePayload } from '../src/types'
 import { InboxView } from '../src/canvas/mail'
-import { classicMailbox, onMailViewRequest } from '../src/mailboxpref'
+import { classicMailbox, mailLinkToChat, onMailViewRequest } from '../src/mailboxpref'
 import { ObjectMenuBoundary } from '../src/canvas/contextmenu'
 
 const W = window as unknown as Window & typeof globalThis
@@ -2662,3 +2662,40 @@ for (const withRecipient of [true, false]) {
     }
   })
 }
+
+// "VIEW IN @AGENT'S INBOX" OPENS THAT MAILBOX, NOT THE CHAT (USER 2026-11-25 21:39:00Z md19d9582d5f0 on alpha.6:
+// "View in @xyz's inbox no longer works, it just highlights the message in the chat again"). The entry goes through
+// the panel's own mail route, which reaches the canvas's mail-link router; since View in chat that router sends the
+// user's mail to the chat while the chats are on (mailboxpref mailLinkToChat). The entry asks for the mailbox
+// itself, so the router must honour it; an ordinary mail link keeps going to the chat.
+test('View in @agent\'s inbox reaches the agent\'s mailbox through the mail-link router; an ordinary mail link still opens the chat', async (t) => {
+  const s = await setup(t, {
+    audiences: [grant('worker')],
+    delivered: [mail('m1', 'worker', '2026-11-20T10:00:00Z')],
+    sent: [sent('s1', 'worker', '2026-11-20T10:05:00Z')],
+    byId: { m1: { ...mail('m1', 'worker', '2026-11-20T10:00:00Z'), to: USER }, s1: { id: 's1', from: USER, at: '2026-11-20T10:05:00Z', kind: 'message', body: 'body of s1' } },
+  }, { active: false })
+  await s.openChat('worker')
+  const views: { id: string; peer?: string }[] = []
+  const off = onMailViewRequest((_org, id, peer) => { views.push({ id, peer }) })
+  t.after(off)
+  // the canvas's router, as OrgCanvas runs it for a link into worker's mailbox
+  const route = async (id: string) => {
+    let mailbox = 0
+    await inAct(async () => { mailLinkToChat('mine', id, 'worker', () => { mailbox++ }); await flush(8) })
+    return mailbox
+  }
+  for (const entry of ['m1', 's1']) {
+    const bubble = s.all<HTMLElement>('.dm-msg').find(m => m.dataset.dmEntry === entry)!.querySelector('.dm-bubble')!
+    await inAct(async () => { bubble.dispatchEvent(new W.MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 10, clientY: 10 })); await flush(6) })
+    const item = [...document.querySelectorAll<HTMLElement>('.ctxmenu [role="menuitem"], [role="menu"] [role="menuitem"]')]
+      .find(i => /View in @worker’s inbox/.test(i.textContent ?? ''))
+    await s.click(item, `View in @worker's inbox on ${entry}`)
+    assert.deepEqual(s.state.opened.at(-1), { kind: 'mail', org: 'mine', box: 'node', node: 'worker', id: entry }, 'POSITIVE CONTROL: the panel asks for that mail in worker\'s mailbox')
+    assert.equal(await route(entry), 1, `${entry}: the router opens worker's mailbox, as the entry says`)
+    assert.deepEqual(views, [], `${entry}: and does not send it back to the chat`)
+  }
+  // the entry's request is spent: the next ordinary link to the same mail goes to the chat again (View in chat's rule)
+  assert.equal(await route('m1'), 0, 'an ordinary link afterwards does not open the mailbox')
+  assert.deepEqual(views, [{ id: 'm1', peer: 'worker' }], 'it opens the chat, as before')
+})
