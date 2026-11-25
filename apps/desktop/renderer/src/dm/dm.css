@@ -332,9 +332,11 @@
    bubble, on the user's side */
 .dm-tick.t-queued svg { width: 14px; height: 14px; }
 .dm-tick.t-failed { color: var(--bad); }
-/* the desk's retract × on the user's own unread mail: a chip-x the size of the tick (two classes beat
-   `.settings button`, which would pad it into a button) */
-.dm-meta button.dm-retract { display: inline-flex; align-items: center; height: 11px; padding: 0 0 0 3px; font-size: 14px; line-height: 1; cursor: pointer; }
+/* the desk's retract × on the user's own unread mail: a chip-x over the bubble's top-right corner, taking no
+   room, so the tick sits where it sits on a read message (USER 2026-11-25 m0c7ae1b9c32d); `.dm-bubble >`
+   beats `.settings button`, which would pad it into a button */
+.dm-bubble > button.dm-retract { position: absolute; top: 3px; right: 4px; display: inline-flex; align-items: center; justify-content: center;
+  width: 14px; height: 14px; padding: 0; font-size: 13px; line-height: 1; border-radius: 50%; cursor: pointer; z-index: 1; }
 .dm-failed { display: flex; align-items: center; justify-content: flex-end; gap: 8px; font-size: 12px; color: var(--bad); margin: 4px 2px 0; }
 .dm-failed .linkish { font-size: 12px; }
 /* typing (Hubchat base.css .typing-prev, .typing-row, .typing-dots): the list's preview, and a row under

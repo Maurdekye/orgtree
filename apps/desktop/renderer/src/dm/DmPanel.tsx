@@ -1715,6 +1715,11 @@ function DmBubble({ entry, m, first, slug, refs, toast, flash, replying, system,
             }
             menu.open(e, () => entries(anchor)) }}>
           <span className="dm-sr">{entry.out ? 'You' : m.from}{notice ? ', notice' : ''}: </span>
+          {/* the desk's ×, with its tooltip: over the bubble's top-right corner, so the time and tick line is the
+              same with it and without it (USER 2026-11-25 m0c7ae1b9c32d "in the top right and not interfere
+              with the read arrows position") */}
+          {onRetract && <button type="button" className="chip-x dm-retract" title="retract (undelivered)"
+            aria-label="Retract (undelivered)" onClick={onRetract}><CloseIcon fontSize="inherit" /></button>}
           {/* in a project's chat: which agent wrote this, or which one it was written to */}
           {entry.via && <div className="dm-via">{entry.out && <span className="dim">to</span>}{sender(entry.via, m)}</div>}
           {system && !entry.out && <div className="dm-via dm-via-system"><span className="tier letter-chip t-system">S</span><b>System</b></div>}
@@ -1747,9 +1752,6 @@ function DmBubble({ entry, m, first, slug, refs, toast, flash, replying, system,
               : <span className="dm-tick t-queued" role="img" title="Sending" aria-label="Sending"><ScheduleIcon fontSize="inherit" /></span>)
             : receipt && <span className={'dm-tick ' + (receipt.read ? 't-read' : 't-sent')} role="img"
               title={receipt.label} aria-label={receipt.label}><CheckIcon fontSize="inherit" /></span>}
-            {/* the desk's ×, with its tooltip */}
-            {onRetract && <button type="button" className="chip-x dm-retract" title="retract (undelivered)"
-              aria-label="Retract (undelivered)" onClick={onRetract}><CloseIcon fontSize="inherit" /></button>}
           </div>
         </div>
         <div className="dm-actions">

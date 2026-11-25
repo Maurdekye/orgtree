@@ -774,9 +774,12 @@ module.exports = async (page) => {
   await page.sleep(400)
   const takeBackState = () => page.eval(() => [...document.querySelectorAll('.dm-msg.out')].map(m => {
     const x = m.querySelector('button.dm-retract'), b = m.querySelector('.dm-bubble'), t = m.querySelector('.dm-meta .dm-tick')
-    const xr = x?.getBoundingClientRect(), br = b?.getBoundingClientRect()
+    const xr = x?.getBoundingClientRect(), br = b?.getBoundingClientRect(), tr = t?.getBoundingClientRect()
     return { entry: m.dataset.dmEntry ?? null, tick: t?.className ?? null, x: !!x, title: x?.getAttribute('title') ?? null,
-      inside: !!(xr && br && xr.width > 0 && xr.left >= br.left && xr.right <= br.right && xr.top >= br.top && xr.bottom <= br.bottom) }
+      inside: !!(xr && br && xr.width > 0 && xr.left >= br.left && xr.right <= br.right && xr.top >= br.top && xr.bottom <= br.bottom),
+      // where the tick sits in its bubble, from the bottom-right corner; and the x, from the top-right (USER m0c7ae1b9c32d)
+      tickAt: tr && br ? { right: br.right - tr.right, bottom: br.bottom - tr.bottom } : null,
+      xAt: xr && br ? { right: br.right - xr.right, top: xr.top - br.top, height: br.height } : null }
   }))
   v.takeBack = { before: await takeBackState() }
   await shot('27a-an-unread-message-has-the-x')
