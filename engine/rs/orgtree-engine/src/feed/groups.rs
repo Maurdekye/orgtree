@@ -292,6 +292,9 @@ pub async fn group(engine: &Engine, client: &Client, org: &Value, name: &str) ->
             // weak links (USER 2026-11-24 m020bbd1926c3): drawn dotted; an array here tells the desktop this engine
             // knows them (an older engine sends none, and the desktop offers no weak links)
             let weak = crate::domain::orginbox::weak_agents(client, org_id).await?;
+            // failover (USER 2026-11-25 m872c7d4f0973): the weak link acting as the holder now, if any
+            let acting = crate::domain::orginbox::acting_weak(client, org_id,
+                settings["org_inbox_multi_holder"].as_bool().unwrap_or(false)).await?;
             // which holders are projects (each gets one queued job per message; spec D4)
             let holder_projects: Vec<String> = holder_rows.iter().filter(|r| r.1 == "project").map(|r| r.0.clone()).collect();
             let mut entries: Vec<Value> = preview.iter().map(|r| crate::domain::orginbox::entry(&r.get::<_, Value>(0))).collect();
@@ -305,6 +308,7 @@ pub async fn group(engine: &Engine, client: &Client, org: &Value, name: &str) ->
                 "holders": holders,
                 "holder_projects": holder_projects,
                 "weak": weak,
+                "acting": acting,
                 "multi_holder_enabled": settings["org_inbox_multi_holder"].as_bool().unwrap_or(false),
                 "enabled": settings["org_inbox_enabled"].as_bool().unwrap_or(true), "visible": settings["org_inbox_enabled"].as_bool().unwrap_or(true) && (total > 0 || !holders.is_empty() || !weak.is_empty()),
             }})

@@ -387,9 +387,10 @@ pub async fn send_extern(engine: &Arc<Engine>, org_id: i64, out: &Outgoing) -> R
     } else if everyone.is_empty() {
         format!("Stored in {}'s org mailbox; it has no live agent to read it yet.", dst.slug)
     } else if route.waiting {
-        format!("Delivered to {}'s org mailbox and to {}; none of them can run now (halted or frozen), so it waits for them.", dst.slug, holders.join(", "))
+        format!("Delivered to {}'s org mailbox; no agent there can run now (halted or frozen), so it waits for them.", dst.slug)
     } else {
-        format!("Delivered to {}'s org mailbox and to {}.", dst.slug, everyone.join(", "))
+        // who in the receiving org got it stays inside that org (failover, multi-reply; review A10)
+        format!("Delivered to {}'s org mailbox.", dst.slug)
     };
     resume_pending(engine,dst.id).await;
     Ok(Sent { dnd_held: held, transfer_ids: Vec::new(), uid: out_uid, to: dst_peer, recipient_state: "live".into(), delivery, deferred: held || everyone.is_empty() || route.waiting })
@@ -434,25 +435,168 @@ pub async fn mailbox_link<C: tokio_postgres::GenericClient + Sync>(client: &C, o
     })
 }
 
-/// Failover (USER 2026-11-25 m872c7d4f0973; @coordinator-opus m22e544059017): the weak-link agent acting as the
-/// holder while every holder is unable to receive. Red stub: no failover yet.
+/// Whether every holder of the org mailbox is unable to receive (the failover trigger): no live agent holder can run a
+/// turn (halted, frozen, retired or none), and no project holder has a worker: an armed or paused fair_queue listener
+/// of a live agent, or a live agent holding one of its jobs not yet acked (`in_charge`'s arms; @coordinator-opus,
+/// review item 1: a worker busy on a job is not unable).
+#[logged]
+async fn holders_unable<C: tokio_postgres::GenericClient + Sync>(client: &C, org_id: i64, multi: bool) -> Result<bool> {
+    let all = holder_rows(client, org_id, multi).await?;
+    let agents: Vec<String> = all.iter().filter(|r| r.1 == "agent").map(|r| r.0.clone()).collect();
+    if !runnable(client, org_id, &agents).await?.is_empty() {
+        return Ok(false);
+    }
+    let projects: Vec<String> = all.iter().filter(|r| r.1 == "project").map(|r| r.0.clone()).collect();
+    if projects.is_empty() {
+        return Ok(true);
+    }
+    Ok(client.query_opt(
+        "SELECT 1 FROM ot.watchdogs w
+           JOIN ot.agents a ON a.id = w.owner_agent_id AND a.state = 'live' AND a.kind = 'agent'
+           JOIN ot.agents p ON p.org_id = $1 AND p.name = ANY($2) AND p.id = (w.memo->>'target_id')::bigint
+          WHERE w.org_id = $1 AND w.kind = 'fair_queue' AND w.state IN ('armed', 'paused')
+         UNION ALL
+         SELECT 1 FROM ot.mail m
+           JOIN ot.agents p ON p.org_id = $1 AND p.name = ANY($2) AND p.id = m.recipient_agent_id
+           JOIN ot.agents a ON a.id = (m.extra->'claimed'->>'by_id')::bigint AND a.state = 'live' AND a.kind = 'agent'
+          WHERE m.state = 'read' AND m.extra->'claimed'->>'ack' = 'true' AND m.extra->'claimed'->>'acked_at' IS NULL
+            AND NOT (m.extra ? 'dead_letter')
+         LIMIT 1",
+        &[&org_id, &projects]).await?.is_none())
+}
+
+/// Busy's own holder rule (unchanged): no agent holder can run, and no project holder has an armed fair_queue listener
+/// of an agent that can run.
+#[logged]
+async fn holders_busy<C: tokio_postgres::GenericClient + Sync>(client: &C, org_id: i64, multi: bool) -> Result<bool> {
+    let all = holder_rows(client, org_id, multi).await?;
+    let agents: Vec<String> = all.iter().filter(|r| r.1 == "agent").map(|r| r.0.clone()).collect();
+    if !runnable(client, org_id, &agents).await?.is_empty() {
+        return Ok(false);
+    }
+    let projects: Vec<String> = all.iter().filter(|r| r.1 == "project").map(|r| r.0.clone()).collect();
+    if projects.is_empty() {
+        return Ok(true);
+    }
+    Ok(client.query_opt(
+        "SELECT 1 FROM ot.watchdogs w
+           JOIN ot.agents a ON a.id = w.owner_agent_id AND a.state = 'live' AND a.kind = 'agent' AND a.halt IS NULL AND a.frozen IS NULL
+           JOIN ot.agents p ON p.org_id = $1 AND p.name = ANY($2) AND p.id = (w.memo->>'target_id')::bigint
+          WHERE w.org_id = $1 AND w.kind = 'fair_queue' AND w.state = 'armed' LIMIT 1",
+        &[&org_id, &projects]).await?.is_none())
+}
+
+/// Failover (USER 2026-11-25 09:49:41Z m872c7d4f0973 and refinements; @coordinator-opus m22e544059017): while every
+/// holder is unable to receive (`holders_unable`, the same rule as busy), the weak-link agent that can run and whose
+/// weak link was granted earliest ACTS as the holder for online status, last seen and UNTHREADED new mail only. It is
+/// computed each time, so it hands back the moment a holder can receive; nothing is granted or stored as a link.
 #[logged]
 pub async fn acting_weak<C: tokio_postgres::GenericClient + Sync>(client: &C, org_id: i64, multi: bool) -> Result<Option<String>> {
-    let _ = (client, org_id, multi);
-    Ok(None)
+    if !holders_unable(client, org_id, multi).await? {
+        return Ok(None);
+    }
+    Ok(client.query_opt(
+        "SELECT au.grantee FROM ot.audiences au JOIN ot.agents a ON a.org_id = au.org_id AND a.name = au.grantee
+          WHERE au.org_id = $1 AND au.grantor = '@extern-weak' AND au.revoked_at IS NULL AND NOT au.paused
+            AND a.state = 'live' AND a.kind = 'agent' AND a.halt IS NULL AND a.frozen IS NULL
+          GROUP BY au.grantee ORDER BY min(au.id) LIMIT 1", &[&org_id]).await?.map(|r| r.get(0)))
 }
 
-/// The acting holder kept as state (`ot.orgs.net.acting_holder`): `Some((before, now))` when it changed. Red stub.
+/// The acting holder kept as state (`ot.orgs.net.acting_holder`; @coordinator-opus Q3, so a restart doesn't repeat
+/// the start notice): `Some((before, now))` when it changed, `None` when it is as stored.
 #[logged]
 pub async fn note_acting<C: tokio_postgres::GenericClient + Sync>(client: &C, org_id: i64, acting: Option<&str>) -> Result<Option<(Option<String>, Option<String>)>> {
-    let _ = (client, org_id, acting);
-    Ok(None)
+    let row = client.query_one(
+        "WITH old AS (SELECT net->>'acting_holder' AS a FROM ot.orgs WHERE id = $1),
+              up AS (UPDATE ot.orgs SET net = CASE WHEN $2::text IS NULL THEN coalesce(net, '{}'::jsonb) - 'acting_holder' - 'acting_since'
+                                                   ELSE coalesce(net, '{}'::jsonb) || jsonb_build_object('acting_holder', $2::text, 'acting_since', now()) END
+                      WHERE id = $1 AND (net->>'acting_holder') IS DISTINCT FROM $2::text RETURNING 1)
+         SELECT (SELECT a FROM old), EXISTS (SELECT 1 FROM up)", &[&org_id, &acting]).await?;
+    let changed: bool = row.get(1);
+    Ok(changed.then(|| (row.get(0), acting.map(str::to_string))))
 }
 
-/// Failover's end, each network pass. Red stub.
+/// The start of failover (or a change of acting link), told when the first mail is actually diverted (review items 9,
+/// 10, 12): in that delivery's transaction, the acting name is kept as state and the notices are queued: the user (one
+/// line on a change), and the acting agent.
+#[logged]
+async fn failover_started(tx: &tokio_postgres::Transaction<'_>, org_id: i64, acting: &str) -> Result<()> {
+    let Some((before, _)) = note_acting(&*tx, org_id, Some(acting)).await? else { return Ok(()) };
+    let slug: String = tx.query_one("SELECT slug FROM ot.orgs WHERE id = $1", &[&org_id]).await?.get(0);
+    let user = match &before {
+        None => format!("@{acting} is now the acting holder of {slug}'s org mailbox: no holder can receive mail (halted, frozen or retired). Until one can, new outside mail with no reply reference goes to @{acting}, and the org shows online. Replies still go to whoever their thread belongs to; the link stays a weak link."),
+        Some(a) => format!("The acting holder of {slug}'s org mailbox changed from @{a} to @{acting}."),
+    };
+    tx.execute("INSERT INTO ot.mail(uid,org_id,sender,recipient_kind,recipient_name,kind,body,state) VALUES($1,$2,'@system','user','@user','message',$3,'pending')",
+        &[&crate::util::uid("m"), &org_id, &user]).await?;
+    let to_agent = "You are now the acting holder of the org mailbox: no holder can receive mail (halted, frozen or retired). Until one can, new outside mail with no reply reference comes to you, and your turns keep the org online and its last seen moving. Your link stays a weak link, and replies in a holder's threads still wait for that holder.";
+    tx.execute("INSERT INTO ot.mail(uid,org_id,sender,recipient_kind,recipient_agent_id,recipient_name,kind,body,state)
+                SELECT $1, $2, '@system', 'agent', id, name, 'system', $4, 'pending' FROM ot.agents WHERE org_id=$2 AND name=$3 AND state='live'",
+        &[&crate::util::uid("m"), &org_id, &acting, &to_agent]).await?;
+    Ok(())
+}
+
+/// Each network pass: for every org with a stored acting holder whether failover ENDED (a holder can receive again,
+/// or no weak link can act): the user, the acting agent and the returning holders are told once, the holders with
+/// the contacts the acting link handled. The start is told by the first diverted mail (`failover_started`).
 #[logged]
 pub async fn watch_failover(engine: &Arc<Engine>) -> Result<()> {
-    let _ = engine;
+    let client = engine.db.get().await?;
+    // the org mailbox's "acting holder" mark follows the live state: redraw it when it changes (a freeze or a thaw
+    // changes it without any mail)
+    static SHOWN: std::sync::LazyLock<std::sync::Mutex<std::collections::HashMap<i64, Option<String>>>> = std::sync::LazyLock::new(Default::default);
+    for o in client.query(
+        "SELECT o.id, o.settings FROM ot.orgs o WHERE o.state = 'active' AND (o.net ? 'acting_holder' OR EXISTS (SELECT 1 FROM ot.audiences au
+           WHERE au.org_id = o.id AND au.grantor = '@extern-weak' AND au.revoked_at IS NULL))", &[]).await? {
+        let (org_id, raw): (i64, Value) = (o.get(0), o.get(1));
+        let multi = crate::feed::groups::effective_settings(&raw, &engine.settings.defaults())["org_inbox_multi_holder"].as_bool().unwrap_or(false);
+        let now = acting_weak(&**client, org_id, multi).await?;
+        let changed = SHOWN.lock().map(|mut m| m.insert(org_id, now.clone()) != Some(now)).unwrap_or(false);
+        if changed { changes::notify_id(engine, org_id, vec![Change::OrgInbox]); }
+    }
+    let orgs = client.query(
+        "SELECT o.id, o.slug, o.settings, (o.net->>'acting_since')::timestamptz FROM ot.orgs o WHERE o.state = 'active' AND o.net ? 'acting_holder'", &[]).await?;
+    for o in orgs {
+        let (org_id, slug, raw, since): (i64, String, Value, Option<chrono::DateTime<chrono::Utc>>) = (o.get(0), o.get(1), o.get(2), o.get(3));
+        let multi = crate::feed::groups::effective_settings(&raw, &engine.settings.defaults())["org_inbox_multi_holder"].as_bool().unwrap_or(false);
+        let acting = if enabled(&raw) { acting_weak(&**client, org_id, multi).await? } else { None };
+        if acting.is_some() {
+            continue; // still failing over: a change of acting link is told by the next diverted mail
+        }
+        let mut c = engine.db.get().await?;
+        let tx = c.transaction().await?;
+        let Some((Some(was), None)) = note_acting(&*tx, org_id, None).await? else { continue };
+        let contacts: Vec<String> = tx.query(
+            "SELECT DISTINCT peer FROM ot.org_inbox WHERE org_id=$1 AND dir='in' AND delivered_to ? $2 AND at >= coalesce($3, '-infinity'::timestamptz) ORDER BY peer",
+            &[&org_id, &was, &since]).await?.iter().map(|r| r.get(0)).collect();
+        let handled = if contacts.is_empty() { "no new outside mail".to_string() } else { format!("new outside mail from {}", contacts.join(", ")) };
+        let user = format!("A holder of {slug}'s org mailbox can receive mail again: @{was} is no longer acting holder, and new outside mail goes to the holder. @{was} handled {handled}.");
+        tx.execute("INSERT INTO ot.mail(uid,org_id,sender,recipient_kind,recipient_name,kind,body,state) VALUES($1,$2,'@system','user','@user','message',$3,'pending')",
+            &[&crate::util::uid("m"), &org_id, &user]).await?;
+        // the state and every notice commit together: a restart in between neither loses nor repeats them (review A9)
+        let to_acting = format!("You are no longer the acting holder of the org mailbox: a holder can receive mail again, so new outside mail goes to it. Replies to mail you sent or received still come to you. You handled {handled}.");
+        let to_holder = format!("While no holder of the org mailbox could receive mail, @{was} was the acting holder and handled {handled}. New outside mail comes to you again; replies to those messages stay with @{was}.");
+        let mut told: Vec<(String, String)> = vec![(was.clone(), to_acting)];
+        for holder in runnable(&*tx, org_id, &holder_agents(&*tx, org_id, multi).await?).await? {
+            told.push((holder, to_holder.clone()));
+        }
+        let mut woken: Vec<i64> = Vec::new();
+        for (name, text) in &told {
+            if let Some(r) = tx.query_opt("INSERT INTO ot.mail(uid,org_id,sender,recipient_kind,recipient_agent_id,recipient_name,kind,body,state)
+                        SELECT $1, $2, '@system', 'agent', id, name, 'system', $4, 'pending' FROM ot.agents WHERE org_id=$2 AND name=$3 AND state='live'
+                        RETURNING recipient_agent_id",
+                &[&crate::util::uid("m"), &org_id, name, text]).await? {
+                woken.push(r.get(0));
+            }
+        }
+        tx.commit().await?;
+        let mut ch = vec![Change::UserMail, Change::OrgInbox];
+        for id in woken {
+            ch.push(Change::Mailbox(id));
+            crate::runtime::wake(engine, org_id, id);
+        }
+        changes::notify_id(engine, org_id, ch);
+    }
     Ok(())
 }
 
@@ -499,22 +643,8 @@ pub async fn busy<C: tokio_postgres::GenericClient + Sync>(client: &C, org_id: i
     if killed {
         return Ok(true);
     }
-    let all = holder_rows(client, org_id, multi).await?;
-    let agents: Vec<String> = all.iter().filter(|r| r.1 == "agent").map(|r| r.0.clone()).collect();
-    if !runnable(client, org_id, &agents).await?.is_empty() {
-        return Ok(false);
-    }
-    // a project holder is online while one of its armed fair_queue listeners belongs to an agent that can run
-    let projects: Vec<String> = all.iter().filter(|r| r.1 == "project").map(|r| r.0.clone()).collect();
-    if projects.is_empty() {
-        return Ok(true);
-    }
-    Ok(client.query_opt(
-        "SELECT 1 FROM ot.watchdogs w
-           JOIN ot.agents a ON a.id = w.owner_agent_id AND a.state = 'live' AND a.kind = 'agent' AND a.halt IS NULL AND a.frozen IS NULL
-           JOIN ot.agents p ON p.org_id = $1 AND p.name = ANY($2) AND p.id = (w.memo->>'target_id')::bigint
-          WHERE w.org_id = $1 AND w.kind = 'fair_queue' AND w.state = 'armed' LIMIT 1",
-        &[&org_id, &projects]).await?.is_none())
+    // failover: an acting weak link keeps the org online (USER 2026-11-25 m872c7d4f0973)
+    Ok(holders_busy(client, org_id, multi).await? && acting_weak(client, org_id, multi).await?.is_none())
 }
 
 /// The agents in charge of the org mailbox (last active, Mail hub 2.6.0;
@@ -523,11 +653,14 @@ pub async fn busy<C: tokio_postgres::GenericClient + Sync>(client: &C, org_id: i
 /// listener targets it, armed or paused, and those holding one of its jobs
 /// not yet acked (a listener may be spent or paused while its owner works
 /// the job: the owner stays in charge exactly then). Halted or frozen ones
-/// count too. Agent ids, in id order.
+/// count too. While a weak link acts as the holder (failover, `acting_weak`), it is in charge too. Agent ids, in id order.
 #[logged]
 pub async fn in_charge<C: tokio_postgres::GenericClient + Sync>(client: &C, org_id: i64, multi: bool) -> Result<Vec<i64>> {
     let all = holder_rows(client, org_id, multi).await?;
-    let agents: Vec<String> = all.iter().filter(|r| r.1 == "agent").map(|r| r.0.clone()).collect();
+    let mut agents: Vec<String> = all.iter().filter(|r| r.1 == "agent").map(|r| r.0.clone()).collect();
+    if let Some(acting) = acting_weak(client, org_id, multi).await? {
+        agents.push(acting);
+    }
     let projects: Vec<String> = all.iter().filter(|r| r.1 == "project").map(|r| r.0.clone()).collect();
     let rows = client.query(
         "SELECT a.id FROM ot.agents a WHERE a.org_id = $1 AND a.name = ANY($2) AND a.state = 'live' AND a.kind = 'agent'
@@ -646,6 +779,11 @@ pub(crate) async fn may_send_extern(engine: &Arc<Engine>, org_id: i64, agent_id:
         .is_some())
 }
 
+/// What kind of mail `route_tx` routes: new mail (unthreaded, or a send), or a reply whose references resolved but
+/// whose owners are all cut off (it waits for the holders; never the acting weak link).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum Arrival { New, Thread }
+
 /// Serialize only this org's short audience update; never hold the transaction over sending or IO.
 #[logged]
 async fn ensure_holders(engine: &Arc<Engine>, org_id: i64, sender: Option<(i64, &str)>) -> Result<Route> {
@@ -653,7 +791,7 @@ async fn ensure_holders(engine: &Arc<Engine>, org_id: i64, sender: Option<(i64, 
     let tx = client.transaction().await?;
     let raw: Value = tx.query_one("SELECT settings FROM ot.orgs WHERE id = $1 FOR UPDATE", &[&org_id]).await?.get(0);
     check(&raw)?;
-    let (route, changed) = route_tx(&tx, org_id, sender, &raw, &engine.settings.defaults()).await?;
+    let (route, changed) = route_tx(&tx, org_id, sender, &raw, &engine.settings.defaults(), Arrival::New).await?;
     tx.commit().await?;
     if changed { changes::notify_id(engine, org_id, vec![Change::Audiences, Change::OrgInbox, Change::Events]); }
     Ok(route)
@@ -662,9 +800,35 @@ async fn ensure_holders(engine: &Arc<Engine>, org_id: i64, sender: Option<(i64, 
 /// Resolve routing under the publication/policy lock, never from a stale mode.
 #[logged]
 async fn route_tx(tx: &tokio_postgres::Transaction<'_>, org_id:i64, sender:Option<(i64,&str)>, raw:&Value,
-    defaults:&Map<String,Value>) -> Result<(Route,bool)> {
+    defaults:&Map<String,Value>, arrival:Arrival) -> Result<(Route,bool)> {
     let settings = crate::feed::groups::effective_settings(raw, defaults);
     let multi = settings["org_inbox_multi_holder"].as_bool().unwrap_or(false);
+    // a release of held or waiting mail (`release_after`) keeps today's routing: the backlog stays with the holders
+    // (review item 8; the user's U3 is open)
+    let releasing: bool = tx.query_one("SELECT coalesce(current_setting('orgtree.releasing', true), '') = 'on'", &[]).await?.get(0);
+    // failover (USER 2026-11-25 m872c7d4f0973): while every holder is unable to receive, new UNTHREADED mail goes to
+    // the acting weak link alone (one copy, no job, no waiting copies; review item 2), before the top-level fallback
+    // and the auto-grant below; nothing is granted. The first diverted mail tells it (`failover_started`).
+    if sender.is_none() && arrival == Arrival::New && !releasing {
+        if let Some(acting) = acting_weak(&*tx, org_id, multi).await? {
+            failover_started(tx, org_id, &acting).await?;
+            return Ok((Route { to: vec![acting], waiting: false, projects: Vec::new() }, false));
+        }
+    }
+    // a reply whose thread owners are all cut off (a removed or retired weak sender, a recipient without a link)
+    // goes to the holders and waits for them, retired ones included (review items 3, 5, 6)
+    if sender.is_none() && arrival == Arrival::Thread {
+        let holders = tx.query(
+            "SELECT au.grantee FROM ot.audiences au JOIN ot.agents a ON a.org_id = au.org_id AND a.name = au.grantee
+              WHERE au.org_id = $1 AND au.grantor = '@extern' AND au.revoked_at IS NULL AND NOT au.paused
+                AND a.state IN ('live', 'archived') AND a.kind = 'agent'
+              GROUP BY au.grantee ORDER BY max(au.id) DESC LIMIT $2", &[&org_id, &(if multi { 10000i64 } else { 1i64 })]).await?;
+        let holders: Vec<String> = holders.iter().map(|r| r.get(0)).collect();
+        let projects = holder_projects(&*tx, org_id, multi).await?;
+        if !holders.is_empty() || !projects.is_empty() {
+            return Ok((Route { to: holders, waiting: false, projects }, false));
+        }
+    }
     let mut holders = holder_agents(&*tx, org_id, multi).await?;
     let projects = holder_projects(&*tx, org_id, multi).await?;
     let mut weak = false;
@@ -674,7 +838,11 @@ async fn route_tx(tx: &tokio_postgres::Transaction<'_>, org_id:i64, sender:Optio
             if !top { crate::refuse!(Forbidden, "outside mail needs the org-mailbox audience (or a weak link to it); ask your superior"); }
             // Q1 (USER 2026-11-24 19:06:02Z m61f5367a61e7): while the mailbox has a holder, the sender takes a weak
             // link, never the primary; with none it becomes the holder, as before
-            weak = !holder_rows(&*tx, org_id, multi).await?.is_empty();
+            // an unrevoked primary grant to a retired holder still counts (review item 7): no auto-grant during failover
+            weak = !holder_rows(&*tx, org_id, multi).await?.is_empty() || tx.query_opt(
+                "SELECT 1 FROM ot.audiences au JOIN ot.agents a ON a.org_id = au.org_id AND a.name = au.grantee
+                  WHERE au.org_id = $1 AND au.grantor = '@extern' AND au.revoked_at IS NULL AND a.state = 'archived' LIMIT 1",
+                &[&org_id]).await?.is_some();
             Some((id, name.to_string(), if weak { "auto-granted: top-level agent messaged an outside party while the org mailbox has a holder" }
                 else { "auto-granted: top-level agent messaged an outside party" }))
         }
@@ -862,6 +1030,8 @@ async fn release_after(engine:&Arc<Engine>,org:i64,after:i64) -> Result<(usize,i
     // Cheap indexed negative probe before taking the policy lock.
     if c.query_opt(&format!("SELECT 1 FROM ot.org_inbox WHERE org_id=$1 AND id>$2 AND {RELEASABLE} LIMIT 1"),&[&org,&after]).await?.is_none() {return Ok((0,after));}
     let tx=c.transaction().await?;
+    // the backlog keeps today's routing, never the acting weak link (`route_tx`)
+    tx.execute("SET LOCAL orgtree.releasing = 'on'",&[]).await?;
     let raw:Value=tx.query_one("SELECT settings FROM ot.orgs WHERE id=$1 FOR UPDATE",&[&org]).await?.get(0);
     if mode(&raw)!="normal" {return Ok((0,after));}
     let rows=tx.query(&format!("SELECT to_jsonb(i) FROM ot.org_inbox i WHERE org_id=$1 AND id>$2 AND {RELEASABLE} ORDER BY id LIMIT 100 FOR UPDATE"),&[&org,&after]).await?;
@@ -872,8 +1042,8 @@ async fn release_after(engine:&Arc<Engine>,org:i64,after:i64) -> Result<(usize,i
         let multi=settings["org_inbox_multi_holder"].as_bool().unwrap_or(false);
         if holder_rows(&*tx,org,multi).await?.is_empty() {return Ok((0,after));}
     }
-    let (route,_)=route_tx(&tx,org,None,&raw,&engine.settings.defaults()).await?;
-    if route.to.is_empty() && route.projects.is_empty() {return Ok((0,after));}
+    // no pre-routing here: it could write a grant before any row's own thread is known (review A6); each row's
+    // thread resolves first in jobs::publish, and only unthreaded rows reach the router
     let mut copies=Vec::new();
     let mut queued=Vec::new();
     let mut changed=false;

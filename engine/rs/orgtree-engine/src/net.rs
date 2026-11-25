@@ -608,6 +608,10 @@ pub fn start(engine: &Arc<Engine>) {
 
 #[logged]
 async fn pass(engine: &Arc<Engine>) -> Result<()> {
+    // failover's end, for every org (local org mail too): told once (`orginbox::watch_failover`)
+    if let Err(e) = crate::domain::orginbox::watch_failover(engine).await {
+        tracing::warn!(error = %format!("{e:#}"), "org mailbox failover check failed");
+    }
     let parts = participants(engine).await?;
     engine.net.parts.store(Arc::new(parts.clone()));
     register_pending(engine, &parts).await;

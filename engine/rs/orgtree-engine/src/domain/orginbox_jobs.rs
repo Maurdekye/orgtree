@@ -33,10 +33,14 @@ pub(super) struct Published {
 /// Route and publish one received `org_inbox` row (D5 steps 2-4).
 #[logged]
 pub(super) async fn publish(engine: &Engine, tx: &Transaction<'_>, org: i64, raw: &Value, row: &Value) -> Result<Published> {
-    if let Some(p) = threaded(tx, org, row).await? {
+    // threaded is decided once, before routing (review item 3): a reply whose references resolve never reaches the
+    // acting weak link; with every owner cut off it waits for the holders
+    let (threads, resolved) = threaded(tx, org, row).await?;
+    if let Some(p) = threads {
         return Ok(p);
     }
-    let (route, changed) = route_tx(tx, org, None, raw, &engine.settings.defaults()).await?;
+    let arrival = if resolved { super::Arrival::Thread } else { super::Arrival::New };
+    let (route, changed) = route_tx(tx, org, None, raw, &engine.settings.defaults(), arrival).await?;
     let copies = publish_row(tx, org, &route.to, row).await?;
     let jobs = publish_jobs(tx, org, &route.projects, row).await?;
     record_projects(tx, row, &copies, &jobs).await?;
@@ -140,39 +144,85 @@ fn org_refs(row: &Value) -> Vec<String> {
         .collect()
 }
 
-/// D13 then D14 for an inbound `@net:` row; `None` routes it to every holder (D6).
+/// The agent or project `id` that can still own a thread: live, or retired (archived), whose copy waits for a rehire.
 #[logged]
-async fn threaded(tx: &Transaction<'_>, org: i64, row: &Value) -> Result<Option<Published>> {
+async fn owner_by_id(tx: &Transaction<'_>, org: i64, id: i64) -> Result<Option<(String, String, bool)>> {
+    Ok(tx
+        .query_opt("SELECT name, kind, state='live' FROM ot.agents WHERE org_id=$1 AND id=$2 AND state IN ('live','archived')", &[&org, &id])
+        .await?
+        .map(|r| (r.get(0), r.get(1), r.get(2))))
+}
+
+#[logged]
+async fn owner_by_name(tx: &Transaction<'_>, org: i64, name: &str) -> Result<Option<(i64, String, bool)>> {
+    Ok(tx
+        .query_opt("SELECT id, kind, state='live' FROM ot.agents WHERE org_id=$1 AND name=$2 AND state IN ('live','archived')", &[&org, &name])
+        .await?
+        .map(|r| (r.get(0), r.get(1), r.get(2))))
+}
+
+/// Whether a retired node's last org-mailbox link was the primary one: its threads wait for it (@coordinator-opus Q1,
+/// 2026-11-25 m22e544059017); a retired weak-link agent is cut off (USER m39db776a6ae3 "removing the link cuts it off").
+#[logged]
+async fn was_holder(tx: &Transaction<'_>, org: i64, name: &str) -> Result<bool> {
+    Ok(tx
+        .query_opt("SELECT grantor FROM ot.audiences WHERE org_id=$1 AND grantee=$2 AND grantor IN ('@extern','@extern-weak') ORDER BY id DESC LIMIT 1", &[&org, &name])
+        .await?
+        .is_some_and(|r| r.get::<_, String>(0) == "@extern"))
+}
+
+/// How a reply reaches one owner of a message it answers.
+enum Owner {
+    /// D13: the agent that sent the answered mail as the org; the job its send travelled with, if any
+    Sent { name: String, job: Option<String> },
+    /// D14: a node the outside party's own earlier message was delivered to
+    Got { name: String, id: i64, kind: String, o_uid: String, o_net: Option<String> },
+}
+
+impl Owner {
+    #[nolog]
+    fn name(&self) -> &str {
+        match self {
+            Owner::Sent { name, .. } | Owner::Got { name, .. } => name,
+        }
+    }
+}
+
+/// D13 and D14 for an inbound `@net:`/`@org:` row: `(Some, _)` delivered to the thread's owners; `(None, true)` it
+/// answers messages of this org but every owner is cut off (it waits for the holders, `Arrival::Thread`); `(None,
+/// false)` unthreaded (D6). A reply goes to whoever sent or received each message it answers (USER 2026-11-25
+/// m459f4474ab14), once to each distinct owner (a multi-reply, USER mc9c61d55a4ca), and waits for an owner that can't
+/// run now: halted, frozen, or a retired holder (a rehire gets it; m6786e284ed6c, @coordinator-opus Q1). Cut off: a
+/// weak-link sender whose link is gone or who retired, a recipient that holds no link (review item 6), and a deleted
+/// or unrecoverable owner (item 5).
+#[logged]
+async fn threaded(tx: &Transaction<'_>, org: i64, row: &Value) -> Result<(Option<Published>, bool)> {
     let peer = row["peer"].as_str().unwrap_or("");
     if !peer.starts_with("@net:") && !peer.starts_with("@org:") {
-        return Ok(None);
+        return Ok((None, false));
     }
-    let refs = org_refs(row);
-    // D13: the first reference that is one of this org's own sent messages, written by an agent
-    for id in &refs {
-        let Some(sent) = tx
+    let mut owners: Vec<Owner> = Vec::new();
+    let mut resolved = false;
+    for id in &org_refs(row) {
+        // D13: one of this org's own sent messages, written by an agent
+        if let Some(sent) = tx
             .query_opt(
                 "SELECT sender_agent_id, via_job, via_weak FROM ot.org_inbox WHERE org_id=$1 AND uid=$2 AND dir='out' AND peer=$3 AND sender_agent_id IS NOT NULL",
                 &[&org, id, &peer],
             )
             .await?
-        else {
-            continue;
-        };
-        let (sender, via, weak): (i64, Option<String>, bool) = (sent.get(0), sent.get(1), sent.get(2));
-        let Some((name, _)) = live_node(tx, org, sender).await? else { continue };
-        // sent over a weak link: back to its sender only while it still holds a link (revoked: the holders get it)
-        if weak && super::mailbox_link(tx, org, &name).await?.is_none() {
+        {
+            resolved = true;
+            let (sender, via, weak): (i64, Option<String>, bool) = (sent.get(0), sent.get(1), sent.get(2));
+            let Some((name, _, live)) = owner_by_id(tx, org, sender).await? else { continue };
+            // sent over a weak link: back to its sender only while it is live and still holds a link
+            if weak && (!live || super::mailbox_link(tx, org, &name).await?.is_none()) {
+                continue;
+            }
+            owners.push(Owner::Sent { name, job: via });
             continue;
         }
-        let copies = publish_row(tx, org, std::slice::from_ref(&name), row).await?;
-        if let Some(job) = &via {
-            stamp_outside_job(tx, &copies, job).await?;
-        }
-        return Ok(Some(Published { route: Route { to: vec![name], waiting: false, projects: Vec::new() }, copies, jobs: Vec::new(), changed: false }));
-    }
-    // D14: the first reference that is the sender's own earlier message
-    for id in &refs {
+        // D14: the sender's own earlier message
         let Some(orig) = tx
             .query_opt(
                 "SELECT uid, net_id, delivered_to, pulled_by FROM ot.org_inbox WHERE org_id=$1 AND uid=$2 AND dir='in' AND peer=$3",
@@ -182,59 +232,90 @@ async fn threaded(tx: &Transaction<'_>, org: i64, row: &Value) -> Result<Option<
         else {
             continue;
         };
+        resolved = true;
         let (o_uid, o_net): (String, Option<String>) = (orig.get(0), orig.get(1));
         let delivered: Value = orig.get(2);
         let mut names: Vec<String> = delivered.as_array().into_iter().flatten().filter_map(|v| v.as_str().map(str::to_string)).collect();
         if names.is_empty() {
             if let Some(p) = orig.get::<_, Option<i64>>(3) {
-                if let Some((name, _)) = live_node(tx, org, p).await? {
+                if let Some((name, _, true)) = owner_by_id(tx, org, p).await? {
                     names.push(name);
                 }
             }
         }
-        let mut copies = Vec::new();
-        let mut jobs = Vec::new();
-        let mut reached: Vec<String> = Vec::new();
-        let mut agent_names: Vec<String> = Vec::new();
-        let mut project_names: Vec<String> = Vec::new();
         for name in names {
-            let Some((nid, kind)) = live_by_name(tx, org, &name).await? else { continue };
-            if kind == "agent" {
-                let carry: Option<String> = match &o_net {
-                    Some(n) => tx
-                        .query_opt(
-                            "SELECT extra->>'outside_job' FROM ot.mail WHERE org_id=$1 AND recipient_agent_id=$2 AND net_id=$3 AND sender=$4 AND sender_agent_id IS NULL AND net_id IS NOT NULL ORDER BY id DESC LIMIT 1",
-                            &[&org, &nid, n, &peer],
-                        )
-                        .await?
-                        .and_then(|r| r.get(0)),
-                    None => None,
-                };
-                let c = publish_row(tx, org, std::slice::from_ref(&name), row).await?;
-                if let Some(job) = &carry {
+            let Some((nid, kind, live)) = owner_by_name(tx, org, &name).await? else { continue };
+            // an agent keeps the thread while it holds a link (primary or weak); a retired one while its last link was
+            // the primary; any other goes to the holders (a removed link cuts it off)
+            if kind == "agent" && if live { super::mailbox_link(tx, org, &name).await?.is_none() } else { !was_holder(tx, org, &name).await? } {
+                continue;
+            }
+            if kind != "agent" && !live {
+                continue;
+            }
+            owners.push(Owner::Got { name, id: nid, kind, o_uid: o_uid.clone(), o_net: o_net.clone() });
+        }
+    }
+    // each owner once, in reference order
+    let mut seen: Vec<String> = Vec::new();
+    owners.retain(|o| if seen.iter().any(|n| n == o.name()) { false } else { seen.push(o.name().to_string()); true });
+    if owners.is_empty() {
+        return Ok((None, resolved));
+    }
+    let mut copies = Vec::new();
+    let mut jobs = Vec::new();
+    let mut reached: Vec<String> = Vec::new();
+    let mut agent_names: Vec<String> = Vec::new();
+    let mut project_names: Vec<String> = Vec::new();
+    // each publish writes the row's whole delivered_to list: carry it along so one owner's never replaces another's
+    let mut row = row.clone();
+    for owner in owners {
+        match owner {
+            Owner::Sent { name, job } => {
+                let c = publish_row(tx, org, std::slice::from_ref(&name), &row).await?;
+                row["delivered_to"] = delivered_with(&row, &[name.as_str()]);
+                if let Some(job) = &job {
                     stamp_outside_job(tx, &c, job).await?;
                 }
                 copies.extend(c);
                 agent_names.push(name.clone());
-            } else {
-                follow_up(tx, org, nid, &name, row, &o_uid, &mut copies, &mut jobs).await?;
-                project_names.push(name.clone());
+                reached.push(name);
             }
-            reached.push(name);
+            Owner::Got { name, id: nid, kind, o_uid, o_net } => {
+                if kind == "agent" {
+                    let carry: Option<String> = match &o_net {
+                        Some(n) => tx
+                            .query_opt(
+                                "SELECT extra->>'outside_job' FROM ot.mail WHERE org_id=$1 AND recipient_agent_id=$2 AND net_id=$3 AND sender=$4 AND sender_agent_id IS NULL AND net_id IS NOT NULL ORDER BY id DESC LIMIT 1",
+                                &[&org, &nid, n, &peer],
+                            )
+                            .await?
+                            .and_then(|r| r.get(0)),
+                        None => None,
+                    };
+                    let c = publish_row(tx, org, std::slice::from_ref(&name), &row).await?;
+                    row["delivered_to"] = delivered_with(&row, &[name.as_str()]);
+                    if let Some(job) = &carry {
+                        stamp_outside_job(tx, &c, job).await?;
+                    }
+                    copies.extend(c);
+                    agent_names.push(name.clone());
+                } else {
+                    follow_up(tx, org, nid, &name, &row, &o_uid, &mut copies, &mut jobs).await?;
+                    project_names.push(name.clone());
+                }
+                reached.push(name);
+            }
         }
-        if !project_names.is_empty() {
-            // The follow-up is recorded like the original job: the agents, then the projects. The worker a direct
-            // follow-up was handed to is a detail of the job, not a recipient (a reply routes by the job's state).
-            let all: Vec<&str> = agent_names.iter().chain(project_names.iter()).map(String::as_str).collect();
-            let blank = json!({ "uid": row["uid"], "delivered_to": row["delivered_to"] });
-            record_delivered(tx, &blank, &all).await?;
-        }
-        if reached.is_empty() {
-            return Ok(None);
-        }
-        return Ok(Some(Published { route: Route { to: reached, waiting: false, projects: Vec::new() }, copies, jobs, changed: false }));
     }
-    Ok(None)
+    if !project_names.is_empty() {
+        // The follow-up is recorded like the original job: the agents, then the projects. The worker a direct
+        // follow-up was handed to is a detail of the job, not a recipient (a reply routes by the job's state).
+        let all: Vec<&str> = agent_names.iter().chain(project_names.iter()).map(String::as_str).collect();
+        let blank = json!({ "uid": row["uid"], "delivered_to": row["delivered_to"] });
+        record_delivered(tx, &blank, &all).await?;
+    }
+    Ok((Some(Published { route: Route { to: reached, waiting: false, projects: Vec::new() }, copies, jobs, changed: false }), true))
 }
 
 /// D14 for one project recipient: bundle with a job not yet handed out; send straight to the holder of
