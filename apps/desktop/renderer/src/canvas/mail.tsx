@@ -1414,9 +1414,7 @@ export function MailReplyBox({ target, slug, onSend, placeholder, sendDisabled =
   if (attachRef) attachRef.current = attachable ? attach : null
   if (restoreRef) restoreRef.current = ({ text, attached: files }) => {
     const draftNow = currentDraft.current.draft
-    const merged = draftNow.trim() ? text + '
-
-' + draftNow : text
+    const merged = draftNow.trim() ? text + '\n\n' + draftNow : text
     const allFiles = [...files, ...currentDraft.current.attached.filter(a => !files.some(f => f.path === a.path))]
     currentDraft.current = { ...currentDraft.current, draft: merged, attached: allFiles }
     setDraft(merged); setAttached(allFiles)
