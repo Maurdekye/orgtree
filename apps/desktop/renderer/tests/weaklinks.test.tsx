@@ -14,7 +14,7 @@ import { preferencesPatch } from '../../main/policy'
 import type { DesktopPreferences } from '../../../../packages/contracts'
 import { DEFAULT_NOTIFICATIONS } from '../../../../packages/contracts/notifications'
 import { eventFanout } from './heldevents'
-import { audienceGrantTooltip, EXTERN_WEAK, inboxDropChoice, orgInboxLines, type CanvasNode, inboxDropAction, inboxDropHint } from '../src/canvas/shared'
+import { audienceGrantTooltip, EXTERN_WEAK, inboxDropChoice, orgInboxLines, type CanvasNode, inboxDropAction, inboxDropHint, ACTING_HOLDER_TIP } from '../src/canvas/shared'
 
 declare const __SRC_DIR__: string
 const WEAK_TIP = "Weak link: can send mail as the org; new outside mail goes to the org mailbox's holder, and replies to its own mail come back to it"
@@ -175,4 +175,25 @@ test('W7 App settings > Org mailbox: the drag setting, "Make it the holder" by d
     await inAct(async () => { fan.emit({ type: 'preferences', data: { ...prefs, inboxDragMode: 'ask' } }); await flush(8) })
     assert.equal(select.value, 'ask')
   } finally { await view.unmount(); Object.defineProperty(window, 'orgtreeDesktop', { configurable: true, value: undefined }) }
+})
+
+test('W8 failover: the acting weak link is marked on its canvas line and its mailbox badge', async t => {
+  // USER 2026-11-25 m872c7d4f0973; @coordinator-opus edge 5: an "acting holder" label/tooltip on its chip and line
+  assert.deepEqual(orgInboxLines({ holders: ['front'], weak: ['scout', 'kid'], acting: 'scout' }),
+    [['front', 'edge aud-line'], ['scout', 'edge aud-line weak acting'], ['kid', 'edge aud-line weak']])
+  assert.deepEqual(orgInboxLines({ holders: ['front'], weak: ['scout'], acting: null }), [['front', 'edge aud-line'], ['scout', 'edge aud-line weak']])
+  const css = readFileSync(path.join(__SRC_DIR__, 'styles.css'), 'utf8')
+  assert.match(css, /\.edge\.aud-line\.weak\.acting\s*\{/, 'the acting line has its own look')
+  const map = new Map<string, CanvasNode>([['scout', { id: 'scout', kind: 'agent', state: 'live' } as CanvasNode],
+    ['kid', { id: 'kid', kind: 'agent', state: 'live' } as CanvasNode]])
+  const rows = await mountView(<AudienceHolderRows ids={['scout', 'kid']} nodes={map} label="weak links" audienceTarget={EXTERN_WEAK}
+    acting="scout" onRemove={() => {}} />, el => el)
+  t.after(() => rows.unmount())
+  await flush()
+  const [scout, kid] = [...rows.el.querySelectorAll<HTMLElement>('.aud-badge')]
+  assert.ok(scout.classList.contains('acting'), scout.className)
+  assert.match(scout.textContent ?? '', /acting holder/)
+  assert.equal(scout.title, ACTING_HOLDER_TIP + '\n' + WEAK_TIP)
+  assert.ok(!kid.classList.contains('acting') && !/acting/.test(kid.textContent ?? ''), 'only the acting link')
+  assert.equal(kid.title, WEAK_TIP)
 })

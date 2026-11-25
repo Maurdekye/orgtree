@@ -1105,6 +1105,9 @@ export interface TreePayload {
     /** agents holding a WEAK link (`@extern-weak`, USER 2026-11-24 m020bbd1926c3): they send as the org; new
      *  outside mail still goes to `holders`. Missing on older engines: no weak-link UI at all. */
     weak?: string[]
+    /** failover (USER 2026-11-25 m872c7d4f0973): the weak link acting as the holder now, while no holder can
+     *  receive mail; null or missing otherwise (and on older engines) */
+    acting?: string | null
     enabled?: boolean          // missing on older engines: enabled
     mode?: 'normal' | 'dnd' | 'closed'
     multi_holder_enabled: boolean

@@ -1742,7 +1742,7 @@ export function AudienceFold({ ids, label, alert = false, render, limit = AUDIEN
  * Each surface supplies its own revoke action; presentation and identity stay
  * identical while audience authority remains owned by the caller. */
 export function AudienceHolderRows({ ids, nodes, onRemove, audienceTarget = USER,
-  audienceTargetKind, label = 'audience holders', foldLabel = label, alert = false, onFocusAgent,
+  audienceTargetKind, label = 'audience holders', foldLabel = label, alert = false, onFocusAgent, acting,
 }: {
   ids: string[]
   nodes: ReadonlyMap<string, CanvasNode>
@@ -1753,7 +1753,10 @@ export function AudienceHolderRows({ ids, nodes, onRemove, audienceTarget = USER
   foldLabel?: string
   alert?: boolean
   onFocusAgent?: (agentId: string) => void
+  /** the weak link acting as the holder (failover): its badge says so */
+  acting?: string | null
 }) {
+  void acting
   if (!ids.length) return null
   const live = ids.filter((id) => nodes.get(id)?.state === 'live')
   const retired = ids.filter((id) => nodes.get(id)?.state !== 'live')
