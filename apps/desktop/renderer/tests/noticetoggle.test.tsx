@@ -330,9 +330,11 @@ test('the notice edge STYLE is shared; only the composer takes the provider colo
   //    provider colour, so the armed edge follows the provider automatically.
   const armedBlock = css.match(/\.cc-composer\.notice-armed\s*\{([^}]+)\}/)?.[1] ?? ''
   assert.ok(armedBlock, '.cc-composer.notice-armed rule exists')
-  assert.match(armedBlock, /border-style:\s*var\(--notice-edge-style\);/,
-    '.cc-composer.notice-armed must source border-style from --notice-edge-style')
-  assert.match(armedBlock, /border-color:\s*var\(--accent\);/,
+  // its dashes are DRAWN since USER 2026-11-25 m2e0562ae73e8 (sparser than CSS's own `dashed`): the 1px border
+  // stays transparent and the ::before layer carries the provider colour
+  assert.match(armedBlock, /border-color:\s*transparent;/,
+    '.cc-composer.notice-armed keeps its border box, drawn over')
+  assert.match(css.match(/\.cc-composer\.notice-armed::before\s*\{([^}]+)\}/)?.[1] ?? '', /background:\s*var\(--accent\);/,
     '.cc-composer.notice-armed must be provider-coloured, not the neutral notice grey')
   assert.doesNotMatch(armedBlock, /border-color:\s*var\(--notice-edge-color\);/,
     '.cc-composer.notice-armed must NOT take the neutral --notice-edge-color')
@@ -343,8 +345,8 @@ test('the notice edge STYLE is shared; only the composer takes the provider colo
   //    focusing must not change the armed edge at all
   const armedFocusBlock = css.match(/\.cc-composer\.notice-armed:focus-within\s*\{([^}]+)\}/)?.[1] ?? ''
   assert.ok(armedFocusBlock, '.cc-composer.notice-armed:focus-within rule exists')
-  assert.match(armedFocusBlock, /border-color:\s*var\(--accent\);/,
-    '.cc-composer.notice-armed:focus-within must keep the provider colour')
+  assert.match(armedFocusBlock, /border-color:\s*transparent;/,
+    '.cc-composer.notice-armed:focus-within must keep the drawn edge alone (no solid focus border over it)')
 
   // 5. Non-notice composer borders are untouched
   const composerBlock = css.match(/\.cc-composer\s*\{([^}]+)\}/)?.[1] ?? ''
@@ -657,5 +659,33 @@ test('switchboard: independent states survive focus changes, Alt+N keyboard scop
     await view.unmount()
     resetNoticeStore()
     resetConvos()
+  }
+})
+
+test('the armed notice toggle is a slashed bell, never the ringing one, in every composer; its box gets sparser dashes, the same colour and width', () => {
+  // USER 2026-11-25 m8fa7fe204469: "the notice send icon gets action lines when enabled, as though it's louder,
+  // which is the reverse of what it actually does. it should get a different icon when enabled, like a bell with
+  // a slash through it"; m2e0562ae73e8: "increase the spacing of the dashes on the border of the messagebox when
+  // the notice toggle is enabled"
+  const read = (f: string) => readFileSync(path.join(__SRC_DIR__, f), 'utf8')
+  assert.match(read('icons.ts'), /export \{ default as NotificationsOffIcon \} from '@mui\/icons-material\/NotificationsOffOutlined'/,
+    'the slashed bell, outlined like the plain one')
+  for (const f of ['canvas/desk.tsx', 'canvas/mail.tsx', 'canvas/projectdesk.tsx']) {
+    const src = read(f)
+    assert.match(src, /\? <NotificationsOffIcon fontSize="inherit" \/> : <NotificationsIcon fontSize="inherit" \/>/, `${f}: armed = slashed, off = plain`)
+    assert.doesNotMatch(src, /NotificationsActiveIcon fontSize="inherit" \/> : <NotificationsIcon/, `${f}: no ringing bell on the toggle`)
+  }
+  const css = read('styles.css')
+  for (const box of ['.cc-composer', '.mail-reply']) {
+    const rule = css.match(new RegExp(box.replace('.', '\\.') + '\\.notice-armed \\{([^}]*)\\}'))?.[1] ?? ''
+    assert.match(rule, /border-width: 1px/, `${box}: the same width`)
+    assert.match(rule, /border-color: transparent/, `${box}: the border box stays, so nothing moves; its dashes are drawn`)
+    const before = css.match(new RegExp(box.replace('.', '\\.') + '\\.notice-armed::before \\{([^}]*)\\}'))?.[1] ?? ''
+    assert.match(before, /background: var\(--accent\)/, `${box}: the same colour`)
+    const dash = before.match(/stroke-dasharray='(\d+) (\d+)'/)
+    assert.ok(dash, `${box}: drawn dashes`)
+    // a 1px CSS dashed border draws 3px dashes with 3px gaps in Chromium
+    assert.ok(Number(dash![2]) >= 2 * 3, `${box}: gaps at least twice today's (${dash![2]} px)`)
+    assert.match(before, /stroke-width='2'/, `${box}: 1px of the stroke inside the box, as the border was`)
   }
 })

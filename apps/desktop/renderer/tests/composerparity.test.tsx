@@ -357,12 +357,12 @@ test('§4 the armed reply composer has a real CSS rule, and it is the SHARED '
   const css = readFileSync(path.join(__SRC_DIR__, 'styles.css'), 'utf8')
   const rule = css.match(/\.mail-reply\.notice-armed \{([^}]*)\}/)
   assert.ok(rule, '.mail-reply.notice-armed exists')
-  assert.match(rule[1]!, /border-style:\s*var\(--notice-edge-style\)/,
-    'the STYLE comes from the shared token, exactly as .cc-composer.notice-armed does')
-  assert.match(rule[1]!, /border-color:\s*var\(--accent\)/,
+  // the dashes are drawn, sparser than CSS's own (USER 2026-11-25 m2e0562ae73e8), exactly as .cc-composer.notice-armed's
+  assert.match(rule[1]!, /border-color:\s*transparent/, 'the border box stays; its dashes are drawn over it')
+  assert.match(css.match(/\.mail-reply\.notice-armed::before \{([^}]*)\}/)?.[1] ?? '', /background:\s*var\(--accent\)/,
     'the COLOUR is the provider accent (user 2026-09-17), never the neutral grey')
-  assert.match(css, /\.mail-reply\.notice-armed:focus-within \{ border-color: var\(--accent\); \}/,
-    'focusing the draft must not wash the armed colour away')
+  assert.match(css, /\.mail-reply\.notice-armed:focus-within \{ border-color: transparent; \}/,
+    'focusing the draft must not draw a solid border over the dashes')
   // and it stays in step with the desk composer's own rule
   const desk = css.match(/\.cc-composer\.notice-armed \{([^}]*)\}/)
   assert.ok(desk)
