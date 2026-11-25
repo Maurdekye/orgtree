@@ -36,9 +36,12 @@ pub async fn for_org(client: &Client, org_id: i64, slug: &str) -> Result<Vec<Val
             "title": format!("{agent} asks"), "body": gist(q, 300),
         }));
     }
+    // A notice raises no alert (USER 2026-11-25 15:12:47Z m66c0b3c98c18: "notices sent to the user
+    // should not trigger a notification, even if normal mail is set to trigger one"): it stays unread
+    // mail in the chats and the inbox, which read ot.mail themselves.
     let mail = all_rows(client,
             "SELECT uid, sender, body, urgent, urgent_reason, ev, reply_to, replies, id FROM ot.mail
-              WHERE org_id = $1 AND recipient_kind = 'user' AND state = 'pending' AND id < $2 ORDER BY id DESC LIMIT 200",
+              WHERE org_id = $1 AND recipient_kind = 'user' AND state = 'pending' AND NOT notice AND id < $2 ORDER BY id DESC LIMIT 200",
             org_id, i64::MAX,
         )
         .await?;
