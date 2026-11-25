@@ -64,7 +64,10 @@ export const OPEN_CHAT_ON_REPLY_HINT
 
 /** "Open this agent's chat": the shell listens (App.tsx) and opens the user's
  *  mailbox panel on it. */
-type ChatRequest = (org: string, peer: string) => void
+type ChatRequest = (org: string, peer: string, opts?: ChatRequestOptions) => void
+/** `grant`: the chat may be one the target has no audience for yet; the inbox grants it one first,
+ *  through New chat's own path (DmPanel startChat), and opens nothing if that grant fails */
+export interface ChatRequestOptions { grant?: boolean }
 const chatSubs = new Set<ChatRequest>()
 export const onChatRequest = (fn: ChatRequest): (() => void) => {
   chatSubs.add(fn)
@@ -90,9 +93,32 @@ export const setShownChat = (org: string, peer: string | null): void => {
   else if (shownChat?.org === org) shownChat = null
 }
 
-export const openAgentChat = (org: string, peer: string): boolean => {
+export const openAgentChat = (org: string, peer: string, opts?: ChatRequestOptions): boolean => {
   if (!peer || !chatSubs.size) return false
-  for (const fn of [...chatSubs]) fn(org, peer)
+  for (const fn of [...chatSubs]) fn(org, peer, opts)
+  return true
+}
+
+/** INBOX LINKS (USER 2026-11-25 14:24:01Z ma84dfc37f5a6: "add an open chat context menu entry to every
+ *  agent / project link in the inbox context; if they don't have an audience, grant one before opening the
+ *  chat. state that opening the chat grants an audience in the hover tooltip"). The inbox context is the
+ *  user's chats panel; a link inside it gets Open chat for any LIVE agent or project (a retired one cannot
+ *  be granted an audience). `needsGrant` mirrors New chat (DmPanel startChat): false for a holder of a user
+ *  audience, its own or through its project, and for a top-level agent, which writes to the user anyway.
+ *  `nodes` is the canvas map (flatten(): top-level cards have the eye root, state 'user', as parent) or a
+ *  map whose top-level nodes have no parent. Null outside the inbox and with the classic mailbox. */
+export const INBOX_LINK_CONTEXT = '.dm-panel'
+type ChatTarget = { id: string; kind?: string | null; state?: string; parent?: string | null; audiences_held?: readonly string[] | null }
+export const inboxChatFor = (target: Element | null | undefined, nodes: ReadonlyMap<string, ChatTarget>,
+  node: ChatTarget): { needsGrant: boolean } | null => {
+  if (classicMailbox() || node.state !== 'live' || !target?.closest(INBOX_LINK_CONTEXT)) return null
+  return { needsGrant: !node.audiences_held?.includes('@user') && !topLevelAgent(nodes, node) }
+}
+function topLevelAgent(nodes: ReadonlyMap<string, ChatTarget>, n: ChatTarget): boolean {
+  if (n.kind === 'project') return false
+  for (let up = n.parent ? nodes.get(n.parent) : undefined; up && up.state !== 'user'; up = up.parent ? nodes.get(up.parent) : undefined) {
+    if (up.kind !== 'project') return false
+  }
   return true
 }
 

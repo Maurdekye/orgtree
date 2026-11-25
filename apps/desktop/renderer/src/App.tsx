@@ -523,7 +523,7 @@ export default function App() {
   const [inboxJump, setInboxJump] = useState<JumpReq | null>(null)
   // "open this agent's chat": a reply sent on a presentation or a ticket asks
   // for it (mailboxpref.ts `replySentOnObject`, USER 2026-11-23 me0241bccf7b4)
-  const [chatAsk, setChatAsk] = useState<{ org: string; peer: string; seq: number } | null>(null)
+  const [chatAsk, setChatAsk] = useState<{ org: string; peer: string; seq: number; grant?: boolean } | null>(null)
   const [drawer, setDrawer] = useState(false)
   const [doomedOrg, setDoomedOrg] = useState<OrgListEntry | null>(null)   // org row pending deletion
   const [showDefaults, setShowDefaults] = useState(false)   // global new-org defaults
@@ -644,7 +644,7 @@ export default function App() {
   usePersistedModalOpen('app-settings', slug, showAccounts)
   usePersistedModalOpen('org-settings', slug, showSettings)
   usePersistedModalOpen('inbox', slug, showInbox)
-  useEffect(() => onChatRequest((org, peer) => {
+  useEffect(() => onChatRequest((org, peer, opts) => {
     // an empty org is "this window's organization" (the agent menu's Chat entry)
     if (!slug || (org && org !== slug)) return
     // ⚠ THE CHAT WOULD OPEN BEHIND THE READER THE REPLY WAS TYPED IN. The
@@ -654,7 +654,8 @@ export default function App() {
     // and stays beside the chat.
     closeIfCentred('gallery', () => setShowGallery(false), slug)
     closeIfCentred('docket', () => { setShowDocket(false); setDocketJump(null) }, slug)
-    setChatAsk({ org: slug, peer, seq: Date.now() })
+    // `grant`: an inbox link's Open chat, which grants a user audience first when missing
+    setChatAsk({ org: slug, peer, seq: Date.now(), grant: opts?.grant })
     setInboxJump(null)
     setShowInbox(true)
     raisePinnedModal('inbox', slug)
@@ -3142,7 +3143,7 @@ function useShellRefs(slug: string, tree: TreePayload | null, routes: {
  *  `openChat` asks the chats for one agent's chat (a reply sent on a
  *  presentation or a ticket); the classic mailbox has no such place. */
 export function UserMailbox(props: Parameters<typeof InboxPanel>[0] & {
-  openChat?: { peer: string; seq: number } | null
+  openChat?: { peer: string; seq: number; grant?: boolean } | null
   /** the chat header's gear: open this agent's settings */
   onAgentSettings?: (agentId: string) => void
 }) {

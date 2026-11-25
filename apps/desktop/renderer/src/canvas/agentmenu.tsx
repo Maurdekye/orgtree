@@ -151,6 +151,26 @@ export interface AgentMenuState extends HireProviders {
   /** the card is (or would become) a pile/crowd FRONT: its edges belong to
    *  the stack, so there is no free side to hire into */
   piled?: boolean
+  /** the link was right-clicked inside the user's chats panel (mailboxpref `inboxChatFor`): Open chat for
+   *  any live agent or project, granting a user audience first when `needsGrant` */
+  inboxChat?: { needsGrant: boolean } | null
+}
+
+/** OPEN CHAT, right after Open. In the inbox (USER 2026-11-25 14:24:01Z ma84dfc37f5a6 "add an open chat
+ *  context menu entry to every agent / project link in the inbox context; if they don't have an audience,
+ *  grant one before opening the chat. state that opening the chat grants an audience in the hover
+ *  tooltip"): every live agent and project, through the inbox's New chat path. Elsewhere (USER
+ *  2026-11-25 13:04:54Z m9b2f753b0fa5): an agent holding a user audience, own or through its project
+ *  (canChatWith, the predicate the plain click uses). `withOpen` keeps it beside Open when the renderer
+ *  moves Open second (contextmenu.tsx MenuEntries). */
+function placeOpenChat(entries: MenuEntry[], node: CanvasNode, s: AgentMenuState): void {
+  const inbox = s.inboxChat
+  if (!inbox && !canChatWith(node)) return
+  const title = `your chat with ${node.id}, in your Inbox`
+    + (inbox?.needsGrant ? `. Opening it grants ${node.id} an audience with you` : '')
+  const openAt = entries.findIndex(e => e !== 'sep' && e.label === 'Open' && !!e.children)
+  entries.splice(openAt >= 0 ? openAt + 1 : entries.length, 0, { label: 'Open chat', title, withOpen: true,
+    onSelect: () => { openAgentChat('', node.id, inbox ? { grant: true } : undefined) } })
 }
 
 /**
@@ -388,14 +408,8 @@ export function agentMenuEntries(node: CanvasNode, h: AgentMenuHandlers,
   }
   entries.push(...portableEntries(node, h, live && !node.isBearerOf && !node.bearer_state, descendants.length > 0 || (node.children ?? []).some((c) => c.state === 'live')))
   if (lifecycle.length) entries.push('sep', ...lifecycle)
-  // OPEN CHAT (USER 2026-11-25 13:04:54Z m9b2f753b0fa5 "an extra context menu entry for "open chat" for
-  // agent links that have audience with you directly or indirectly"): the plain click's chat, at the top
-  // level right after Open, for an agent holding a user audience of its own or through its project
-  // (canChatWith, the predicate the plain click uses). `withOpen` keeps it there when the renderer moves
-  // Open second (contextmenu.tsx MenuEntries). Open > Chat stays where it was.
-  const openAt = entries.findIndex(e => e !== 'sep' && e.label === 'Open' && !!e.children)
-  if (canChatWith(node)) entries.splice(openAt >= 0 ? openAt + 1 : entries.length, 0, { label: 'Open chat',
-    title: `your chat with ${node.id}, in your Inbox`, withOpen: true, onSelect: () => { openAgentChat('', node.id) } })
+  // OPEN CHAT, once every splice is done (placeOpenChat). Open > Chat stays where it was.
+  placeOpenChat(entries, node, s)
   return entries
 }
 
@@ -554,6 +568,8 @@ export function projectMenuEntries(node: CanvasNode, h: AgentMenuHandlers,
   } else {
     entries.push(...portableEntries(node, h, live, (node.children ?? []).some((c) => c.state === 'live')))
   }
+  // a project's Open chat is the inbox's only (canChatWith is agents only)
+  placeOpenChat(entries, node, s)
   return entries
 }
 

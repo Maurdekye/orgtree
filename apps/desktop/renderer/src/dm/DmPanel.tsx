@@ -156,7 +156,7 @@ export interface DmPanelProps {
   /** the request's own identity, so a repeat click is a new request */
   jumpSeq?: number | null
   /** open the chat with this agent; a new `seq` is a new request */
-  openChat?: { peer: string; seq: number } | null
+  openChat?: { peer: string; seq: number; grant?: boolean } | null
   onFocusAgent?: (agentId: string) => void
   /** the chat header's gear; without it the panel asks for the settings
    *  window itself (`openSettingsAt`, which the canvas answers) */
@@ -379,13 +379,6 @@ export function DmPanel({ slug, tree, toast, refresh, close, jumpTo, jumpSeq, op
     if (pick) select(pick)
   }, [box, slug, chats, sel, jumpTo, openChat, select])
 
-  // a request from outside to open one agent's chat
-  const openedChat = useRef<number | null>(null)
-  useEffect(() => {
-    if (!openChat || openedChat.current === openChat.seq) return
-    openedChat.current = openChat.seq
-    select(openChat.peer)
-  }, [openChat, select])
 
   // A REFERENCE TO ONE MAIL opens the chat that holds it and shows the mail.
   // One outside the loaded window is asked for once, by id, as the classic
@@ -511,6 +504,19 @@ export function DmPanel({ slug, tree, toast, refresh, close, jumpTo, jumpSeq, op
       .then(() => { setAudBump(n => n + 1); refresh?.(); select(id) })
       .catch((e: Error) => toast([`could not open a chat with ${id}: ${e.message}`]))
   }, [nodes, chats, slug, select, refresh, toast, closePicker])
+
+  // a request from outside to open one agent's chat. With `grant` (an inbox link's Open chat, USER
+  // 2026-11-25 ma84dfc37f5a6) it is New chat's path: a target without a user audience is granted one
+  // first, and a refused grant shows its error and opens nothing. It waits for the audiences read: before
+  // it, the chats cannot tell who already holds an audience, and a panel opened by the request has none
+  const openedChat = useRef<number | null>(null)
+  useEffect(() => {
+    if (!openChat || openedChat.current === openChat.seq) return
+    if (openChat.grant && grants === null) return
+    openedChat.current = openChat.seq
+    if (openChat.grant) startChat(openChat.peer)
+    else select(openChat.peer)
+  }, [openChat, select, startChat, grants])
 
   // approving a request is the existing grant; it rejects when the engine refuses
   const approve = useCallback((peer: string) =>

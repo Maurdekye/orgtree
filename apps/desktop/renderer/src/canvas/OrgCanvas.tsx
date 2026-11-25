@@ -131,7 +131,7 @@ import { ProjectDesk, ProjectDeskModal, ProjectInboxModal } from './projectdesk'
 import { PROJECT_DRAFT, ProjectDraftNode, projectDraftSteps } from './newproject'
 import { scratchFolderAction } from '../scratch-folder'
 import { AgentNavProvider, agentNavProps, agentTooltipProps, useProvideAgentNav } from './agentnav'
-import { agentLinkChat } from '../mailboxpref'
+import { agentLinkChat, inboxChatFor } from '../mailboxpref'
 import type { AgentTooltipInfo } from './agentnav'
 import { TierChip, nodeTierOf } from './identity'
 import { ObjectNavProvider } from './objectnav'
@@ -3995,7 +3995,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
 
   const trayRowMenu = (n: CanvasNode, go: () => void,
     ask: (a: { id: string; kind: RetireKind }) => void,
-    deskNow: ReturnType<typeof useDeskActionsNow>): MenuEntry[] => {
+    deskNow: ReturnType<typeof useDeskActionsNow>, target?: Element): MenuEntry[] => {
     // read at menu-open time, never subscribed to (deskhosts.tsx)
     const desk = deskNow(n)
     return agentMenuEntries(n, {
@@ -4058,6 +4058,8 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
       // front) a pile front, and a pile front hires nowhere: its edges are the
       // stack. Same answer the card gives, decided before the walk.
       piled: pileByFront.has(n.id) || hidden.has(n.id),
+      // a link in the user's chats panel: Open chat for every live agent and project (USER 2026-11-25 ma84dfc37f5a6)
+      inboxChat: inboxChatFor(target, map, n),
     })
   }
 
