@@ -1492,6 +1492,9 @@ pub async fn block(engine: &Engine, client: &tokio_postgres::Client, org: &Value
     let names = engine.net.names.pin();
     let versions = engine.net.versions.pin();
     let first_enabled = hubs.iter().position(|h| h["enabled"].as_bool().unwrap_or(true));
+    // the address each hub is polled at (what `blocks` is keyed by); a rig's hosted hub can differ from the saved one
+    let parts = engine.net.parts.load_full();
+    let live = parts.iter().find(|p| p.org_id == org_id);
     let out: Vec<Value> = hubs
         .iter()
         .enumerate()
@@ -1518,7 +1521,8 @@ pub async fn block(engine: &Engine, client: &tokio_postgres::Client, org: &Value
                 "roster": roster,
             });
             // whom the org blocks there and who blocks it there (Mail hub 2.6.0)
-            if let Some((b, by)) = engine.net.blocks.pin().get(&(addr.clone(), own.clone())) {
+            let polled = live.and_then(|p| p.hubs.iter().find(|(hid, _)| *hid == id)).map_or(&addr, |(_, a)| a);
+            if let Some((b, by)) = engine.net.blocks.pin().get(&(polled.clone(), own.clone())) {
                 v["blocks"] = json!(b);
                 v["blocked_by"] = json!(by);
             }

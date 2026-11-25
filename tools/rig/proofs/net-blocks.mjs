@@ -65,8 +65,14 @@ export default async function (rig) {
     return (b.blocked_by ?? []).includes(pat.slug) ? b : null
   }, { what: 'the org to hear that Pat blocks it', timeout: 90000 }).catch(() => null)
   p.check('after a poll the org shows Pat in its blocked-by list (GET /api/orgs/{org}/net/blocks)', !!seen, seen)
-  const hubRow = ((await rig.api('GET', `/api/orgs/${A}`)).net?.hubs ?? []).find(h => h.connected)
-  p.check('the mailservers tab\'s hub row carries the same word (net.hubs[].blocked_by)', (hubRow?.blocked_by ?? []).includes(pat.slug), { blocks: hubRow?.blocks, blocked_by: hubRow?.blocked_by })
+  // the tree is the org feed's snapshot, refreshed after the change notice (Change::Net): wait for it, as the window does
+  let hubRows = []
+  const hubRow = await rig.waitFor(async () => {
+    hubRows = (await rig.api('GET', `/api/orgs/${A}`)).net?.hubs ?? []
+    return hubRows.find(h => h.connected && (h.blocked_by ?? []).includes(pat.slug)) ?? null
+  }, { what: "the org tree's hub row to carry the block", timeout: 30000 }).catch(() => null)
+  p.check("the mailservers tab's hub row carries the same word (net.hubs[].blocked_by)", !!hubRow,
+    hubRows.map(h => ({ id: h.id, address: h.address, connected: h.connected, hidden: h.hidden, version: h.version, blocks: h.blocks, blocked_by: h.blocked_by })))
   const userNotice = await rig.waitFor(() => rig.one(`SELECT body FROM ot.mail WHERE org_id = (SELECT id FROM ot.orgs WHERE slug = '${q(A)}' AND state = 'active')
       AND recipient_kind = 'user' AND sender = '@system' AND body LIKE '%${q(pat.slug)}%' ORDER BY id DESC LIMIT 1`), { what: 'the user to be told of the block', timeout: 30000 }).catch(() => null)
   p.check('the user is told that Pat blocked the org', !!userNotice, userNotice)
