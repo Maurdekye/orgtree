@@ -2699,3 +2699,27 @@ test('View in @agent\'s inbox reaches the agent\'s mailbox through the mail-link
   assert.equal(await route('m1'), 0, 'an ordinary link afterwards does not open the mailbox')
   assert.deepEqual(views, [{ id: 'm1', peer: 'worker' }], 'it opens the chat, as before')
 })
+
+// A JUMP HIGHLIGHTS THE WHOLE ROW (USER 2026-11-25 21:40:58Z mba561e16fb40: "the highlight for chat messages needs to
+// be more prominent, highlight the whole row"). Every jump (a reference, a quote, View in chat, the search) marks its
+// message with `.flash`; that one style tints the whole row across the chat's width, stronger than the old ring
+// around the bubble, and fades as before. jsdom draws nothing: the style is read from dm.css, and the capture kit
+// measures it in a real window (dm-alpha1 section 29).
+test('a jump highlights the whole row across the chat, in one shared style that fades', async () => {
+  const { readFileSync } = await import('node:fs')
+  const { default: path } = await import('node:path')
+  const css = readFileSync(path.join(__SRC_DIR__, 'dm', 'dm.css'), 'utf8')
+  const rule = (sel: string) => css.match(new RegExp(sel.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + ' \\{([^}]*)\\}'))?.[1] ?? null
+  const flash = rule('.dm-msg.flash')
+  assert.ok(flash, 'the row itself carries the highlight (.dm-msg.flash)')
+  assert.match(flash!, /animation: dm-row-flash /, 'one animation, on the row')
+  assert.equal(/\.dm-msg\.flash \.dm-bubble[^{]*\{[^}]*animation/.test(css), false, 'no second highlight on the bubble alone')
+  const frames = css.match(/@keyframes dm-row-flash \{([\s\S]*?)\}\s*\}/)?.[1] ?? ''
+  assert.match(frames, /background-color: color-mix\(in srgb, var\(--accent\) (\d+)%, transparent\)/, 'the flash token: the accent, mixed')
+  const pct = Number(frames.match(/var\(--accent\) (\d+)%/)?.[1])
+  assert.ok(pct > 28, `stronger than the old ring's 28% (${pct}%)`)
+  assert.match(frames, /box-shadow: 0 0 0 100vmax /, 'it reaches past the row to both sides of the chat')
+  assert.match(frames, /clip-path: inset\(-?\d+px -100vmax\)/, 'only sideways: the rows above and below are not tinted')
+  assert.match(frames, /100% \{[^}]*transparent/, 'it fades')
+  assert.match(css, /prefers-reduced-motion: reduce\) \{[^}]*\.dm-msg\.flash \{[^}]*animation: dm-row-flash-still /, 'with reduced motion it shows and goes without fading')
+})
