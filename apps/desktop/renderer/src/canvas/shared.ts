@@ -1680,7 +1680,7 @@ export const ACTING_HOLDER_TIP = 'Acting holder: no holder of the org mailbox ca
  *  (`aud-line weak`, USER 2026-11-24 m020bbd1926c3), on the same path. */
 export function orgInboxLines(inbox?: { holders?: string[]; weak?: string[]; acting?: string | null } | null): [string, string][] {
   return [...(inbox?.holders ?? []).map((h): [string, string] => [h, 'edge aud-line']),
-    ...(inbox?.weak ?? []).map((h): [string, string] => [h, 'edge aud-line weak'])]
+    ...(inbox?.weak ?? []).map((h): [string, string] => [h, 'edge aud-line weak' + (h === inbox?.acting ? ' acting' : '')])]
 }
 
 /** Dropping node `id` (of `kind`) on the org mailbox: `null` grants the primary link at once (no holder yet, it already

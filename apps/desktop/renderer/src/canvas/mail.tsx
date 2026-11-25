@@ -43,8 +43,7 @@ import {
 } from '../icons'
 import {
   audienceGrantTooltip, EXTERN, EXTERN_WEAK, isMailNotice, isSystemNotice, jumpKey, md, pileNotices, providerOf, SYSTEM, USER,
-  useEsc, useHideRetired,
-} from './shared'
+  useEsc, useHideRetired, ACTING_HOLDER_TIP } from './shared'
 import type { CanvasNode, MailRow } from './shared'
 import { AgentLink, AgentName } from './identity'
 import { megaphoneWords } from './inboxwarning'
@@ -1756,16 +1755,16 @@ export function AudienceHolderRows({ ids, nodes, onRemove, audienceTarget = USER
   /** the weak link acting as the holder (failover): its badge says so */
   acting?: string | null
 }) {
-  void acting
   if (!ids.length) return null
   const live = ids.filter((id) => nodes.get(id)?.state === 'live')
   const retired = ids.filter((id) => nodes.get(id)?.state !== 'live')
   const render = (id: string, dim = false) => (
-    <span key={id} className={'badge aud-badge ' + (dim ? 'dim' : 'free')}
-      title={audienceGrantTooltip(audienceTarget, audienceTarget === EXTERN ? nodes.get(id)?.kind : audienceTargetKind)}>
+    <span key={id} className={'badge aud-badge ' + (dim ? 'dim' : 'free') + (id === acting ? ' acting' : '')}
+      title={(id === acting ? ACTING_HOLDER_TIP + '\n' : '') + audienceGrantTooltip(audienceTarget, audienceTarget === EXTERN ? nodes.get(id)?.kind : audienceTargetKind)}>
       <HearingIcon fontSize="inherit" />
       <AgentName id={id} tier={nodes.get(id)?.tier}
         onFocus={onFocusAgent ? (agentId: string) => onFocusAgent(agentId) : undefined} />
+      {id === acting && <span className="acting-tag">acting holder</span>}
       <button className="chip-x" title="Revoke" type="button"
         onClick={() => onRemove(id)}><CloseIcon fontSize="inherit" /></button>
     </span>
@@ -2445,7 +2444,7 @@ export function OrgInboxModal({ inbox, net, map, slug, toast, close, jumpTo,
                 .then(() => toast([`org-mailbox audience for ${h} rescinded`]))
                 .catch((e: Error) => toast([`error: ${e.message}`]))} />
             <AudienceHolderRows ids={weakLinks} nodes={map} label="weak links"
-              foldLabel="weak links to the org mailbox" audienceTarget={EXTERN_WEAK}
+              foldLabel="weak links to the org mailbox" audienceTarget={EXTERN_WEAK} acting={inbox?.acting}
               onRemove={(h) => audienceAction(slug, 'revoke', h, EXTERN_WEAK)
                 .then(() => toast([`weak link for ${h} rescinded`]))
                 .catch((e: Error) => toast([`error: ${e.message}`]))} />
