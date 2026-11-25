@@ -79,6 +79,8 @@ interface World {
   older?: { delivered?: unknown[]; sent?: unknown[] }[]
   /** an older page (any `before=` read) is answered only once this settles: a page on its way */
   holdPages?: Promise<void>
+  /** a take-back (the desk's retract) is refused, as the engine refuses mail already delivered */
+  retractRefuse?: boolean
 }
 
 function engine(world: World) {
@@ -109,6 +111,13 @@ function engine(world: World) {
       world.pending = (world.pending ?? []).filter(m => !ids.includes((m as { id: string }).id))
       world.delivered = [...(world.delivered ?? []), ...read]
       return json({ read: read.length })
+    }
+    // the desk's retract: the user's own mail to that agent, while still pending (http::nodes::retract)
+    const retract = method === 'DELETE' ? path.match(/\/nodes\/([^/]+)\/mail\/([^/?]+)$/) : null
+    if (retract) {
+      if (world.retractRefuse) return json({ error: 'that message was already delivered (or is not yours to retract)' }, 409)
+      world.sent = (world.sent ?? []).map(m => (m as { id: string }).id === retract[2] ? { ...(m as object), retracted: true, delivered: undefined } : m)
+      return json({ retracted: retract[2] })
     }
     const byId = path.match(/\/mail\/user\/([^?]+)/)
     if (byId) {
@@ -2498,4 +2507,52 @@ test('a message’s menu has "View in classic inbox": the classic mailbox opens 
   const labels = menus.length ? [...menus[menus.length - 1]!.querySelectorAll('[role="menuitem"]')].map(i => i.textContent?.trim()) : []
   assert.ok(labels.includes('Retry'), `POSITIVE CONTROL: its menu (${labels.join(' | ')})`)
   assert.equal(labels.includes('View in classic inbox'), false, 'no entry: it has no mail yet')
+})
+
+test('the user’s own unread message has the desk’s ×: it takes the mail back through the desk’s own call, and the bubble goes', async (t) => {
+  setClassicMailbox(false)
+  // USER 2026-11-25 m88681ac17bfd "have an x for unread mail like in the desk which takes it back, but thats it":
+  // the desk's rule (PendingMailRow): undelivered and not being handed to a turn; read, on its way into a
+  // turn, already taken back, or from an engine that does not say: no ×
+  const world: World = { sent: [
+    sent('u1', 'solo', '2026-11-20T10:00:00Z', { delivered: false }),
+    sent('u2', 'solo', '2026-11-20T10:01:00Z', { delivered: true }),
+    sent('u3', 'solo', '2026-11-20T10:02:00Z', { delivered: false, delivering: true }),
+    sent('u4', 'solo', '2026-11-20T10:03:00Z'),
+    sent('u5', 'solo', '2026-11-20T10:04:00Z', { retracted: true }),
+    sent('u6', 'solo', '2026-11-20T10:05:00Z', { delivered: false }),
+  ] }
+  const s = await setup(t, world)
+  await s.openChat('solo')
+  const bubble = (id: string) => document.querySelector<HTMLElement>(`.dm-msg[data-dm-entry="${id}"]`)
+  const x = (id: string) => bubble(id)?.querySelector<HTMLButtonElement>('button.dm-retract') ?? null
+  assert.ok(bubble('u2'), 'POSITIVE CONTROL: the chat is open on its messages')
+  assert.equal(bubble('u5'), null, 'a mail already taken back is not in the chat, as it is not on the desk')
+  assert.deepEqual(['u1', 'u2', 'u3', 'u4', 'u6'].filter(id => x(id)), ['u1', 'u6'], 'only the unread ones not yet on their way have it')
+  assert.equal(x('u1')!.title, 'retract (undelivered)', 'the desk’s tooltip')
+  // the bubble's menu has it too, as the classic mailbox's menu does
+  const menuOf = async (id: string) => {
+    await inAct(async () => { bubble(id)!.querySelector('.dm-bubble')!.dispatchEvent(new W.MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 10, clientY: 10 })); await flush(6) })
+    const menus = [...document.querySelectorAll<HTMLElement>('[role="menu"]')]
+    const labels = menus.length ? [...menus[menus.length - 1]!.querySelectorAll('[role="menuitem"]')].map(i => i.textContent?.trim()) : []
+    await inAct(async () => { document.dispatchEvent(new W.KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); await flush(4) })
+    return labels
+  }
+  assert.ok((await menuOf('u1')).includes('Retract (undelivered)'), 'the menu of an unread one has it')
+  assert.equal((await menuOf('u2')).includes('Retract (undelivered)'), false, 'a read one’s menu has not')
+
+  await s.click(x('u1'), 'the × of u1')
+  const del = s.server.calls.filter(c => c.method === 'DELETE')
+  assert.deepEqual(del.map(c => c.path.replace(/^.*\/api/, '')), ['/orgs/mine/nodes/solo/mail/u1'], 'the desk’s own call, once')
+  assert.deepEqual(s.confirms, [], 'no confirmation, as on the desk')
+  assert.equal(bubble('u1'), null, 'the bubble goes')
+  await inAct(async () => { await flush(12) })
+  assert.equal(bubble('u1'), null, 'and stays gone once the engine says it is taken back')
+
+  // refused (read in the meantime): the error is said, and the bubble stays
+  world.retractRefuse = true
+  await s.click(x('u6'), 'the × of u6')
+  await inAct(async () => { await flush(12) })
+  assert.ok(bubble('u6'), 'the bubble is back where it was')
+  assert.ok(s.state.toasts.some(m => /already delivered/.test(m)), `the engine’s reason is shown (${s.state.toasts.join(' | ')})`)
 })
