@@ -155,7 +155,7 @@ import {
 import { MailboxIcon } from './dm/mailboxicon'
 import { ClassicMailboxToggle } from './dm/classictoggle'
 import { DmPanel } from './dm/DmPanel'
-import { INBOX_TITLE, onChatRequest, setClassicMailbox, useClassicMailbox, userMailboxTitle } from './mailboxpref'
+import { INBOX_TITLE, onChatRequest, onMailViewRequest, setClassicMailbox, useClassicMailbox, userMailboxTitle } from './mailboxpref'
 import { DirList } from './forms'
 import { FolderPickerHost } from './picker'
 import { activeDocCount, ALL_TIERS, attentionPip, deskDpi, fmtCredits, formatCount, isOpenRouterTier, jumpKey, jumpTo, orgPxc, presenceOfPayload, primedRestartChip, setDeskDpi, syncProviderRegistries, TIER_LETTER, tierLabel, unicodeLength, usePolled } from './canvas/shared'
@@ -521,7 +521,7 @@ export default function App() {
   const [showInbox, setShowInbox] = useState(false)
   // the mail a chat link or a reference targets — a REQUEST, so a second
   // click on the same message is a second request (`jumpTo` in shared.ts)
-  const [inboxJump, setInboxJump] = useState<JumpReq | null>(null)
+  const [inboxJump, setInboxJump] = useState<(JumpReq & { peer?: string }) | null>(null)
   // "open this agent's chat": a reply sent on a presentation or a ticket asks
   // for it (mailboxpref.ts `replySentOnObject`, USER 2026-11-23 me0241bccf7b4)
   const [chatAsk, setChatAsk] = useState<{ org: string; peer: string; seq: number; grant?: boolean } | null>(null)
@@ -658,6 +658,18 @@ export default function App() {
     // `grant`: an inbox link's Open chat, which grants a user audience first when missing
     setChatAsk({ org: slug, peer, seq: Date.now(), grant: opts?.grant })
     setInboxJump(null)
+    setShowInbox(true)
+    raisePinnedModal('inbox', slug)
+  }), [slug])
+  // VIEW IN CHAT / VIEW IN CLASSIC INBOX (mailboxpref viewMailIn, USER 2026-11-25 m70e86c04946e, m2fb0c88ab8f8): the
+  // view is already set; the mailbox opens on that mail through its own reference jump (the chats select its
+  // chat and flash it; the classic mailbox opens its folder, selects it and scrolls to it), as a mail link does
+  useEffect(() => onMailViewRequest((org, id, peer) => {
+    if (!slug || (org && org !== slug)) return
+    closeIfCentred('gallery', () => setShowGallery(false), slug)
+    closeIfCentred('docket', () => { setShowDocket(false); setDocketJump(null) }, slug)
+    setChatAsk(null)
+    setInboxJump({ ...jumpTo(id), peer })
     setShowInbox(true)
     raisePinnedModal('inbox', slug)
   }), [slug])
@@ -2305,7 +2317,7 @@ export default function App() {
               {showInbox && (
                 <UserMailbox slug={slug} tree={tree} toast={toast} openChat={chatAsk?.org === slug ? chatAsk : null}
                   refresh={() => refreshTree(slug)}
-                  jumpTo={inboxJump?.id ?? null} jumpSeq={inboxJump?.seq}
+                  jumpTo={inboxJump?.id ?? null} jumpSeq={inboxJump?.seq} jumpPeer={inboxJump?.peer}
                   onAgentSettings={(id) => {
                     // the agent's settings window is the canvas's own (its
                     // card's gear), opened OVER the inbox: the chat, its
@@ -3147,10 +3159,12 @@ export function UserMailbox(props: Parameters<typeof InboxPanel>[0] & {
   openChat?: { peer: string; seq: number; grant?: boolean } | null
   /** the chat header's gear: open this agent's settings */
   onAgentSettings?: (agentId: string) => void
+  /** the chat holding `jumpTo`, where the asker knew it (mailboxpref viewMailIn) */
+  jumpPeer?: string
 }) {
   const classic = useClassicMailbox()
   const toggle = <ClassicMailboxToggle />
-  const { openChat, onAgentSettings, ...mail } = props
+  const { openChat, onAgentSettings, jumpPeer, ...mail } = props
   // "View in classic inbox" (USER 2026-11-25 ma79665bf7f2e): the same switch as the toggle, then the classic
   // mailbox's own reference jump to that mail (its folder, a cleared tag filter, a lookup outside the loaded
   // window, the not-found notice). Held only while the classic view shows, and given up to a newer outside jump.
@@ -3443,7 +3457,7 @@ export function InboxPanel({ slug, tree, toast, refresh, close, jumpTo, jumpSeq,
           {box == null
             ? <div className="dim">loading…</div>
             : folder === 'inbox'
-              ? <MailList hideMailReplyKind pending={withAcks([...unreadMail, ...askPending] as MailEntry[])}
+              ? <MailList userBox hideMailReplyKind pending={withAcks([...unreadMail, ...askPending] as MailEntry[])}
                   tagFilter={{selected:mailTag,choices:tagChoices.labels,onChange:setMailTag,onSearch:setTagQuery,
                     onLoadMore:tagChoices.loadMore,hasMore:!!tagChoices.cursor,loading:tagChoices.loading,error:tagChoices.error,onRetry:tagChoices.retry}}
                   hasMore={mailTag.length?!!taggedMail.box.next_cursor:history.hasMore} loadingMore={mailTag.length?taggedMail.loading:history.loading}
@@ -3522,7 +3536,7 @@ export function InboxPanel({ slug, tree, toast, refresh, close, jumpTo, jumpSeq,
                  folder — the panel above asks and opens the one that does. It
                  hands down the OUTCOME of that question (`askState`) so this
                  list does not read an unfinished or failed one as an absence. */
-              : <MailList org={slug} delivered={box.sent ?? []} outgoing refs={mailRefs} toast={toast}
+              : <MailList userBox org={slug} delivered={box.sent ?? []} outgoing refs={mailRefs} toast={toast}
                   hasMore={history.hasMore} loadingMore={history.loading} onLoadMore={history.loadMore}
                   collapsible
                   jumpTo={jumpTo} jumpSeq={jumpSeq}

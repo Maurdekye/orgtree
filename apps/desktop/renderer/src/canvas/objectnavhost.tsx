@@ -17,6 +17,7 @@ import { useProvideObjectNav } from './objectnav'
 import { appRefRow, panelRefRow } from './apprefs'
 import { appLinkMenu, panelLinkMenu } from './apps/links'
 import { refNames } from './refnames'
+import { chatPeerOf, isChatMail, viewMailIn, VIEW_IN_CHAT, VIEW_IN_CLASSIC } from '../mailboxpref'
 
 /** The current org's existing routes, shared by links and direct object menus. */
 export function ObjectNavHost({ org, dogs, openDog, openTicket, openDocument, openMail, focusAgent, toast, isProject }:
@@ -36,8 +37,14 @@ export function ObjectNavHost({ org, dogs, openDog, openTicket, openDocument, op
         if (!row) return []
         const reference = refToken({ kind: 'mail', ...ref })
         const immediate = mailRowCopyText(row), needsFetch = mailRowNeedsFullFetch(row)
-        return mailMenuEntries({ leading: openMail ? [{ label: 'Open', onSelect: () => openMail({ id,
-          to: ref.box === 'user' ? 'user_inbox' : ref.box === 'org' ? `@org:${org}` : ref.node! }) }] : [],
+        // a mail between the user and an agent or project: both views, each set before it opens (USER 2026-11-25
+        // m2fb0c88ab8f8); a node box's row names its recipient in `to`, the user's own box carries none on received mail
+        const chat = ref.box !== 'org' && isChatMail(row as { from?: unknown; to?: unknown }, ref.box === 'user')
+        const peer = ref.box === 'node' && row.from === '@user' ? ref.node : chatPeerOf(row as { from?: unknown; to?: unknown }, ref.box === 'user')
+        const views = chat ? [{ label: VIEW_IN_CHAT, onSelect: () => { viewMailIn('chat', org, id, peer) } },
+          { label: VIEW_IN_CLASSIC, onSelect: () => { viewMailIn('classic', org, id) } }] : []
+        return mailMenuEntries({ leading: [...(openMail ? [{ label: 'Open', onSelect: () => openMail({ id,
+          to: ref.box === 'user' ? 'user_inbox' : ref.box === 'org' ? `@org:${org}` : ref.node! }) }] : []), ...views],
           canCopy: Boolean(immediate.trim() || needsFetch), reference, copyReference: () => copy(reference),
           copy: () => {
             const done = (text: string) => text.trim() ? copy(text) : toast(['could not copy — message is empty'])

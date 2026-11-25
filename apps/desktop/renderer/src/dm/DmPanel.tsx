@@ -155,6 +155,9 @@ export interface DmPanelProps {
   jumpTo: string | null
   /** the request's own identity, so a repeat click is a new request */
   jumpSeq?: number | null
+  /** the chat holding `jumpTo`, where the asker knew it: the user's own mail read back by id names no recipient
+   *  (View in chat, mailboxpref viewMailIn) */
+  jumpPeer?: string
   /** open the chat with this agent; a new `seq` is a new request */
   openChat?: { peer: string; seq: number; grant?: boolean } | null
   onFocusAgent?: (agentId: string) => void
@@ -242,7 +245,7 @@ const remembered = (slug: string): string | null => {
   try { return window.sessionStorage.getItem(rememberKey(slug)) } catch { return null }
 }
 
-export function DmPanel({ slug, tree, toast, refresh, close, jumpTo, jumpSeq, openChat,
+export function DmPanel({ slug, tree, toast, refresh, close, jumpTo, jumpSeq, jumpPeer, openChat,
   onFocusAgent, onAgentSettings, onViewClassic, refs, headerActions }: DmPanelProps) {
   const nodes = useMemo(() => dmNodes(tree), [tree])
   // ⚠ THE SAME READS THE CLASSIC MAILBOX MAKES, nothing more: the pushed inbox
@@ -348,13 +351,15 @@ export function DmPanel({ slug, tree, toast, refresh, close, jumpTo, jumpSeq, op
     const pending = new Map<string, MailEntry>()
     for (const m of [...inbox.box.pending, ...(own?.pending ?? [])]) pending.set(m.id, m)
     const delivered = new Map<string, MailEntry>()
+    // a message looked up by id: the user's own joins the sent mail (its `to` set by the jump), the rest the received
     const extra = looked.filter(l => l.slug === slug).map(l => l.mail)
-    for (const m of [...extra, ...(own?.delivered ?? []), ...inbox.box.delivered]) if (!pending.has(m.id)) delivered.set(m.id, m)
+    const extraIn = extra.filter(m => m.from !== USER), extraOut = extra.filter(m => m.from === USER) as unknown as InboxPayload['sent']
+    for (const m of [...extraIn, ...(own?.delivered ?? []), ...inbox.box.delivered]) if (!pending.has(m.id)) delivered.set(m.id, m)
     const sent = new Map<string, InboxPayload['sent'][number]>()
     // a mail taken back is not in the chat, as it is not on the desk (USER 2026-11-25 m88681ac17bfd)
     const back = new Set([...(own?.sent ?? []), ...outbox.box.sent]
       .filter(m => (m as { retracted?: boolean }).retracted === true).map(m => m.id))
-    for (const m of [...(own?.sent ?? []), ...outbox.box.sent]) if (!back.has(m.id) && !takenBack.has(m.id)) sent.set(m.id, m)
+    for (const m of [...extraOut, ...(own?.sent ?? []), ...outbox.box.sent]) if (!back.has(m.id) && !takenBack.has(m.id)) sent.set(m.id, m)
     return { pending: [...pending.values()], delivered: [...delivered.values()], sent: [...sent.values()] }
   }, [inbox.box, outbox.box, chatPages.box, ownPages, looked, slug, takenBack])
 
@@ -410,11 +415,16 @@ export function DmPanel({ slug, tree, toast, refresh, close, jumpTo, jumpSeq, op
       if (!live || jumped.current !== request) return
       const mail = r.mail
       if (!mail) { toast(['That message is not in your mailbox any more.']); return }
-      setLooked(old => [...old.filter(l => !(l.slug === slug && l.mail.id === mail.id)), { slug, mail }])
-      show(mail.from)
+      // the user's own message joins its chat's sent mail, under the recipient the asker named (View in chat);
+      // without one there is no chat to show it in
+      const peer = mail.from === USER ? jumpPeer : mail.from
+      if (!peer) { toast(['That message is not in a chat.']); return }
+      const row = mail.from === USER ? { ...mail, to: peer } as MailEntry : mail
+      setLooked(old => [...old.filter(l => !(l.slug === slug && l.mail.id === row.id)), { slug, mail: row }])
+      show(peer)
     }).catch((e: Error) => { if (live) toast([`could not open that message: ${e.message}`]) })
     return () => { live = false }
-  }, [jumpTo, jumpSeq, box, chats, slug, select, toast])
+  }, [jumpTo, jumpSeq, jumpPeer, box, chats, slug, select, toast])
 
   const readNow = useCallback((mails: MailEntry[]) => {
     const fresh = mails.filter(m => m.id && !readLocally(slug, m.id))

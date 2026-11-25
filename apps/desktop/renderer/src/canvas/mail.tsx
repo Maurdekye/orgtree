@@ -5,6 +5,7 @@ import { appendSelection } from '../replySelection'
 import type { SelectionDraft, SelectionTarget } from '../replySelection'
 import { MentionLanding } from './mentionlanding'
 import { hasMailAttention } from '../mailattention'
+import { chatPeerOf, isChatMail, viewMailIn, VIEW_IN_CHAT } from '../mailboxpref'
 import { focusComposerBackground } from '../composerfocus'
 import { resizeComposer } from '../composerautosize'
 import { readComposerDraft, writeComposerDraft } from '../composerdrafts'
@@ -91,6 +92,8 @@ import type { InboxSelectionRequest } from '../inboxselection'
 // selected message opened in the reading pane on the right. Unread mail is
 // HIGHLIGHTED but never moved.
 export interface MailListProps {
+  /** the user's own mailbox: its received rows carry no `to`, and every one is the user's (mailboxpref chatPeerOf) */
+  userBox?: boolean
   /** Org outbox attribution owns the header's left side; metadata trails it. */
   compoundHeader?: boolean
   selectionRequest?: InboxSelectionRequest
@@ -239,6 +242,8 @@ export interface MailRowMenuActions {
   retract?: () => void
   /** delete the reader's own copy (never an ask) */
   remove?: () => void
+  /** a mail between the user and an agent or project: that chat, with it flashed (mailboxpref viewMailIn) */
+  viewInChat?: () => void
 }
 
 /** Where the copy entries copy from and to. */
@@ -267,6 +272,7 @@ export function mailRowMenuEntries(m: MailRow, a: MailRowMenuActions, c: MailRow
   const { el, toast, lookup } = c
   const entries: MenuEntry[] = [
     a.selected ? { label: 'Close', onSelect: a.close } : { label: 'Open', onSelect: a.open },
+    ...(a.viewInChat && m.id && !m._ask ? [{ label: VIEW_IN_CHAT, onSelect: a.viewInChat }] : []),
   ]
   if (a.reply && !m._ask) entries.push({ label: 'Reply', onSelect: a.reply })
   if (a.markRead && m._wait && m.id && !m._ask) entries.push({ label: 'Mark as read', onSelect: a.markRead })
@@ -319,7 +325,7 @@ export function MailList({ org, pending = [], delivered = [], waitLabel, sender,
   outgoing, onRead, onReply, onAckJob, replyConversation, canReply: canReplyTo, onRetract, onDeleteUserMail, jumpTo, jumpSeq, selectOldestUnread, restoreSelectionId, onOpenMail, lookup, onFound,
   askState, onAskRetry, fileHref, mdBase, renderBody, rowMark,
   onFocusAgent, tierOf, hasAgent, refs, refOf, toast, collapsible, tagFilter, onLoadMore, hasMore, loadingMore, hideMailReplyKind,selectionRequest,hiddenUnread,
-  projectMail, filterRequest }: MailListProps) {
+  projectMail, filterRequest, userBox }: MailListProps) {
   // ONE order, by send time, always — never grouped, never re-grouped.
   //
   // Unread used to sort as its own block on top, which meant the list
@@ -667,6 +673,9 @@ export function MailList({ org, pending = [], delivered = [], waitLabel, sender,
       markRead: onRead ? () => { void Promise.resolve(onRead(m)).catch(() => {}) } : undefined,
       retract: onRetract ? () => onRetract(m) : undefined,
       remove: !outgoing && onDeleteUserMail ? () => onDeleteUserMail(m) : undefined,
+      // View in chat (USER 2026-11-25 m70e86c04946e): the user's classic mailbox, an agent's mailbox and a desk's Mail tab
+      viewInChat: m.id && isChatMail(m as { from?: unknown; to?: unknown }, userBox)
+        ? () => { viewMailIn('chat', org ?? refs?.world.org ?? '', m.id!, chatPeerOf(m as { from?: unknown; to?: unknown }, userBox)) } : undefined,
     }, { el: rootRef.current, org: org ?? refs?.world.org ?? '', lookup, toast, reference: refOf?.(m) ?? null })
   }
   const custom = cur ? renderBody?.(cur) ?? null : null

@@ -131,7 +131,7 @@ import { ProjectDesk, ProjectDeskModal, ProjectInboxModal } from './projectdesk'
 import { PROJECT_DRAFT, ProjectDraftNode, projectDraftSteps } from './newproject'
 import { scratchFolderAction } from '../scratch-folder'
 import { AgentNavProvider, agentNavProps, agentTooltipProps, useProvideAgentNav } from './agentnav'
-import { agentLinkChat, chatTargetFor } from '../mailboxpref'
+import { agentLinkChat, chatTargetFor, mailLinkToChat } from '../mailboxpref'
 import type { AgentTooltipInfo } from './agentnav'
 import { TierChip, nodeTierOf } from './identity'
 import { ObjectNavProvider } from './objectnav'
@@ -1316,8 +1316,13 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
       setOiJump({ id: String(m.id), seq: jumpTo(String(m.id)).seq })
       setOiOpen(true)
     } else if (map.has(m.to)) {
-      setNodeInboxJump({ agent: m.to, id: String(m.id), seq: jumpTo(String(m.id)).seq })
-      openInbox(m.to, { ensureOpen: true })
+      const agent = m.to, id = String(m.id)
+      const toInbox = () => {
+        setNodeInboxJump({ agent, id, seq: jumpTo(id).seq })
+        openInbox(agent, { ensureOpen: true })
+      }
+      // a mail between the user and this agent or project opens in the user's chat while the chats are on
+      mailLinkToChat(slug, id, agent, toInbox)
     }
   }
   const openMail = useCallback<MailLinkFn>((m) => openMailRef.current?.(m), [])
