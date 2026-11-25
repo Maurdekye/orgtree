@@ -145,12 +145,14 @@ are a second view over the same reads and calls.
   OrgCanvas (`closeCanvasFloating`: `useModalInstances().closeCentred()` per kind, lineage, org-inbox, desk
   glance, retired list). Floating = centred (`closeIfCentred`). "Open chat" is spliced right after Open when
   `canChatWith`. [verified: `tests/linkmenufocus.test.tsx`]
-- INBOX LINKS' OPEN CHAT (USER 2026-11-25 ma84dfc37f5a6): OrgCanvas `trayRowMenu` passes the right-clicked
-  link to mailboxpref `inboxChatFor` (inside `.dm-panel`, live target, not classic; `needsGrant` unless it
-  holds `@user` in `audiences_held` or is a top-level agent). `placeOpenChat` (agent and project menus) then
-  adds Open chat after Open for any target, tooltip naming the grant; `openAgentChat(..., { grant: true })`
-  reaches DmPanel's `openChat.grant`, which runs New chat's `startChat` once the audiences read is in.
-  [verified: `tests/inboxopenchat.test.tsx`, `tests/dmpanel.test.tsx`]
+- OPEN CHAT EVERYWHERE (USER 2026-11-25 ma84dfc37f5a6, widened m0a8fdb69edb9/m6da526799148, classic m46b47955f2ac):
+  all three builders' callers (OrgCanvas `trayRowMenu` for links and rows, cards.tsx NodeSquare, projectcard.tsx)
+  pass `chat: chatTargetFor(map, node)` (mailboxpref: live target; `needsGrant` unless it holds `@user` in
+  `audiences_held` or is a top-level agent). `placeOpenChat` adds Open chat after Open (`withOpen`), titled by
+  `openChatTitle` (lists the classic switch and/or the grant). `openChatFrom` turns the classic view off, then
+  `openAgentChat(..., { grant: true })` reaches DmPanel's `openChat.grant`, which runs New chat's `startChat` once
+  the audiences read is in. A builder given no `chat` keeps the 4e1df11 rule (canChatWith).
+  [verified: `tests/inboxopenchat.test.tsx`, `tests/dmpanel.test.tsx`, `tests/agentrowmenu.test.tsx` §1c]
 
 ## Retired counts are non-interactive (2026-11-19, 4.6.4)
 
