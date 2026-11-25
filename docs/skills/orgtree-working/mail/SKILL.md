@@ -26,6 +26,7 @@ Choose the child page for the task; tool pages hold call mechanics, workflow pag
 - [orgtree-tool-audience](tool-audience/SKILL.md): Request, grant, deny, revoke audiences outside the chain of command.
 - [orgtree-tool-transfers](tool-transfers/SKILL.md): Inspect and control attachment transfers.
 - [orgtree-tool-block](tool-block/SKILL.md): Block or unblock an outside contact for the whole org; who blocks the org.
+- [orgtree-tool-lockdown](tool-lockdown/SKILL.md): Lock the org mailbox to listed outside addresses (last resort against a flood); open or close outside communication.
 - [orgtree-tool-list-orgs](tool-list-orgs/SKILL.md): Other organizations reachable as @org: and @net: addresses.
 
 For screens and settings, use `orgtree-app`; cross-category references name the skill and breadcrumb rather than linking outside this bundle.

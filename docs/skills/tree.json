@@ -1089,6 +1089,7 @@
     "tool-audience",
     "tool-transfers",
     "tool-block",
+    "tool-lockdown",
     "tool-list-orgs",
     "mail-basics",
     "chain-and-audiences",
@@ -1306,6 +1307,37 @@
     "external-mail",
     "org-mailbox",
     "tool-message"
+   ]
+  },
+  {
+   "path": "orgtree-working/mail/tool-lockdown",
+   "name": "orgtree-tool-lockdown",
+   "level": 3,
+   "kind": "tool",
+   "covers": [
+    "orgtree_lockdown"
+   ],
+   "tool_group": "messaging",
+   "purpose": "Lock the org mailbox so only listed outside addresses reach it; open or close outside communication.",
+   "must_cover": [
+    "when to use it and when not",
+    "every parameter/action with defaults and limits from the definition",
+    "refusals and error texts agents hit",
+    "top-level vs. non-top-level differences",
+    "a minimal correct example call"
+   ],
+   "sources": [
+    "engine/rs/orgtree-engine/src/tools/lockdown.rs",
+    "engine/rs/orgtree-engine/src/net/lockdown.rs",
+    "engine/rs/orgtree-engine/src/tools/defs.rs build_tool_lockdown()"
+   ],
+   "writer": "mailhub-opus",
+   "status": "fixed",
+   "registered": false,
+   "see_also": [
+    "tool-block",
+    "external-mail",
+    "org-mailbox"
    ]
   },
   {
