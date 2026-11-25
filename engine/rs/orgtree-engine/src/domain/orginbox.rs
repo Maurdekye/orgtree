@@ -356,6 +356,8 @@ pub async fn send_extern(engine: &Arc<Engine>, org_id: i64, out: &Outgoing) -> R
         )
         .await?;
     tx.execute("UPDATE ot.org_inbox SET kind=$2 WHERE uid=$1", &[&in_uid,&out.kind]).await?;
+    // delivered here and now: a weak link's send moves the org's last seen (USER meb7815aff52d)
+    if via_weak { weak_sent(&tx, org_id).await?; }
     let (published, held) = publish_new(engine,&tx,dst.id,&in_uid).await?;
     let jobs::Published { route, copies: delivered, jobs: queued, changed: audience_changed } = published;
     let holders = &route.to;
@@ -366,6 +368,7 @@ pub async fn send_extern(engine: &Arc<Engine>, org_id: i64, out: &Outgoing) -> R
     }
     tx.commit().await?;
     drop(client);
+    if via_weak { crate::net::kick(engine); }
     // the spark rides from the sender to the mailbox here, and from the mailbox to each holder there
     changes::notify(engine, &src, vec![Change::OrgInbox, Change::Spark { from: out.from.spark(), to: "org_inbox".into() }]);
     changes::notify(engine, &dst, vec![Change::OrgInbox]);
@@ -553,6 +556,18 @@ pub async fn raise_last_active<C: tokio_postgres::GenericClient + Sync>(client: 
          SELECT (coalesce((SELECT net FROM up), (SELECT net FROM ot.orgs WHERE id = $1))->>'last_active_at')::timestamptz",
         &[&org_id, &newest]).await?;
     Ok(row.get(0))
+}
+
+/// A mail a weak link sent as the org has left (the hub took it, or a local org got it): the org was seen now
+/// (USER 2026-11-25 09:48Z meb7815aff52d "a mail send from a weak link should update the last seen time, but it
+/// shouldnt count as active now while a weak link holder is active"). It raises the same never-lowered mark the
+/// turn ends of the agents in charge raise (`raise_last_active`); "active now" and busy still come from those
+/// agents only (`in_charge` holds no weak link). The caller kicks the network pass once committed, so hubs with
+/// `last_active` hear it at once.
+#[logged]
+pub async fn weak_sent<C: tokio_postgres::GenericClient + Sync>(client: &C, org_id: i64) -> Result<()> {
+    raise_last_active(client, org_id, Some(chrono::Utc::now())).await?;
+    Ok(())
 }
 
 #[cfg(test)]

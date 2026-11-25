@@ -1003,13 +1003,19 @@ async fn drain(engine: &Arc<Engine>, parts: &[Part]) -> Result<()> {
         match res {
             Ok(resp) if resp.status().is_success() => {
                 let client = engine.db.get().await?;
-                client
-                    .execute(
-                        "UPDATE ot.org_inbox SET state = 'sent', state_at = now(), hub = $2, last_err = NULL, tries = 0 WHERE id = $1",
+                let weak: Option<bool> = client
+                    .query_opt(
+                        "UPDATE ot.org_inbox SET state = 'sent', state_at = now(), hub = $2, last_err = NULL, tries = 0 WHERE id = $1 RETURNING via_weak",
                         &[&row_id, &hid],
                     )
-                    .await?;
+                    .await?
+                    .map(|r| r.get(0));
+                // the hub took it: a weak link's send moves the org's last seen (USER meb7815aff52d)
+                if weak == Some(true) {
+                    crate::domain::orginbox::weak_sent(&**client, org_id).await?;
+                }
                 drop(client);
+                if weak == Some(true) { kick(engine); }
                 set_status(engine, org_id, &hid, true, None);
                 succeeded(engine, &addr);
                 if let Some(o) = engine.orgs.by_id(org_id) {
