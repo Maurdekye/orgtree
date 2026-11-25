@@ -135,6 +135,10 @@ are a second view over the same reads and calls.
   (after the audience entries) and on the header. TRANSFERS: `useMessageTransfers(slug, 'user')` (transfers.tsx)
   maps the user's transfers by message; `MailAttachments transfer=` draws `fileTransferView` per unfinished
   file (`.attach-transfer`, over a picture when `.pic`). [verified: `tests/dmparity.test.tsx`]
+- TRANSFERS TAB (USER 2026-11-25 m7202711b8122, m97f5f119dea3): every mailbox's transfers tab is one
+  `TransferPanel tab=` inside `.mail-transfers-pane`. In tab mode the panel's own section is the scroll area
+  (no card, no 240 px `.transfer-list` cap) and history pages load within 240 px of its end (MailList's rule),
+  also as rows arrive; no Load more anywhere. [verified: `tests/transfers-lazy.test.tsx`]
 
 ## Retired counts are non-interactive (2026-11-19, 4.6.4)
 
