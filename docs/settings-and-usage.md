@@ -70,7 +70,7 @@ These presentation preferences do not change agent prompts. Some are stored per 
 
 ## Choose notifications
 
-Open **Runtime > Notifications**. The master switch pauses native alerts without forgetting the selected categories. Questions, urgent mail, terminal failures, docket attention and mentions start on. Routine **All mail**, new presentations, frozen-agent alerts and **Notify while Orgtree is focused** start off; older saved preferences can differ.
+Open **Runtime > Notifications**. The master switch pauses native alerts without forgetting the selected categories. Questions, urgent mail, terminal failures, docket attention and mentions start on. Routine **All mail**, new presentations, frozen-agent alerts and **Notify while Orgtree is focused** start off; older saved preferences can differ. A notice an agent sends you (passive mail) never raises a notification, even with **All mail** on or when it mentions you; it still shows as unread in your chats and inbox.
 
 By default a focused visible Orgtree window suppresses desktop banners, even if another organization is in the background. Clicking a question banner brings its organization window forward; if the asking agent's desk is already open as a floating desk, a desk pin, on its zoomed canvas card or switchboard panel or in the Attention agent desk, that desk comes to the front with the question focused instead of the Inbox. Enable the focused option if you want those banners while working in Orgtree. On Windows, the **Open questions** preference chooses whether taskbar question entries focus the asking desk or open questions as mail (hidden on macOS and Linux).
 

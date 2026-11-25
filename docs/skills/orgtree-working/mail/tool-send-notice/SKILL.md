@@ -39,7 +39,7 @@ Passive delivery alone does not suppress the usual reply grant to a deep descend
 
 For a live same-org agent, the notice is stored for its next turn. An already running agent can receive it at a tool boundary; passive does not mean hidden until the turn ends. Archived/halted/frozen recipient limitations are the same as [ordinary mail](../tool-message/SKILL.md).
 
-The no-wake guarantee does not extend to outside publication: the current `@org:`/`@net:` route does not propagate the passive flag to receiving holder copies. Do not promise that an external organization remains idle because a send used this tool. User mail also follows the ordinary user-inbox access gate.
+The no-wake guarantee does not extend to outside publication: the current `@org:`/`@net:` route does not propagate the passive flag to receiving holder copies. Do not promise that an external organization remains idle because a send used this tool. User mail also follows the ordinary user-inbox access gate. A notice to the user raises no desktop notification, whatever the user's notification settings and even when it names @user; it still lands unread in their chats and inbox. Use an ordinary message (or `urgent`) when the user should be alerted.
 
 Lists deliver independently: inspect each outcome, since a permitted recipient can receive a notice while another is refused. Empty recipients, too many distinct recipients, blank body, missing reach/audience, disabled outside mailbox and unavailable destinations use the ordinary message refusals. Ordinary contact with a deep descendant can grant the reply audience described above; `one_time:true` omits it. Nothing schedules a future rehire/unhalt.
 
