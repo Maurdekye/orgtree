@@ -1,5 +1,12 @@
 # Transfers disclosure default
 
+SUPERSEDED on the mailboxes (USER 2026-11-25 m7202711b8122, m1a3bfa49d5b8):
+Transfers is its own "transfers" tab beside inbox and sent in the org
+mailbox, InboxView (desks, NodeInboxModal) and the user Inbox (App.tsx
+InboxPanel). TransferPanel's `tab` prop shows the list while its tab is open;
+the host keeps it mounted (hidden) for polling and the badge via `onSummary`.
+The collapsed disclosure below remains only for a bare TransferPanel.
+
 The user requested a collapsed Transfers section everywhere (2026-10-14
 10:40Z). Every newly opened view starts collapsed. Expanding it stays local
 to that open view, across transfer polls, until the user collapses or closes

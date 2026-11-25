@@ -1,6 +1,6 @@
 ---
 name: orgtree-inbox-screens
-description: Explain user and agent mail views, the org mailbox viewer, record search and attachment transfer controls.
+description: Explain user and agent mail views, the org mailbox viewer and attachment transfer controls.
 ---
 Up: [orgtree-desk](../SKILL.md)
 
@@ -56,7 +56,7 @@ Since 4.7.0 the user's Inbox opens as chats, like Hubchat: a list of chats on th
 
 **The frame.** The two panes fill the Inbox edge to edge in its modal (under its title row, which keeps classic, pop out, pin and close), pinned and popped out.
 
-**Classic mailbox.** The **classic** checkbox in the panel's title bar, and **App settings > Display > Mailbox > Classic mailbox**, bring back the mailbox the rest of this page describes, with the mail icon. The choice is saved on this computer for every organization and window. The record folder and the tag filter exist only in the classic mailbox. While the chats are on, replying to a presentation or a ticket opens the chat of the agent that received the reply; see [input and startup display](../../app-settings/app-display-input-and-startup/SKILL.md).
+**Classic mailbox.** The **classic** checkbox in the panel's title bar, and **App settings > Display > Mailbox > Classic mailbox**, bring back the mailbox the rest of this page describes, with the mail icon. The choice is saved on this computer for every organization and window. The tag filter exists only in the classic mailbox. While the chats are on, replying to a presentation or a ticket opens the chat of the agent that received the reply; see [input and startup display](../../app-settings/app-display-input-and-startup/SKILL.md).
 
 Agents reach the same actions through their tools: an audience is granted or revoked with `orgtree-tool-audience` (orgtree-working › mail), and mail to the user is `orgtree-tool-message` (orgtree-working › mail). The view, its icon and the two settings are the user's display choices; no tool changes them.
 
@@ -116,7 +116,7 @@ Single-message reader requests under the mail-by-id route omit their HTTP bodies
 
 User Inbox reads, including historical pages, omit HTTP bodies from wire diagnostics with verbose logging off or on. Private mail projections are also excluded from function-return logging; paths/status and normal client content remain available.
 
-These surfaces share mail cards but have different owners and actions. An agent's or project's Mail tab, and its mail window (titled "· mail"), is its mailbox, with inbox and sent folders (a project's adds listeners); the user Inbox includes the user's incoming questions/mail and sent/record views (drawn as [chats](#your-inbox-as-chats) unless the classic mailbox is chosen); the org mailbox is the organization's outside correspondence.
+These surfaces share mail cards but have different owners and actions. An agent's or project's Mail tab, and its mail window (titled "· mail"), is its mailbox, with inbox and sent folders (a project's adds listeners); the user Inbox includes the user's incoming questions/mail and sent views (drawn as [chats](#your-inbox-as-chats) unless the classic mailbox is chosen); the org mailbox is the organization's outside correspondence.
 
 ## Lists, read panes and replies
 
@@ -158,7 +158,7 @@ through cursor pages; search does not limit the list to a fixed first page.
 Selections show on the closed control; clicking a row/read-pane chip adds it.
 The filter intersects existing sender/body search; clear restores untagged mail
 and asks. Older matching mail is queried before windowing and pages on scroll.
-Sent and Record retain their own views. Opening a new mail reference clears
+Sent retains its own view. Opening a new mail reference clears
 the tag filter so its target remains reachable. Unread counts still describe
 the whole inbox. Failures offer Retry rather than an empty-result claim.
 
@@ -197,10 +197,6 @@ If new mail arrived, the message is no longer retained, or the active filters
 exclude it, the inbox keeps its normal selection behavior. This memory does not
 survive an app restart.
 
-## Record
-
-The user's Record view shows org operations/events. Search can request the wider record, while the plain view uses a recent window. Event kind, actor and detail are not a conversation transcript. Navigation to an object does not rewrite the recorded operation.
-
 For the project Mail tab/window, listeners folder and queue history, see [orgtree-project-desk](../project-desk/SKILL.md).
 
 ## Org mailbox
@@ -215,7 +211,7 @@ Human outside composition has moved to Hubchat: the org mailbox is a viewer, not
 
 ## Attachment transfers
 
-Transfers appears on supported mail surfaces, initially collapsed. Expand to inspect unfinished work and recent history. Older transfers load as you scroll near the end of the history, the same way Hubchat's transfer history does; Load more loads the next page by hand, and a page that fails to load shows its error with Retry. A progress bar measures confirmed bytes; processed/sent/received bytes may be ahead of confirmed custody.
+Transfers is its own **transfers** tab beside **inbox** and **sent** in every mailbox that has transfers: the user Inbox, an agent's or project's Mail tab and mail window, and the org mailbox. The tab appears once the mailbox has any transfers; its badge counts the unfinished ones. Opening it lists the unfinished transfers at once; tick **recent history** to see finished ones too. The user Inbox no longer has a Record view. Older transfers load as you scroll near the end of the history, the same way Hubchat's transfer history does; Load more loads the next page by hand, and a page that fails to load shows its error with Retry. A progress bar measures confirmed bytes; processed/sent/received bytes may be ahead of confirmed custody.
 
 Retry, Cancel transfer and (for eligible failed/cancelled outgoing files) Remove file and send are different. Removing explicitly omits that attachment so the remaining ready message can proceed. Closing the panel does not cancel engine transfer work. Refresh retries a failed panel read, not a new send. Use `orgtree-tool-transfers` (orgtree-working › mail) for exact agent-side actions and custody rules.
 
