@@ -1694,7 +1694,7 @@ export function inboxDropChoice(inbox: { holders?: string[]; weak?: string[]; mu
 /** What dragging an agent onto the org mailbox does, an App setting (USER 2026-11-25 m3f7018605789, mcc0fb84c475f,
  *  md9ca7ea6df12): `holder` (default) grants the primary audience at once (it moves with one holder allowed, adds one
  *  with several); `ask` asks as before (`inboxDropChoice`); `weak` adds a weak link at once when the mailbox has a
- *  holder. With no holder, each makes the agent the holder. A project always gets the old drop (the question). */
+ *  holder. With no holder, each makes the agent the holder. A project always gets the old drop (the question when it would replace the one holder). */
 export type InboxDragMode = 'ask' | 'holder' | 'weak'
 export const INBOX_DRAG_MODES: readonly InboxDragMode[] = ['ask', 'holder', 'weak']
 export type InboxDropAction =

@@ -172,7 +172,7 @@ export function DesktopSettings() {
       every org; "Make it the holder" is the default */}
   <SetGroup title="Org mailbox">
     <SetRow label="Dragging an agent onto the org mailbox"
-      hint="When the mailbox already has a holder. With no holder, the agent becomes the holder. Dropping a project always asks first.">
+      hint="When the mailbox already has a holder. With no holder, the agent becomes the holder. A project keeps the old drop: it asks first when it would replace the one holder.">
       <select aria-label="Dragging an agent onto the org mailbox" value={prefs?.inboxDragMode ?? 'holder'} disabled={!prefs || busy}
         onChange={e => put({ inboxDragMode: e.target.value === 'ask' || e.target.value === 'weak' ? e.target.value : 'holder' })}>
         <option value="holder">Make it the holder</option>

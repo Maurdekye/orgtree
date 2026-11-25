@@ -109,7 +109,7 @@ Choosing **Change location…** (or **Use default location…** when a custom fo
 - **Ask each time**: a dialog asks whether to replace the holder (or add one) or give the agent a weak link instead.
 - **Add a weak link if it already has a holder**: the agent gets a weak link at once. If it already has one, nothing changes and a message says so.
 
-With no holder yet, every choice makes the dropped agent the holder. Dropping the current holder changes nothing. Dropping a project always asks first, whatever the choice, and a project never gets a weak link. Under the weak-link choice, an agent on an engine that doesn't offer weak links is handled as under **Ask each time**. While an agent is dragged over the tile, a label under the tile says what dropping it will do. See [orgtree-org-mailbox-tile](../../canvas/org-mailbox-tile/SKILL.md).
+With no holder yet, every choice makes the dropped agent the holder. Dropping the current holder changes nothing. A project keeps the old drop whatever the choice: it asks first when it would replace the one holder, it is added as a holder at once when several are allowed, and it never gets a weak link. Under the weak-link choice, an agent on an engine that doesn't offer weak links is handled as under **Ask each time**. While an agent is dragged over the tile, a label under the tile says what dropping it will do. See [orgtree-org-mailbox-tile](../../canvas/org-mailbox-tile/SKILL.md).
 
 ## See also
 
