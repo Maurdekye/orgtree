@@ -180,7 +180,7 @@ import { docketFeed } from './canvas/itemrefs'
 import { documentsFeed } from './canvas/docrefs'
 import { mailInboxRead, mailTreeChanged } from './canvas/mailrefs'
 import { requestPanelSample } from './canvas/apps/runtime'
-import { closeIfCentred, floatingOtherDockets, isModalPinned, PinFrame, raisePinnedModal, readModalOpen, toggleOrRaiseModal, usePersistedModalOpen, useScopedOpen } from './canvas/modalpin'
+import { closeIfCentred, floatingOtherDockets, isModalPinned, onCloseFloating, PinFrame, raisePinnedModal, readModalOpen, toggleOrRaiseModal, usePersistedModalOpen, useScopedOpen } from './canvas/modalpin'
 import { HireDefaultsTab, orgDefaultTools, orgDirHoldings } from './canvas/modals'
 import { mailRefTarget, refToken, resolveRef, useRefRoutes } from './canvas/reflinks'
 import { useLinkedReference } from './canvas/openreference'
@@ -1698,6 +1698,30 @@ export default function App() {
     mentionNavigator.current!.activate(slug)
     return () => mentionNavigator.current!.activate(null)
   }, [slug])
+  // THE CENTRED APP/ORG PANELS: closed by the view shortcut, and by an agent link's Focus (USER
+  // 2026-11-25 13:04:54Z m9b2f753b0fa5 "the focus context menu entry should close any floating panels
+  // that are open (such as the chat window)"; modalpin closeFloatingPanels). Pinned and detached
+  // surfaces keep their placement and content. True when one was open.
+  const closeCentredPanels = (): boolean => {
+    const panels = [
+      { kind: 'app-settings', open: showAccounts, close: closeAccounts, org: slug },
+      { kind: 'defaults', open: showDefaults, close: () => setShowDefaults(false), org: null },
+      { kind: 'usage', open: showUsage, close: () => setShowUsage(false), org: slug },
+      { kind: 'usage-history', open: showUsageHistory, close: () => setShowUsageHistory(false), org: slug },
+      { kind: 'changelog', open: showChangelog, close: () => setShowChangelog(false), org: slug },
+      { kind: 'inbox', open: showInbox, close: () => setShowInbox(false), org: slug },
+      { kind: 'docket', open: showDocket, close: () => setShowDocket(false), org: slug },
+      { kind: 'gallery', open: showGallery, close: () => setShowGallery(false), org: slug },
+      { kind: 'org-settings', open: showSettings, close: () => setShowSettings(false), org: slug },
+    ]
+    let panelOpen = false
+    for (const panel of panels) if (panel.open) closeIfCentred(panel.kind, () => {
+      panelOpen = true; panel.close()
+    }, panel.org)
+    return panelOpen
+  }
+  const closeCentredNow = useRef(closeCentredPanels); closeCentredNow.current = closeCentredPanels
+  useEffect(() => slug ? onCloseFloating(org => { if (org === slug) closeCentredNow.current() }) : undefined, [slug])
   useAppShortcuts({
     settings: () => toggleShortcut('app-settings', showAccounts, openAccounts, closeAccounts),
     usage: () => toggleShortcut('usage', showUsage, toggleUsage, () => setShowUsage(false)),
@@ -1714,22 +1738,7 @@ export default function App() {
       view: () => {
         // Centred app/org panels are another view; return to the canvas.
         // Existing pinned/detached surfaces keep their placement and content.
-        const panels = [
-          { kind: 'app-settings', open: showAccounts, close: closeAccounts, org: slug },
-          { kind: 'defaults', open: showDefaults, close: () => setShowDefaults(false), org: null },
-          { kind: 'usage', open: showUsage, close: () => setShowUsage(false), org: slug },
-          { kind: 'usage-history', open: showUsageHistory, close: () => setShowUsageHistory(false), org: slug },
-          { kind: 'changelog', open: showChangelog, close: () => setShowChangelog(false), org: slug },
-          { kind: 'inbox', open: showInbox, close: () => setShowInbox(false), org: slug },
-          { kind: 'docket', open: showDocket, close: () => setShowDocket(false), org: slug },
-          { kind: 'gallery', open: showGallery, close: () => setShowGallery(false), org: slug },
-          { kind: 'org-settings', open: showSettings, close: () => setShowSettings(false), org: slug },
-        ]
-        let panelOpen = false
-        for (const panel of panels) if (panel.open) closeIfCentred(panel.kind, () => {
-          panelOpen = true; panel.close()
-        }, panel.org)
-        setViewMode(nextMainView(viewMode, panelOpen))
+        setViewMode(nextMainView(viewMode, closeCentredPanels()))
       },
       unlatch: () => mainKillswitch.current?.unlatch(),
       halt: () => mainKillswitch.current?.haltNow(),

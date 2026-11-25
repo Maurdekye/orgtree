@@ -64,6 +64,11 @@ export interface AgentMenuHandlers {
    *  than dropping it: "Focus" is the first thing a reader looks for, and
    *  a gap where it should be reads as a broken menu. */
   onOpenDesk?: () => void
+  /** FOCUS CLEARS THE WAY (USER 2026-11-25 13:04:54Z m9b2f753b0fa5 "the focus context menu entry should
+   *  close any floating panels that are open (such as the chat window)"): run before `onOpenDesk` by
+   *  Focus. The host closes its CENTRED panels only (modalpin closeFloatingPanels); pinned and
+   *  popped-out ones stay where the user put them. Absent: Focus only focuses. */
+  onCloseFloating?: () => void
   onInbox: () => void
   onScratchFolder?: () => void
   onTeamScratchFolder?: () => void
@@ -152,6 +157,13 @@ export interface AgentMenuState extends HireProviders {
  * The agent's menu, in order. Every gate below was the card's own before this
  * file existed; nothing here is new policy.
  */
+/** Focus: the floating panels close, then the node is focused (onCloseFloating) */
+const focusClearing = (h: AgentMenuHandlers): void => {
+  if (!h.onOpenDesk) return
+  h.onCloseFloating?.()
+  h.onOpenDesk()
+}
+
 export function agentMenuEntries(node: CanvasNode, h: AgentMenuHandlers,
   s: AgentMenuState = {}): MenuEntry[] {
   if (node.kind === 'project') return projectMenuEntries(node, h, s)
@@ -163,7 +175,7 @@ export function agentMenuEntries(node: CanvasNode, h: AgentMenuHandlers,
   const entries: MenuEntry[] = []
   // User 2026-09-30: swap Focus and Open desk. The copy entry still precedes
   // these, and every other entry keeps its existing position.
-  entries.push({ label: 'Focus', onSelect: () => h.onOpenDesk?.(), disabled: !h.onOpenDesk })
+  entries.push({ label: 'Focus', onSelect: () => focusClearing(h), disabled: !h.onOpenDesk })
   const deskEntries: MenuEntry[] = []
   const openEntries: MenuEntry[] = []
   const temporary = h.onOpenTemporary
@@ -270,6 +282,12 @@ export function agentMenuEntries(node: CanvasNode, h: AgentMenuHandlers,
   if (h.onRetiredList && (h.retiredCount ?? 0) > 0) {
     entries.splice(2, 0, { label: `Open retired list (${h.retiredCount})`, onSelect: h.onRetiredList })
   }
+  // OPEN CHAT (USER 2026-11-25 13:04:54Z m9b2f753b0fa5 "an extra context menu entry for "open chat" for
+  // agent links that have audience with you directly or indirectly"): the plain click's chat, at the top
+  // level right after Open (before the retired list), for an agent holding a user audience of its own or through its project
+  // (canChatWith, the predicate the plain click uses). Open > Chat stays where it was.
+  if (canChatWith(node)) entries.splice(2, 0, { label: 'Open chat', title: `your chat with ${node.id}, in your Inbox`,
+    onSelect: () => { openAgentChat('', node.id) } })
   const hire = h.onHire
   if (canHire && hire) {
     // the menu just opened on a model choice: re-read agy's model list
@@ -421,7 +439,7 @@ export function projectMenuEntries(node: CanvasNode, h: AgentMenuHandlers,
   // is on the card's hire tokens only).
   const live = node.state === 'live'
   const agents = subtreeAgents(node).filter((a) => a.id !== node.id)
-  const entries: MenuEntry[] = [{ label: 'Focus', onSelect: () => h.onOpenDesk?.(), disabled: !h.onOpenDesk }]
+  const entries: MenuEntry[] = [{ label: 'Focus', onSelect: () => focusClearing(h), disabled: !h.onOpenDesk }]
   // Same names and order as the agent's Open menu (user 2026-10-18 11:16Z).
   const desk: MenuEntry[] = []
   const temp = h.onOpenTemporary, popout = h.onPopout, pin = h.onPin, showPin = h.onShowPin

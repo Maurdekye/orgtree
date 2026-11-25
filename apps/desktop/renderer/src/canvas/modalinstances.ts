@@ -48,6 +48,9 @@ export interface ModalInstances {
   restore: (ids: readonly string[]) => void
   /** a node renamed: its instance follows (its records move in modalpin) */
   rename: (from: string, to: string) => void
+  /** close every CENTRED instance (pinned and popped-out ones stay): how many closed. Focus from an
+   *  agent link (modalpin closeFloatingPanels, USER 2026-11-25 m9b2f753b0fa5) */
+  closeCentred: () => number
 }
 
 /** Is this instance a window of its own somewhere — pinned in this window,
@@ -102,6 +105,15 @@ export function useModalInstances(kind: string, org: string | null,
     const ids = [...new Set(next)]
     if (ids.length !== latest.current.length || ids.some((id, i) => latest.current[i] !== id)) commit(ids)
   }, [commit])
+  const closeCentred = useCallback((): number => {
+    const kept = latest.current.filter(x => placedInstance(instanceKind(kind, x), org))
+    const closed = latest.current.length - kept.length
+    if (closed) {
+      // a centred instance has no durable marker (only a pinned one is remembered), so nothing to forget
+      commit(kept)
+    }
+    return closed
+  }, [kind, org, commit])
   const rename = useCallback((from: string, to: string) => {
     if (latest.current.includes(from)) commit([...new Set(latest.current.map(x => x === from ? to : x))])
   }, [commit])
@@ -128,5 +140,6 @@ export function useModalInstances(kind: string, org: string | null,
   }, [kind, org, restoreKey])   // eslint-disable-line react-hooks/exhaustive-deps
 
   const has = useCallback((id: string) => latest.current.includes(id), [])
-  return useMemo(() => ({ ids, has, open, close, restore, rename }), [ids, has, open, close, restore, rename])
+  return useMemo(() => ({ ids, has, open, close, restore, rename, closeCentred }),
+    [ids, has, open, close, restore, rename, closeCentred])
 }

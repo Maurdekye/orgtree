@@ -114,7 +114,7 @@ import { isCompact, isMobile, MaybePortal, sheetGate } from '../mobile'
 import { dropConvo, renameConvo } from '../convo'
 import { useSettingsAsk } from './settingskit'
 import type { SettingsTarget } from './settingskit'
-import { closeIfCentred, forgetModalOpen, isModalPinned, ModalOverPins, modalPinKey, PinFrame, pinModal, readModalPins, toggleNodePanel, toggleOrRaiseModal, readModalOpen, renameModalInstances, requestSurfaceAction, usePersistedModalOpen, revealOpenPanel } from './modalpin'
+import { closeFloatingPanels, closeIfCentred, forgetModalOpen, onCloseFloating, isModalPinned, ModalOverPins, modalPinKey, PinFrame, pinModal, readModalPins, toggleNodePanel, toggleOrRaiseModal, readModalOpen, renameModalInstances, requestSurfaceAction, usePersistedModalOpen, revealOpenPanel } from './modalpin'
 import { freeInsets, useCanvasAnchor } from './canvasanchor'
 import { glWiresAllowed, readWireStyles, sparkPoint, useGlWires } from './glwires'
 import type { WireStyles, Wire } from './glwires'
@@ -1082,6 +1082,19 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
   }
   const agentReaders = useModalInstances('agent-gallery', slug, id => readerRestore('agent-gallery', id))
   const teamReaders = useModalInstances('team-gallery', slug, id => ({ ...readerRestore('team-gallery', id), team: true }))
+  // THE CANVAS'S FLOATING PANELS (USER 2026-11-25 13:04:54Z m9b2f753b0fa5: an agent link's Focus "should
+  // close any floating panels that are open"): every centred per-target window, the lineage, the org
+  // mailbox viewer, the desk glance and the retired list. Pinned and popped-out ones stay (closeIfCentred).
+  const closeCanvasFloating = () => {
+    for (const list of [configs, inboxes, teams, slotsPanels, listenersPanels, dockets, dogViews, projectDesks,
+      agentReaders, teamReaders]) list.closeCentred()
+    closeIfCentred('lineage', () => setLineageId(null), slug)
+    closeIfCentred('org-inbox', () => setOiOpen(false), slug)
+    setTempDeskId(null)
+    setRetiredOpen(null)
+  }
+  const closeCanvasFloatingNow = useRef(closeCanvasFloating); closeCanvasFloatingNow.current = closeCanvasFloating
+  useEffect(() => onCloseFloating(org => { if (org === slug) closeCanvasFloatingNow.current() }), [slug])
   const noteReaderShown = useCallback((own: string, document: string | null) => setReaderShown(previous =>
     previous[own] === document ? previous : { ...previous, [own]: document }), [])
   const openAgentReader = agentReaders.open, openTeamReader = teamReaders.open
@@ -3988,6 +4001,8 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
     return agentMenuEntries(n, {
       onRetiredList: () => setRetiredOpen(n.id), retiredCount: retiredCounts.get(n.id),
       onOpenDesk: go,
+      // Focus from an agent link closes the floating panels first (USER 2026-11-25 m9b2f753b0fa5)
+      onCloseFloating: () => closeFloatingPanels(slug),
       onInbox: () => openInbox(n.id, { ensureOpen: true }),
       onTeam: () => openTeam(n.id, { ensureOpen: true }),
       onScratchFolder: scratchFolderAction(slug, n.id, toast, n.kind === 'project' ? 'team' : undefined),

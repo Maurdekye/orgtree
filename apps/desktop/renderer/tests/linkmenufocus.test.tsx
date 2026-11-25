@@ -40,7 +40,7 @@ const entry = (entries: MenuEntry[], label: string) => {
   return e && e !== 'sep' ? e : null
 }
 
-test('"Open chat" is a top-level entry right under Focus for an agent with a user audience, own or through a project', t => {
+test('"Open chat" is a top-level entry right after Open for an agent with a user audience, own or through a project', t => {
   window.localStorage.removeItem(CLASSIC_MAILBOX_KEY)
   t.after(() => window.localStorage.removeItem(CLASSIC_MAILBOX_KEY))
   const asked: string[] = []
@@ -48,7 +48,9 @@ test('"Open chat" is a top-level entry right under Focus for an agent with a use
   const menu = (n: CanvasNode) => agentMenuEntries(n, { onInbox() {}, onOpenDesk() {} } as never)
   for (const n of [OWN, MEMBER]) {
     const labels = top(menu(n))
-    assert.equal(labels[labels.indexOf('Focus') + 1], 'Open chat', `${n.id}: Open chat follows Focus`)
+    // Focus, (Hire), Open, then Open chat: beside the Open submenu, above the rest
+    assert.equal(labels[labels.indexOf('Open') + 1], 'Open chat', `${n.id}: Open chat follows Open`)
+    assert.ok(labels.indexOf('Focus') < labels.indexOf('Open chat'), 'under Focus')
   }
   entry(menu(OWN), 'Open chat')!.onSelect?.()
   assert.deepEqual(asked, [':own'], 'it opens that agent’s chat in this window’s organization, as the plain click does')

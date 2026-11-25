@@ -498,6 +498,20 @@ export const closeIfCentred = (kind: string, close: () => void, org: string | nu
   if (!isModalPinned(kind, org) && !detachedKind(kind)) close()
 }
 
+/** CLOSE THE FLOATING PANELS (USER 2026-11-25 13:04:54Z m9b2f753b0fa5: an agent link's Focus "should
+ *  close any floating panels that are open (such as the chat window)"). Floating = centred, the
+ *  closeIfCentred rule: each surface that owns panels (the shell's App, the canvas) listens and closes
+ *  its centred ones for its organization; pinned and popped-out windows stay. */
+type FloatingCloser = (org: string) => void
+const floatingClosers = new Set<FloatingCloser>()
+export const onCloseFloating = (fn: FloatingCloser): (() => void) => {
+  floatingClosers.add(fn)
+  return () => { floatingClosers.delete(fn) }
+}
+export const closeFloatingPanels = (org: string): void => {
+  for (const fn of [...floatingClosers]) fn(org)
+}
+
 export const pinModal = (kind: string, rect: PinRect, org: string | null = null): void => {
   const min = modalMinDimensions(kind)
   const stored = kind
