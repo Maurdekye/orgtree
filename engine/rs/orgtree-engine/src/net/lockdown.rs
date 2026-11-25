@@ -733,11 +733,58 @@ pub(super) async fn reconcile(engine: &Arc<Engine>, parts: &[Part]) {
     }
 }
 
-/// RED STUBS (E3)
+/// A poll answer's `locked` for one polling address (Mail hub 2.6.0): each contact in lockdown, `open` (this org
+/// is on its list) or `closed`. A hub that lists `lockdown` leaves the map out while nobody there is locked, so a
+/// missing map means none (review Astra 11: an explicit "no lock", never a stale one).
 #[nolog]
-pub(super) fn locked_view(_data: &Value, _slug: &str) -> BTreeMap<String, String> { BTreeMap::new() }
+pub(super) fn locked_view(data: &Value, slug: &str) -> BTreeMap<String, String> {
+    data["locked"][slug]
+        .as_object()
+        .map(|m| m.iter().filter_map(|(k, v)| v.as_str().filter(|s| matches!(*s, "open" | "closed")).map(|s| (k.clone(), s.to_string()))).collect())
+        .unwrap_or_default()
+}
+
+/// One poll answer's word on who is in lockdown, kept per (hub, member) for the org mailbox window.
 #[logged]
-pub async fn summary<C: tokio_postgres::GenericClient + Sync>(_c: &C, _org_id: i64) -> Result<Value> { Ok(json!({})) }
+pub(super) async fn heard(engine: &Arc<Engine>, addr: &str, members: &[(Part, String)], data: &Value) {
+    if !supports(engine, addr).await {
+        return;
+    }
+    for (p, _) in members {
+        let view = locked_view(data, &p.net_slug);
+        let before = engine.net.locked.pin().insert((addr.to_string(), p.net_slug.clone()), view.clone()).cloned();
+        if before.as_ref() != Some(&view) {
+            notify(engine, p.org_id);
+        }
+    }
+}
+
+/// The lockdown as the tree carries it: the setting, whether it is on, how far the hubs enforce it, the
+/// set-aside flag and the set-aside letters nobody has read.
+#[logged]
+pub async fn summary<C: tokio_postgres::GenericClient + Sync>(c: &C, org_id: i64) -> Result<Value> {
+    let Some(r) = c
+        .query_opt(
+            "SELECT l.user_mode, l.org_on, l.set_aside, l.rev,
+                    (SELECT count(*) FROM ot.net_lockdown_hubs h WHERE h.org_id = l.org_id),
+                    (SELECT count(*) FROM ot.net_lockdown_hubs h WHERE h.org_id = l.org_id AND h.state = 'enforced' AND h.rev = l.rev)
+               FROM ot.net_lockdown l WHERE l.org_id = $1",
+            &[&org_id],
+        )
+        .await?
+    else {
+        return Ok(json!({ "setting": "org", "on": false, "coverage": "off", "set_aside": false, "set_aside_unread": 0 }));
+    };
+    let p = row_of(&r);
+    let on = effective(p.user, p.org_on);
+    let (hubs, enforced): (i64, i64) = (r.get(4), r.get(5));
+    let coverage = if !on { "off" } else if hubs > 0 && enforced == hubs { "enforced" } else if enforced > 0 { "partial" } else { "pending" };
+    let unread: i64 = c
+        .query_one("SELECT count(*) FROM ot.org_inbox WHERE org_id = $1 AND set_aside_at IS NOT NULL AND set_aside_read_by IS NULL", &[&org_id])
+        .await?
+        .get(0);
+    Ok(json!({ "setting": p.user.as_str(), "on": on, "coverage": coverage, "set_aside": p.set_aside, "set_aside_unread": unread }))
+}
 
 #[nolog]
 fn notify(engine: &Arc<Engine>, org_id: i64) {

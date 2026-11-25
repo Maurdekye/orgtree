@@ -225,6 +225,8 @@ pub struct Net {
     pub(crate) blocking_feature: papaya::HashMap<String, (bool, Instant)>,
     /// hub address → (lists the `lockdown` feature, when read)
     pub(crate) lockdown_feature: papaya::HashMap<String, (bool, Instant)>,
+    /// Lockdown (Mail hub 2.6.0): (hub address, org's hub slug) → the contacts in lockdown there, open|closed
+    pub(crate) locked: papaya::HashMap<(String, String), std::collections::BTreeMap<String, String>>,
     /// org id → when its last lockdown list-edit notice went out (one a minute)
     pub(crate) lockdown_noticed: papaya::HashMap<i64, Instant>,
     /// Live requests only; durable intent remains in PostgreSQL.
@@ -815,6 +817,8 @@ async fn poller(engine: Arc<Engine>, addr: String, stop: CancellationToken) {
         set_roster(&engine, &addr, data["name"].as_str(), data["version"].as_str(), data["roster"].as_array().cloned().unwrap_or_default());
         // whom each member blocks and who blocks it (Mail hub 2.6.0)
         blocks::heard(&engine, &addr, &members, &data).await;
+        // who is in lockdown, as each member sees it there (Mail hub 2.6.0)
+        lockdown::heard(&engine, &addr, &members, &data).await;
         // a member the hub no longer lists was forgotten (an operator's
         // remove-address, a rebuilt hub): it registers again, as a 401 makes
         // a poll of its own do (a poll shared by several members answers 401
@@ -1085,7 +1089,7 @@ async fn drain(engine: &Arc<Engine>, parts: &[Part]) -> Result<()> {
             Ok(resp) if resp.status().as_u16() == 403 => {
                 // a block (Mail hub 2.6.0) ends the message; any other 403 is retried as before
                 let answer = resp.json::<Value>().await.unwrap_or(Value::Null);
-                if answer["blocked_by"].is_string() || answer["blocking"].is_string() {
+                if answer["blocked_by"].is_string() || answer["blocking"].is_string() || answer["locked"].is_string() {
                     blocks::refused(engine, org_id, row_id, &peer, &answer).await?;
                 } else {
                     stamp(engine, org_id, row_id, last_err.as_deref(), "HTTP 403", true).await?;
@@ -1584,9 +1588,13 @@ pub async fn block(engine: &Engine, client: &tokio_postgres::Client, org: &Value
                 "roster": roster,
             });
             // whom the org blocks there and who blocks it there (Mail hub 2.6.0)
-            if let Some((b, by)) = engine.net.blocks.pin().get(&(polled, own.clone())) {
+            if let Some((b, by)) = engine.net.blocks.pin().get(&(polled.clone(), own.clone())) {
                 v["blocks"] = json!(b);
                 v["blocked_by"] = json!(by);
+            }
+            // the contacts in lockdown there, open or closed to this org (Mail hub 2.6.0)
+            if let Some(l) = engine.net.locked.pin().get(&(polled, own.clone())) {
+                v["locked"] = json!(l);
             }
             if mine && stuck > 0 {
                 v["stuck"] = json!(stuck);

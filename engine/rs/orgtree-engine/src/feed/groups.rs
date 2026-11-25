@@ -303,8 +303,13 @@ pub async fn group(engine: &Engine, client: &Client, org: &Value, name: &str) ->
             let mut entries: Vec<Value> = preview.iter().map(|r| crate::domain::orginbox::entry(&r.get::<_, Value>(0))).collect();
             entries.reverse();
             let total: i64 = counts.get(0);
+            // lockdown and Org decides (USER 2026-11-25 14:10Z): the user's value, the org's choice, the lockdown
+            let lockdown = crate::net::lockdown::summary(client, org_id).await?;
             json!({ "org_inbox": {
                 "mode": crate::domain::orginbox::mode(&org["settings"]),
+                "setting": crate::domain::orginbox::user_mode(&org["settings"]),
+                "org_choice": crate::domain::orginbox::org_choice(&org["settings"]),
+                "lockdown": lockdown,
                 "entries": entries,
                 "total": total,
                 "unread": counts.get::<_, i64>(1),

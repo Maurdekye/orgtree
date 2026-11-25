@@ -176,7 +176,10 @@ pub(super) async fn tell(engine: &Arc<Engine>, org_id: i64, agent: Option<(i64, 
 /// (never retried: the hub would refuse it again) and its sender is told.
 #[logged]
 pub(super) async fn refused(engine: &Arc<Engine>, org_id: i64, row_id: i64, peer: &str, answer: &Value) -> Result<()> {
-    let why = if answer["blocked_by"].is_string() {
+    let why = if answer["locked"].is_string() {
+        // lockdown (Mail hub 2.6.0): this org is not on the contact's list
+        format!("@net:{peer} is in lockdown and only takes messages from addresses on its list")
+    } else if answer["blocked_by"].is_string() {
         format!("you have been blocked by @net:{peer} and cannot message them")
     } else {
         format!("this org blocks @net:{peer}; unblock them (orgtree_block) to message them")
