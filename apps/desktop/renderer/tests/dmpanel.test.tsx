@@ -2134,3 +2134,88 @@ test('Hubchat\'s jump button stays round in a settings-sized window: its rule ou
   for (const d of ['border-radius: 50%', 'padding: 0', 'font-size: 20px', 'width: 40px', 'height: 40px']) assert.ok(body.includes(d + ';'), `it sets ${d}`)
   assert.doesNotMatch(css, /(^|\n)\.dm-jump[ :{]/, 'no weaker `.dm-jump` rule is left')
 })
+
+// ---- AN ARRIVING MESSAGE NEVER CLOSES AN OPEN CONTEXT MENU (USER 2026-11-25 m1f747c2836f9: "make sure new
+// messages in either hubchat or the new inbox dont close any context menu"). Measured cause: a chat at its newest
+// message scrolls to the new one, and the menu closes on a scroll that moves its anchor (canvas/contextmenu.tsx
+// `scrolled`). The browser sends that scroll when scrollTop changes; jsdom does not, so these tests do. ----
+
+/** as a browser: setting an element's scrollTop to a new value sends it a scroll event */
+function browserScrolls(t: TestContext) {
+  const own = Object.getOwnPropertyDescriptor(W.Element.prototype, 'scrollTop')!
+  Object.defineProperty(W.Element.prototype, 'scrollTop', { configurable: true,
+    get() { return own.get!.call(this) },
+    set(v: number) {
+      const was = own.get!.call(this)
+      own.set!.call(this, v)
+      if (own.get!.call(this) !== was) this.dispatchEvent(new W.Event('scroll'))
+    } })
+  t.after(() => { Object.defineProperty(W.Element.prototype, 'scrollTop', own) })
+}
+const openMenus = () => document.querySelectorAll('[role="menu"]').length
+const rightClick = async (el: Element | null | undefined, what: string) => {
+  assert.ok(el, what)
+  await inAct(async () => { el.dispatchEvent(new W.MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 20, clientY: 20 })); await flush(4) })
+}
+const bubbleOf = (entry: string) => [...document.querySelectorAll<HTMLElement>('.dm-msg')].find(m => m.dataset.dmEntry === entry)?.querySelector('.dm-bubble')
+const escape = async () => inAct(async () => { document.dispatchEvent(new W.KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); await flush(6) })
+
+test('POSITIVE CONTROL: the reader\u2019s own scroll of the chat still closes a bubble\u2019s menu', async (t) => {
+  layOut(t); browserScrolls(t)
+  const s = await setup(t, { audiences: [grant('worker')], delivered: many(6) }, { active: false })
+  await s.openChat('worker')
+  await rightClick(bubbleOf('h0003'), 'a bubble')
+  assert.equal(openMenus(), 1, 'the menu is open')
+  await inAct(async () => { timeline().scrollTop = 4000; await flush(6) })
+  assert.equal(openMenus(), 0, 'a scroll that moves its message closes it')
+})
+
+test('an arriving message keeps a bubble\u2019s menu open; the chat goes to the new message when the menu closes', async (t) => {
+  const height = layOut(t); browserScrolls(t)
+  const world: World = { audiences: [grant('worker')], delivered: many(6) }
+  const s = await setup(t, world, { active: false })
+  await s.openChat('worker')
+  assert.equal(timeline().scrollTop, 5000, 'POSITIVE CONTROL: at the newest message')
+  await rightClick(bubbleOf('h0003'), 'a bubble')
+  assert.equal(openMenus(), 1, 'POSITIVE CONTROL: the menu is open')
+  height.scroll = 5100
+  world.delivered = [...world.delivered!, mail('fresh', 'worker', '2026-11-21T09:00:00Z')]
+  await nextRead()
+  assert.ok(bubbleOf('fresh'), 'POSITIVE CONTROL: the new message is drawn')
+  assert.equal(openMenus(), 1, 'the menu is still open')
+  assert.equal(timeline().scrollTop, 5000, 'and its message did not move under it')
+  await escape()
+  assert.equal(openMenus(), 0, 'Escape closes it')
+  assert.equal(timeline().scrollTop, 5100, 'and the chat goes to the new message')
+})
+
+test('the typing dots and a read check arriving keep a bubble\u2019s menu open', async (t) => {
+  const height = layOut(t); browserScrolls(t)
+  const writes = (on: boolean) => ({ ...tree(), roots: [node('lead', [node('worker', [], { writing_to_user: on }), node('helper')]), node('solo')] }) as unknown as TreePayload
+  const world: World = { audiences: [grant('worker')], delivered: many(6), sent: [sent('mine', 'worker', '2026-11-21T08:00:00Z', { delivered: false })] }
+  const s = await setup(t, world, { active: false, tree: writes(false) })
+  await s.openChat('worker')
+  await rightClick(bubbleOf('h0002'), 'a bubble')
+  assert.equal(openMenus(), 1, 'POSITIVE CONTROL: the menu is open')
+  height.scroll = 5050
+  await inAct(async () => { s.rerender({ tree: writes(true) }); await flush(8) })
+  assert.ok(document.querySelector('.dm-timeline .dm-typing-row'), 'POSITIVE CONTROL: the dots are drawn')
+  assert.equal(openMenus(), 1, 'the dots keep the menu open')
+  ;(world.sent as Record<string, unknown>[])[0]!.delivered = true
+  await nextRead()
+  assert.ok(document.querySelector('.dm-tick.t-read'), 'POSITIVE CONTROL: the check turned green')
+  assert.equal(openMenus(), 1, 'the read check keeps the menu open')
+})
+
+test('a message arriving in another chat keeps a chat row\u2019s menu open, though the list re-sorts', async (t) => {
+  const world: World = { audiences: [grant('worker')], delivered: [mail('m1', 'worker', '2026-11-20T10:00:00Z'), mail('m2', 'lead', '2026-11-20T11:00:00Z')] }
+  const s = await setup(t, world, { active: false })
+  await s.openChat('lead')
+  const before = s.rows().map(r => r.dataset.dmChat)
+  await rightClick(s.row('worker'), 'worker\u2019s row')
+  assert.equal(openMenus(), 1, 'POSITIVE CONTROL: the row\u2019s menu is open')
+  world.delivered = [...world.delivered!, mail('m3', 'worker', '2026-11-21T09:00:00Z')]
+  await nextRead()
+  assert.notDeepEqual(s.rows().map(r => r.dataset.dmChat), before, 'POSITIVE CONTROL: worker\u2019s row moved up')
+  assert.equal(openMenus(), 1, 'the row\u2019s menu is still open')
+})
