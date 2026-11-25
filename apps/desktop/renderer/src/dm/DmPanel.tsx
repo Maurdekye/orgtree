@@ -838,7 +838,18 @@ function DmConversation({ slug, tree, chat, nodes, toast, refs, onFocusAgent, fl
     const from = all.findIndex(e => e.unread)
     return Math.max(DM_PAGE, from < 0 ? 0 : all.length - from + 5)
   })
-  const start = Math.max(0, all.length - shown)
+  // A CONTEXT MENU STAYS OPEN while messages, the typing dots and checks arrive (USER 2026-11-25 m1f747c2836f9):
+  // while one is open the window keeps its first row, widening instead of sliding (a dropped row above makes the
+  // browser's scroll anchoring scroll the timeline, which closes the menu: measured in the alpha.1 kit), and a
+  // chat at its newest message holds still (below), going to the newest message when the menu closes
+  const menuOpen = useContextMenuOpen()
+  const menuOpenRef = useRef(menuOpen)
+  menuOpenRef.current = menuOpen
+  const heldFirst = useRef<string | null>(null)
+  if (!menuOpen) heldFirst.current = null
+  else if (heldFirst.current === null) heldFirst.current = all[Math.max(0, all.length - shown)]?.key ?? null
+  const heldAt = heldFirst.current === null ? -1 : all.findIndex(e => e.key === heldFirst.current)
+  const start = Math.max(0, heldAt >= 0 ? Math.min(heldAt, all.length - shown) : all.length - shown)
   const entries = useMemo(() => (start ? all.slice(start) : all), [all, start])
 
   // Seeing a chat reads it: its unread mail is marked read while the window
@@ -905,12 +916,7 @@ function DmConversation({ slug, tree, chat, nodes, toast, refs, onFocusAgent, fl
     if (el) { jumpHold.current = false; el.scrollTop = el.scrollHeight; pinned.current = true; setFar(false) }
   }
   const userMoves = () => { jumpHold.current = false }
-  // A CONTEXT MENU STAYS OPEN while messages, the typing dots and checks arrive: a chat at its newest message
-  // holds still while a menu is open (following the new message would move the menu's message, which closes
-  // it), and goes to the newest message when the menu closes (USER 2026-11-25 m1f747c2836f9)
-  const menuOpen = useContextMenuOpen()
-  const menuOpenRef = useRef(menuOpen)
-  menuOpenRef.current = menuOpen
+  // (a menu open: the chat holds still, see `heldFirst` above)
   const count = entries.length
   useLayoutEffect(() => {
     const el = scroller.current
