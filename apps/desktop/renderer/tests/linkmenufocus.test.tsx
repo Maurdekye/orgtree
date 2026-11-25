@@ -41,25 +41,32 @@ const entry = (entries: MenuEntry[], label: string) => {
   return e && e !== 'sep' ? e : null
 }
 
-test('"Open chat" is a top-level entry right after Open for an agent with a user audience, own or through a project', t => {
+// MOVED INTO OPEN (USER 2026-11-25 21:32:43Z m05fbc02357a7 "open chat should be in the open submenu everywhere
+// in an agent's co text menu"): Open > Chat is the one chat entry; no top-level Open chat.
+const chatIn = (entries: MenuEntry[]) => {
+  const kids = (entry(entries, 'Open')?.children ?? []).filter(e => e !== 'sep' && e.label === 'Chat')
+  assert.ok(kids.length <= 1, 'one Chat entry in Open, no duplicate')
+  const k = kids[0]
+  return k && k !== 'sep' ? k : null
+}
+
+test('Open > Chat (no top-level "Open chat") for an agent with a user audience, own or through a project', t => {
   window.localStorage.removeItem(CLASSIC_MAILBOX_KEY)
   t.after(() => window.localStorage.removeItem(CLASSIC_MAILBOX_KEY))
   const asked: string[] = []
   const off = onChatRequest((org, peer) => { asked.push(`${org}:${peer}`) }); t.after(off)
   const menu = (n: CanvasNode) => agentMenuEntries(n, { onInbox() {}, onOpenDesk() {} } as never)
   for (const n of [OWN, MEMBER]) {
-    const labels = top(menu(n))
-    // Focus, (Hire), Open, then Open chat: beside the Open submenu, above the rest
-    assert.equal(labels[labels.indexOf('Open') + 1], 'Open chat', `${n.id}: Open chat follows Open`)
-    assert.ok(labels.indexOf('Focus') < labels.indexOf('Open chat'), 'under Focus')
+    assert.equal(top(menu(n)).includes('Open chat'), false, `${n.id}: no top-level Open chat`)
+    assert.ok(chatIn(menu(n)), `${n.id}: Open > Chat`)
   }
-  entry(menu(OWN), 'Open chat')!.onSelect?.()
+  chatIn(menu(OWN))!.onSelect?.()
   assert.deepEqual(asked, [':own'], 'it opens that agent’s chat in this window’s organization, as the plain click does')
   for (const n of [PLAIN, CREW, GONE])
-    assert.equal(top(menu(n)).includes('Open chat'), false, `${n.id}: no Open chat without a live agent’s user audience`)
+    assert.equal(chatIn(menu(n)), null, `${n.id}: no Chat without a live agent’s user audience (no chat state given)`)
   assert.equal(top(menu(PLAIN)).includes('Focus'), true, 'POSITIVE CONTROL: the top level is the one read')
   window.localStorage.setItem(CLASSIC_MAILBOX_KEY, '1')
-  assert.equal(top(menu(OWN)).includes('Open chat'), false, 'not while the classic mailbox is on (the chats are not the mailbox)')
+  assert.equal(chatIn(menu(OWN)), null, 'not while the classic mailbox is on (the chats are not the mailbox)')
 })
 
 test('Focus closes the floating panels first, then focuses, for an agent and for a project', () => {
@@ -111,7 +118,7 @@ test('a modal kind’s closeCentred closes its centred instance and keeps the pi
 
 // RENDERED, as the user sees it (integration bounce mda65bfe41ae4: the builder had Open chat after Open,
 // but the renderer moves Open second after the prefix and left Open chat after New project)
-test('in the drawn menu, Open chat comes right after Open, with Open still second', async t => {
+test('in the drawn menu, Open is second and no top-level Open chat is drawn', async t => {
   window.localStorage.removeItem(CLASSIC_MAILBOX_KEY)
   t.after(() => window.localStorage.removeItem(CLASSIC_MAILBOX_KEY))
   const entries = agentMenuEntries(OWN, { onInbox() {}, onOpenDesk() {}, onHire() {} } as never,
@@ -131,6 +138,6 @@ test('in the drawn menu, Open chat comes right after Open, with Open still secon
     .map(el => el.textContent?.replace('▸', '').trim() ?? '')
   const open = real.indexOf('Open')
   assert.equal(open, 1, `Open is second: ${JSON.stringify(real)}`)
-  assert.equal(real[open + 1], 'Open chat', `Open chat follows it: ${JSON.stringify(real)}`)
-  assert.ok(real.includes('Focus') && real.indexOf('Focus') > open + 1, 'Focus and the rest follow')
+  assert.equal(real.includes('Open chat'), false, `Open chat lives in Open: ${JSON.stringify(real)}`)
+  assert.ok(real.includes('Focus') && real.indexOf('Focus') > open, 'Focus and the rest follow')
 })

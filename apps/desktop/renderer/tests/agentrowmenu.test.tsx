@@ -226,10 +226,10 @@ uiTest('§1 a row offers the agent\'s own menu — the same entries, in the same
       // 4.2: the entries group under branches (Open ▸, Hire a subordinate ▸); '· ' marks a branch's entry
       // USER 2026-10-17 21:18Z: "New project…" directly under "Hire a subordinate"
       // USER 2026-10-18 07:19Z–07:28Z: "Copy mention", no "Open" inside Open, Presentations always offered
+      // 4.7.0 (USER 2026-11-25 m0a8fdb69edb9 every agent menu; 21:32:43Z m05fbc02357a7 in the Open submenu):
+      // Open > Chat is the one chat entry, with no top-level Open chat
       'Copy mention', 'Open ▸', '· Desk', '· Desk as a pinned window', '· Desk in a separate window',
-      '· Mail', '· Team', '· Docket', '· Team docket', '· Presentations', '· Team presentations',
-      // 4.7.0 (USER 2026-11-25 m0a8fdb69edb9): Open chat right after Open, in every agent menu
-      'Open chat',
+      '· Chat', '· Mail', '· Team', '· Docket', '· Team docket', '· Presentations', '· Team presentations',
       // 4.7.0 (USER 2026-11-23 mb05f4fda0d92): Export…, Import here… and Duplicate… after the audience entry
       'Focus', 'Hire a subordinate ▸', 'New project…', 'Settings', 'Acquire audience', 'Export…', 'Import here…', 'Duplicate…',
       'Compact…', 'Halt', 'Retire…',
@@ -238,7 +238,8 @@ uiTest('§1 a row offers the agent\'s own menu — the same entries, in the same
 
 // OPEN CHAT EVERYWHERE (USER 2026-11-25 14:33:44Z m0a8fdb69edb9, 14:33:50Z m6da526799148): the row and
 // the card both offer it for every live agent, with the grant named when the agent has no audience
-uiTest('§1c Open chat on the row and the card of every live agent, naming the grant where one is missing',
+// MOVED INTO OPEN (USER 21:32:43Z m05fbc02357a7): it is Open > Chat, merged with the old entry
+uiTest('§1c Open > Chat on the row and the card of every live agent, naming the grant where one is missing',
   async (t) => {
     window.localStorage.removeItem('orgtree-classic-mailbox')
     const c = await mountCanvas(t, [mkNode('boss', { children: [mkNode('kid', { parent: 'boss' }),
@@ -247,7 +248,9 @@ uiTest('§1c Open chat on the row and the card of every live agent, naming the g
     await openTray(c.el)
     const titleOn = async (target: Element) => {
       assert.equal(await rightClick(target), true)
-      const it = itemNamed('Open chat')
+      assert.equal(itemNamed('Open chat'), undefined, 'no top-level Open chat')
+      await openBranchOf('Chat')
+      const it = itemNamed('Chat')
       const title = it ? (it.getAttribute('title') ?? '') : null
       await esc()
       return title
@@ -256,7 +259,7 @@ uiTest('§1c Open chat on the row and the card of every live agent, naming the g
       for (const [where, el] of [['row', rowFor(c.el, id)], ['card', cardFor(c.el, id)]] as const) {
         assert.ok(el, `${id}: its ${where}`)
         const title = await titleOn(el!)
-        assert.ok(title !== null, `${id} (${where}): Open chat is offered`)
+        assert.ok(title !== null, `${id} (${where}): Open > Chat is offered`)
         assert.equal(/grants .* an audience with you/.test(title!), grant, `${id} (${where}): grant named iff missing: ${title}`)
       }
     }
