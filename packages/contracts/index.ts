@@ -71,6 +71,9 @@ export interface DesktopPreferences extends NotificationPreferences {
   automaticUpdates: boolean
   /** Taskbar question actions: focus the asking desk by default, or its inbox row. */
   questionTarget?: 'desk' | 'mail'
+  /** App settings > Org mailbox: what dragging an agent onto the org mailbox does (USER 2026-11-25 m3f7018605789,
+   *  mcc0fb84c475f, md9ca7ea6df12). Absent means 'holder' (the primary audience, at once). */
+  inboxDragMode?: 'ask' | 'holder' | 'weak'
   routineNotifications: boolean
   /** The Agents List shows only agents currently running a turn. */
   activeAgentsOnly?: boolean

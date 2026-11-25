@@ -1691,6 +1691,30 @@ export function inboxDropChoice(inbox: { holders?: string[]; weak?: string[]; mu
   if (!holders.length || holders.includes(id) || (multi && !weakOk)) return null
   return { current: holders.join(', '), multi, weakOk }
 }
+/** What dragging an agent onto the org mailbox does, an App setting (USER 2026-11-25 m3f7018605789, mcc0fb84c475f,
+ *  md9ca7ea6df12): `holder` (default) grants the primary audience at once (it moves with one holder allowed, adds one
+ *  with several); `ask` asks as before (`inboxDropChoice`); `weak` adds a weak link at once when the mailbox has a
+ *  holder. With no holder, each makes the agent the holder. */
+export type InboxDragMode = 'ask' | 'holder' | 'weak'
+export const INBOX_DRAG_MODES: readonly InboxDragMode[] = ['ask', 'holder', 'weak']
+export type InboxDropAction =
+  | { kind: 'grant' }
+  | { kind: 'ask'; current: string; multi: boolean; weakOk: boolean }
+  | { kind: 'weak' }
+  | { kind: 'noop'; why: string }
+/** The drop of node `id` (of `kind`) on the org mailbox, decided by the App setting `mode`. */
+export function inboxDropAction(inbox: Parameters<typeof inboxDropChoice>[0], id: string, kind: string | undefined,
+  mode: InboxDragMode): InboxDropAction {
+  void mode
+  const ask = inboxDropChoice(inbox, id, kind)
+  return ask ? { kind: 'ask', ...ask } : { kind: 'grant' }
+}
+/** What the mailbox tile says while node `id` is dragged over it: what the drop will do. */
+export function inboxDropHint(inbox: Parameters<typeof inboxDropChoice>[0], id: string, kind: string | undefined,
+  mode: InboxDragMode): string {
+  void inbox; void id; void kind; void mode
+  return ''
+}
 /** Plain-language explanation shown when hovering an audience grant chip. */
 export function audienceGrantTooltip(target: string, kind?: string): string {
   if (target === USER) return 'Can message you directly: send you mail and ask you questions'

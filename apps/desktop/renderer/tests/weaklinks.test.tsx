@@ -9,7 +9,12 @@ import path from 'node:path'
 import { HeldAudienceChips } from '../src/canvas/desk'
 import { AudienceHolderRows } from '../src/canvas/mail'
 import { InboxReplaceConfirm } from '../src/canvas/inboxreplace'
-import { audienceGrantTooltip, EXTERN_WEAK, inboxDropChoice, orgInboxLines, type CanvasNode } from '../src/canvas/shared'
+import { DesktopSettings } from '../src/canvas/desktopsettings'
+import { preferencesPatch } from '../../main/policy'
+import type { DesktopPreferences } from '../../../../packages/contracts'
+import { DEFAULT_NOTIFICATIONS } from '../../../../packages/contracts/notifications'
+import { eventFanout } from './heldevents'
+import { audienceGrantTooltip, EXTERN_WEAK, inboxDropChoice, orgInboxLines, type CanvasNode, inboxDropAction, inboxDropHint } from '../src/canvas/shared'
 
 declare const __SRC_DIR__: string
 const WEAK_TIP = "Weak link: can send mail as the org; new outside mail goes to the org mailbox's holder, and replies to its own mail come back to it"
@@ -99,4 +104,71 @@ test('W4 the desk chip and the mailbox panel name a weak link and revoke it', as
   assert.equal(chip.title, WEAK_TIP)
   await inAct(() => { chip.querySelector<HTMLButtonElement>('.chip-x')!.click() })
   assert.deepEqual(removed, ['scout'])
+})
+
+test('W5 the drag setting: make it the holder (default), ask as before, or add a weak link when a holder exists', () => {
+  // USER 2026-11-25 09:32:09Z m3f7018605789 + 09:35:46Z mcc0fb84c475f "keep it as ask each time"; edges decided by
+  // @coordinator-opus (docket app-setting-dragging-an-agent-onto-the-org-mailb)
+  const single = { holders: ['front'], weak: [] as string[], multi_holder_enabled: false }
+  const multi = { ...single, multi_holder_enabled: true }
+  const none = { holders: [] as string[], weak: [] as string[] }
+  // ask: exactly the drop as it was (the question)
+  assert.deepEqual(inboxDropAction(single, 'scout', 'agent', 'ask'), { kind: 'ask', current: 'front', multi: false, weakOk: true })
+  assert.deepEqual(inboxDropAction(multi, 'scout', 'agent', 'ask'), { kind: 'ask', current: 'front', multi: true, weakOk: true })
+  // make it the holder: at once, no question (moves with one holder allowed, adds one with several)
+  for (const inbox of [single, multi]) assert.deepEqual(inboxDropAction(inbox, 'scout', 'agent', 'holder'), { kind: 'grant' })
+  // add a weak link: at once when a holder exists
+  for (const inbox of [single, multi]) assert.deepEqual(inboxDropAction(inbox, 'scout', 'agent', 'weak'), { kind: 'weak' })
+  // no holder yet: every mode makes it the holder
+  for (const mode of ['ask', 'holder', 'weak'] as const) assert.deepEqual(inboxDropAction(none, 'scout', 'agent', mode), { kind: 'grant' }, mode)
+  // the holder itself: today's no-op re-grant, every mode
+  for (const mode of ['ask', 'holder', 'weak'] as const) assert.deepEqual(inboxDropAction(single, 'front', 'agent', mode), { kind: 'grant' }, mode)
+  // add a weak link to an agent that has one: nothing happens, and it says so
+  const already = inboxDropAction({ ...single, weak: ['scout'] }, 'scout', 'agent', 'weak')
+  assert.equal(already.kind, 'noop')
+  assert.match((already as { why: string }).why, /scout already has a weak link/)
+  // a project (weak links are agents only) and an engine without weak links keep today's drop under "weak"
+  assert.deepEqual(inboxDropAction(single, 'intake', 'project', 'weak'), inboxDropAction(single, 'intake', 'project', 'ask'))
+  const older = { holders: ['front'], multi_holder_enabled: false }
+  assert.deepEqual(inboxDropAction(older, 'scout', 'agent', 'weak'), inboxDropAction(older, 'scout', 'agent', 'ask'))
+})
+
+test('W6 while an agent is dragged over the mailbox, the tile says what the drop will do', () => {
+  const single = { holders: ['front'], weak: [] as string[], multi_holder_enabled: false }
+  const multi = { ...single, multi_holder_enabled: true }
+  const none = { holders: [] as string[], weak: [] as string[] }
+  assert.equal(inboxDropHint(single, 'scout', 'agent', 'ask'), 'Drop to choose: scout replaces front, or gets a weak link')
+  assert.equal(inboxDropHint(multi, 'scout', 'agent', 'ask'), 'Drop to choose: scout is added as a holder, or gets a weak link')
+  assert.equal(inboxDropHint(single, 'scout', 'agent', 'holder'), 'Drop: scout becomes the holder, replacing front')
+  assert.equal(inboxDropHint(multi, 'scout', 'agent', 'holder'), 'Drop: scout is added as a holder')
+  assert.equal(inboxDropHint(single, 'scout', 'agent', 'weak'), 'Drop: scout gets a weak link')
+  assert.equal(inboxDropHint(none, 'scout', 'agent', 'weak'), 'Drop: scout becomes the holder')
+  assert.equal(inboxDropHint(single, 'front', 'agent', 'weak'), 'front already holds the org mailbox')
+  assert.equal(inboxDropHint({ ...single, weak: ['scout'] }, 'scout', 'agent', 'weak'), 'scout already has a weak link to the org mailbox')
+  assert.equal(inboxDropHint(single, 'intake', 'project', 'ask'), 'Drop to choose: intake replaces front')
+})
+
+test('W7 App settings > Org mailbox: the drag setting, "Make it the holder" by default, saved through native preferences', async () => {
+  // USER 2026-11-25 09:38:00Z md9ca7ea6df12 "make the default "make it the holder", and leave the other two as choosable alternatives"
+  // validation in the main process: the three values, nothing else
+  for (const v of ['ask', 'holder', 'weak']) assert.equal(preferencesPatch({ inboxDragMode: v }).inboxDragMode, v)
+  for (const v of ['', 'replace', null, 1]) assert.throws(() => preferencesPatch({ inboxDragMode: v }))
+  const writes: unknown[] = [], fan = eventFanout()
+  let prefs = { ...DEFAULT_NOTIFICATIONS, notificationsEnabled: false } as DesktopPreferences
+  Object.defineProperty(window, 'orgtreeDesktop', { configurable: true, value: { onEvent: fan.onEvent, getPreferences: async () => prefs,
+    setPreferences: async (patch: Partial<DesktopPreferences>) => { writes.push(patch); return prefs = { ...prefs, ...patch } } } })
+  const view = await mountView(<DesktopSettings />, el => el)
+  try {
+    await inAct(async () => { await flush(12) })
+    const select = view.el.querySelector<HTMLSelectElement>('select[aria-label="Dragging an agent onto the org mailbox"]')
+    assert.ok(select, 'the drag setting exists')
+    assert.equal(select.value, 'holder')
+    assert.deepEqual([...select.options].map(o => [o.value, o.textContent]),
+      [['holder', 'Make it the holder'], ['ask', 'Ask each time'], ['weak', 'Add a weak link if it already has a holder']])
+    assert.equal(select.closest('.set-group')?.querySelector('.set-group-head')?.textContent?.trim().startsWith('Org mailbox'), true, 'in its own Org mailbox group')
+    await inAct(async () => { select.value = 'weak'; select.dispatchEvent(new window.Event('change', { bubbles: true })); await flush(12) })
+    assert.deepEqual(writes, [{ inboxDragMode: 'weak' }])
+    await inAct(async () => { fan.emit({ type: 'preferences', data: { ...prefs, inboxDragMode: 'ask' } }); await flush(8) })
+    assert.equal(select.value, 'ask')
+  } finally { await view.unmount(); Object.defineProperty(window, 'orgtreeDesktop', { configurable: true, value: undefined }) }
 })
