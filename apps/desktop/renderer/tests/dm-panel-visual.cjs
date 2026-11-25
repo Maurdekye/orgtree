@@ -587,5 +587,26 @@ module.exports = async (page) => {
   v.end = { confirms: end.confirms, toasts: end.toasts, rows: end.rows.map(r => r.peer), hasFocus: end.hasFocus,
     opened: await page.eval(() => window.__dm.opened.slice()) }
   v.calls = (await calls()).map(c => ({ method: c.method, path: c.path, body: c.body }))
+
+  // ---------------- 15. the megaphone is where the project desk has it (USER 2026-11-25 13:02:57Z
+  // mccd2710e1a87: "the megaphone should be on the right side of the chatbox, like it is in the project
+  // desk"): crew's bare desk beside the panel, both boxes measured the same way. After v.calls, so the
+  // desk's own reads do not reach the walk's engine checks.
+  await page.eval(() => window.__dm.desk(true))
+  await page.waitFor('#dm-probe-desk .cc-broadcast-toggle')
+  const placeOf = (sel) => page.eval((sel) => {
+    const root = document.querySelector(sel)
+    const box = el => { if (!el) return null; const r = el.getBoundingClientRect(); return { x: Math.round(r.x), y: Math.round(r.y), w: Math.round(r.width), h: Math.round(r.height) } }
+    const left = root.querySelector('.cc-btnstack')
+    return { textarea: box(root.querySelector('textarea')), megaphone: box(root.querySelector('.cc-broadcast-toggle')), send: box(root.querySelector('.cc-send')),
+      notice: box(root.querySelector('.cc-notice-toggle')), attach: box(root.querySelector('.cc-attach')),
+      leftColumn: left ? [...left.querySelectorAll('button')].map(b => b.className.split(' ')[0]) : null,
+      // drawn, not only laid out: the button's own centre hits the button (a pane behind the panel would not)
+      hit: (() => { const m = root.querySelector('.cc-broadcast-toggle'), r = m.getBoundingClientRect(), at = document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2); return !!at && m.contains(at) })(),
+      armed: root.querySelector('.cc-broadcast-toggle').getAttribute('aria-pressed'), radius: getComputedStyle(root.querySelector('.cc-broadcast-toggle')).borderRadius }
+  }, sel)
+  v.place = { chat: await placeOf('.dm-compose .cc-composer'), desk: await placeOf('#dm-probe-desk .project-composer') }
+  await shot('33-megaphone-right-of-the-box-in-the-chat-and-on-the-project-desk')
+  await page.eval(() => window.__dm.desk(false))
   return v
 }

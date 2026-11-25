@@ -386,6 +386,22 @@ if (flag === '--expect') {
   assert.equal(mega.sent.toast, 'sent to 2 of 2 agents under crew')
   checked.push('project megaphone')
 
+  // ---- the megaphone is on the box's right, over send, as on the project desk (USER 2026-11-25 13:02:57Z mccd2710e1a87)
+  for (const [where, p] of Object.entries(v.place)) {
+    onScreen(p.megaphone, `${where}: the megaphone`); onScreen(p.send, `${where}: send`); onScreen(p.textarea, `${where}: the text field`)
+    assert.ok(p.megaphone.x >= p.textarea.x + p.textarea.w, `${where}: the megaphone is right of the text field (${JSON.stringify(p)})`)
+    assert.ok(Math.abs((p.megaphone.x + p.megaphone.w / 2) - (p.send.x + p.send.w / 2)) <= 1, `${where}: the megaphone is in send's column`)
+    assert.ok(p.megaphone.y + p.megaphone.h <= p.send.y, `${where}: the megaphone is above send`)
+    assert.deepEqual([p.megaphone.w, p.megaphone.h], [24, 24], `${where}: the 24 px circle`)
+    assert.equal(p.hit, true, `${where}: the megaphone is drawn on top, not covered`)
+    assert.deepEqual(p.leftColumn, ['cc-notice-toggle', 'cc-attach'], `${where}: the left column is notice over attach`)
+    assert.ok(p.notice.x + p.notice.w <= p.textarea.x, `${where}: notice stays left of the text field`)
+  }
+  assert.equal(v.place.chat.megaphone.y + v.place.chat.megaphone.h - v.place.chat.send.y, v.place.desk.megaphone.y + v.place.desk.megaphone.h - v.place.desk.send.y,
+    "the gap over send is the desk's")
+  assert.equal(v.place.chat.radius, v.place.desk.radius, 'the same round button')
+  checked.push('megaphone where the desk has it')
+
   // ---- audiences through a project: the label, the mark on hover, the one confirmation
   assert.equal(v.via.clerk.via, 'via desk'); assert.equal(v.via.clerk.viaLink.project, 'desk'); assert.equal(v.via.clerk.viaLink.tag, 'BUTTON')
   assert.ok(v.via.clerk.badges.some(b => /audience/.test(b)), 'after the audience badge')

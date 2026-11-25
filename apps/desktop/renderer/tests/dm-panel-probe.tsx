@@ -12,7 +12,9 @@ import { applyContrast } from '../src/contrast'
 import { syncFastModes } from '../src/canvas/fastmode'
 import { noteProjectThemes } from '../src/projecttheme'
 import { OPEN_SETTINGS_AT_EVENT } from '../src/canvas/settingskit'
-import type { TreePayload } from '../src/types'
+import { ProjectDesk } from '../src/canvas/projectdesk'
+import type { CanvasNode } from '../src/canvas/shared'
+import type { OpResult, TreePayload } from '../src/types'
 
 const node = (id: string, tier: string, children: unknown[] = [], extra: Record<string, unknown> = {}) => ({
   id, title: id, tier, model_id: tier, state: 'live', seat: 2, grant: 4, free: 2, ui_order: 0, cost_usd: 0,
@@ -96,6 +98,8 @@ declare global {
       jump(id: string): void; open(peer: string): void
       /** the app's own theme switch (Display settings call the same function) */
       theme(id: string): void
+      /** a bare project desk of crew beside the panel, to compare its message box with the chat's */
+      desk(on: boolean): void
     }
   }
 }
@@ -104,6 +108,7 @@ function Probe({ at }: { at: string }) {
   const [answer, setAnswer] = useState<Answer | null>(null)
   const [jump, setJump] = useState<{ id: string; seq: number } | null>(null)
   const [chat, setChat] = useState<{ peer: string; seq: number } | null>(null)
+  const [desk, setDesk] = useState(false)
   // the tree's unread count is the engine's own: how much mail still waits there
   const [unread, setUnread] = useState(3)
   // who holds the user's audience on the engine now: what a project's agents inherit follows it
@@ -122,6 +127,7 @@ function Probe({ at }: { at: string }) {
   window.__dm.answered = a => setAnswer({ ...a, when: new Date().toISOString() })
   window.__dm.jump = id => setJump({ id, seq: Date.now() })
   window.__dm.open = peer => setChat({ peer, seq: Date.now() })
+  window.__dm.desk = on => setDesk(on)
   const t = tree(at, answer, unread, granted)
   // every tree the app receives feeds the projects' icons and colours (archived.ts hydrateTree)
   noteProjectThemes(t)
@@ -136,11 +142,23 @@ function Probe({ at }: { at: string }) {
         openChat={chat} onFocusAgent={id => { window.__dm.focused.push(id) }}
         // the shell's own route for a mail of the user's box: the inbox, at that mail
         onOpenMail={r => { window.__dm.opened.push(r.id); if (r.box === 'user') window.__dm.jump(r.id) }} />
+      {desk && (() => {
+        // the same tree's crew, in a pinned window's body as a bare desk fills it (projectinboxwarning-visual.tsx)
+        const map = new Map<string, CanvasNode>()
+        const walk = (n: CanvasNode) => { map.set(n.id, n); (n.children ?? []).forEach(walk) }
+        ;(t.roots as unknown as CanvasNode[]).forEach(walk)
+        const crew = map.get('crew')!
+        return <div id="dm-probe-desk" className="pinwin-body" style={{ position: 'fixed', right: 120, top: 180, width: 560, height: 420, zIndex: 100000,
+          background: 'var(--bg)', border: '1px solid var(--line)', boxSizing: 'border-box' }}>
+          <ProjectDesk bare node={crew} slug="mine" tree={t} map={map} op={() => Promise.resolve({} as OpResult)}
+            toast={() => {}} refs={{ world: { org: 'mine' }, onOpen: () => {} } as never} onJump={() => {}} onConfig={() => {}} />
+        </div>
+      })()}
     </CurrentOrg.Provider>
   )
 }
 
-window.__dm = { confirms: 0, toasts: [], focused: [], closed: 0, opened: [], asked: [], settings: [], answered() {}, jump() {}, open() {}, theme: id => applyContrast(id) }
+window.__dm = { confirms: 0, toasts: [], focused: [], closed: 0, opened: [], asked: [], settings: [], answered() {}, jump() {}, open() {}, desk() {}, theme: id => applyContrast(id) }
 window.addEventListener(OPEN_SETTINGS_AT_EVENT, e => { window.__dm.settings.push((e as CustomEvent).detail) })
 // what the providers read tells the app in a real window: these models offer fast mode
 syncFastModes([{ tiers: [{ tier: 'opus', fast_mode: true }, { tier: 'sonnet', fast_mode: true }] }] as unknown as Parameters<typeof syncFastModes>[0])
