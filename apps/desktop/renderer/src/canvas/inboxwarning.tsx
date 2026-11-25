@@ -18,6 +18,16 @@ import type { Watchdog } from '../types'
 export const inboxListened = (project: string, dogs: Watchdog[], live?: ListenerLive) =>
   mailListenerState(project, dogs, live).listeners.length > 0
 
+/** The megaphone button's words where the box otherwise writes to the project's
+ *  inbox: the project desk's composer and a project's chat (dm/DmPanel.tsx). */
+export const megaphoneWords = (project: string, members: number, armed: boolean) => ({
+  label: armed ? `Megaphone on: messages go to all ${members} agents under ${project}`
+    : `Megaphone: send to all ${members} agents under ${project} instead of the project's inbox`,
+  title: members === 0 ? `no agent works under ${project} yet`
+    : armed ? `on: each message goes to all ${members} agents under ${project}; click or press Alt+B to send to the project's inbox again`
+      : `send to all ${members} agents under ${project} at once, through sub-projects but not below agent recipients, instead of the project's inbox that one agent claims (Alt+B)`,
+})
+
 /** The note, for a box whose project's inbox has no listener (`inboxListened`). */
 export function InboxNoListeners({ project }: { project: string }) {
   return <div className="inbox-no-listeners cache-send-warning compact" role="note"

@@ -46,6 +46,7 @@ import {
 } from './shared'
 import type { CanvasNode, MailRow } from './shared'
 import { AgentLink, AgentName } from './identity'
+import { megaphoneWords } from './inboxwarning'
 import { WatchdogLink } from './watchdoglink'
 import { HubContactChip, useAgentMentions, useOrgMentionCandidates } from './agentmentions'
 import { PresenceDot, hubDotTitle, rowPresence } from './connectionlist'
@@ -1266,7 +1267,10 @@ export function MailReplyBox({ target, slug, onSend, placeholder, sendDisabled =
   sendDisabled?: boolean
   toast?: ToastFn
   /** Present only for a project presentation reader. */
-  broadcast?: { project: string; members: number }
+  /** `inbox`: the box otherwise writes to the project's own inbox (a project's
+   *  chat), so the button reads as the project desk's does. `onArmed` hears
+   *  the toggle. */
+  broadcast?: { project: string; members: number; inbox?: boolean; onArmed?: (armed: boolean) => void }
   /** the send button's words and tooltip when sending does more than reply (an ack job: reply & acknowledge) */
   sendLabel?: string
   sendTitle?: string
@@ -1371,6 +1375,8 @@ export function MailReplyBox({ target, slug, onSend, placeholder, sendDisabled =
   // singleton, which is global by design because the desk has one composer.
   const [noticeArmed, setNoticeArmed] = useState(false)
   const [broadcastArmed, setBroadcastArmed] = useState(false)
+  const onBroadcastArmed = broadcast?.onArmed
+  useEffect(() => { onBroadcastArmed?.(broadcastArmed) }, [onBroadcastArmed, broadcastArmed])
   const fileRef = useRef<HTMLInputElement | null>(null)
   const attachable = Boolean(slug && target) && !sendDisabled
   const staging = useStaging((file, options) => slug && target ? uploadFile(slug, target, file, options.signal) : Promise.reject(Error('Choose a recipient first')),
@@ -1526,9 +1532,11 @@ export function MailReplyBox({ target, slug, onSend, placeholder, sendDisabled =
           </button>
           {broadcast && <button className={'cc-broadcast-toggle' + (broadcastArmed ? ' armed' : '')}
               type="button" disabled={sendDisabled || broadcast.members === 0} aria-pressed={broadcastArmed}
-              aria-label={broadcastArmed ? `Megaphone on: reply goes to all ${broadcast.members} agents under ${broadcast.project}`
+              aria-label={broadcast.inbox ? megaphoneWords(broadcast.project, broadcast.members, broadcastArmed).label
+                : broadcastArmed ? `Megaphone on: reply goes to all ${broadcast.members} agents under ${broadcast.project}`
                 : `Megaphone: send this reply to all ${broadcast.members} agents under ${broadcast.project}`}
-              title={broadcast.members === 0 ? `no agent works under ${broadcast.project} yet`
+              title={broadcast.inbox ? megaphoneWords(broadcast.project, broadcast.members, broadcastArmed).title
+                : broadcast.members === 0 ? `no agent works under ${broadcast.project} yet`
                 : broadcastArmed ? `on: this reply goes to all ${broadcast.members} agents under ${broadcast.project}; click or press Alt+B to turn it off`
                   : `send this reply to all ${broadcast.members} agents under ${broadcast.project} (Alt+B)`}
               onClick={() => setBroadcastArmed((v) => !v)}>

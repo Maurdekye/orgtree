@@ -69,7 +69,7 @@ import { ListenersView } from './listenersdesk'
 import { eventListenersOn, listenerCards, mailListenerState, mailQueueCard, mailQueueFolder, listenersLive, projectListenerState, queueAckMode } from './listeners'
 import { MailListenersView } from './maillisteners'
 import { MailQueueJoin } from './mailqueuejoin'
-import { InboxNoListeners, inboxListened } from './inboxwarning'
+import { InboxNoListeners, inboxListened, megaphoneWords } from './inboxwarning'
 import { DeskJumpCards, superiorKept } from './deskjumpcards'
 import { useDeskDogs } from './deskdogs'
 import { DeskDocsStrip, DeskHead, DeskMetaRow, DeskModalShell, DeskTabs, deskTabLabel } from './deskshell'
@@ -567,11 +567,8 @@ function ProjectComposer({ node, slug, tree, map, toast, members, recipients, ba
         <UrgentAgentOptions active={megaphone && dndRecipients.length>0} value={urgentMail} onChange={setUrgentMail} />
         <button className={'cc-broadcast-toggle' + (megaphone ? ' armed' : '')} type="button"
           disabled={node.state !== 'live' || members === 0} aria-pressed={megaphone}
-          aria-label={megaphone ? `Megaphone on: messages go to all ${members} agents under ${node.id}`
-            : `Megaphone: send to all ${members} agents under ${node.id} instead of the project's inbox`}
-          title={members === 0 ? `no agent works under ${node.id} yet`
-            : megaphone ? `on: each message goes to all ${members} agents under ${node.id}; click or press Alt+B to send to the project's inbox again`
-              : `send to all ${members} agents under ${node.id} at once, through sub-projects but not below agent recipients, instead of the project's inbox that one agent claims (Alt+B)`}
+          aria-label={megaphoneWords(node.id, members, megaphone).label}
+          title={megaphoneWords(node.id, members, megaphone).title}
           onClick={() => setMegaphone((v) => !v)}>
           <CampaignIcon fontSize="inherit" />
         </button>

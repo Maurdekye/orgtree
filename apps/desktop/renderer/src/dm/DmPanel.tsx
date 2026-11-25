@@ -47,7 +47,7 @@ import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, use
 import type { KeyboardEvent as ReactKeyboardEvent, MouseEvent as ReactMouseEvent, ReactNode } from 'react'
 import type { AskInfo, InboxPayload, MailEntry, ToastFn, TreePayload } from '../types'
 import {
-  audienceAction, clearInbox, deleteUserMail, fileBase, fileUrl, getAudiences, getMailById,
+  audienceAction, broadcastMessage, clearInbox, deleteUserMail, fileBase, fileUrl, getAudiences, getMailById,
   markRead, runOp,
 } from '../api'
 import { useRecordInbox } from '../recordpanelhooks'
@@ -70,6 +70,10 @@ import { ActiveAgentsFilter, AgentTray, trayRows } from '../canvas/agenttray'
 import { AgentEffortButton, TrayStatus } from '../canvas/desk'
 import { FastModeButton } from '../canvas/fastmodebutton'
 import { UrgentAgentOptions } from '../canvas/dnd'
+import { projectBroadcastRecipients } from '../canvas/projectdesk'
+import { InboxNoListeners, inboxListened } from '../canvas/inboxwarning'
+import { listenersLive } from '../canvas/listeners'
+import { useDndRecipients } from '../nodemetadata'
 import type { UrgentAgentMail } from '../canvas/dnd'
 import type { LocateMail } from '../canvas/mailreply'
 import { resolveRef } from '../canvas/reflinks'
@@ -853,6 +857,17 @@ function DmConversation({ slug, tree, chat, nodes, toast, refs, onFocusAgent, fl
   const replies = replyIds.map(id => all.find(e => e.key === id)?.mail).filter((m): m is MailRow => !!m)
   // the desk's urgent option, for an agent in Do Not Disturb; one send, like a notice
   const [urgent, setUrgent] = useState<UrgentAgentMail | undefined>()
+  // A PROJECT CHAT'S MEGAPHONE (USER 2026-11-25 m12fea20d9690: "project
+  // messageboxes need the megaphone toggle like on their desk"): the desk's
+  // button, recipients, route, urgent option and "may not be read" hint.
+  const project = chat.kind === 'project' && chat.live ? chat.node as CanvasNode | null : null
+  const castTo = useMemo(() => project ? projectBroadcastRecipients(project) : [], [project])
+  const castDnd = useDndRecipients(slug, castTo)
+  const [megaphone, setMegaphone] = useState(false)
+  const broadcast = useMemo(() => project ? { project: peer, members: castTo.length, inbox: true, onArmed: setMegaphone } : undefined,
+    [project, peer, castTo.length])
+  const unheard = !!project && !megaphone
+    && !inboxListened(peer, tree.watchdogs ?? [], listenersLive(nodes as unknown as ReadonlyMap<string, CanvasNode>))
   const [replyError, setReplyError] = useState('')
   const boxRef = useRef<HTMLDivElement>(null)
   const addReply = (m: MailRow) => {
@@ -1126,7 +1141,7 @@ function DmConversation({ slug, tree, chat, nodes, toast, refs, onFocusAgent, fl
     return out
   }, [all])
 
-  const send = (text: string, attachments?: string[], notice?: boolean, _broadcast?: boolean,
+  const send = (text: string, attachments?: string[], notice?: boolean, cast?: boolean,
     objectTarget?: ReplyTarget, selections?: SelectionTarget[]) => {
     const targets = replies
     const urgency = chat.node?.dnd ? urgent : undefined
@@ -1136,7 +1151,7 @@ function DmConversation({ slug, tree, chat, nodes, toast, refs, onFocusAgent, fl
     // answers, directly; or the project, when it follows up on the user's own
     // message there (the engine then hands it to that job's holder).
     let recipient = peer
-    if (chat.kind === 'project' && targets.length) {
+    if (chat.kind === 'project' && targets.length && !cast) {
       const members = [...new Set(targets.filter(t => t.from !== USER).map(t => t.from))]
       if (members.length > 1 || (members.length === 1 && targets.some(t => t.from === USER))) {
         const mixed = new Error('In a project chat, reply to one agent at a time, or follow up on your own message.')
@@ -1157,6 +1172,21 @@ function DmConversation({ slug, tree, chat, nodes, toast, refs, onFocusAgent, fl
     // engine refuses does not hold the message back: the message is still
     // the user's to send, and the request stays in the chat to answer.
     const approved = chat.request ? onApprove().catch(() => undefined) : Promise.resolve()
+    if (cast && project) {
+      // THE MEGAPHONE: one copy to every agent under the project, by the desk's
+      // own route and with its line; what the message answers goes with it,
+      // and the engine resolves that for each recipient
+      const castTargets = [...(objectTarget ? [objectTarget] : []), ...targets.map(mailTarget), ...(selections ?? [])]
+      return approved.then(() => broadcastMessage(slug, peer, text, attachments, notice, castDnd.length ? urgent : undefined,
+        castTargets.length ? castTargets : undefined)).then((r) => {
+        toast([`sent to ${r.sent.length} of ${r.sent.length + r.refused.length} agents under ${peer}` + (notice ? ' as a notice' : ''),
+          ...r.refused.map((f) => `${f.to}: ${f.why}`)])
+        if (!r.sent.length) throw new Error(r.refused.map((f) => f.why).join('; ') || 'broadcast was not accepted')
+        setReplyIds([])
+        pinned.current = true
+        onChanged()
+      })
+    }
     if (!targets.length && !objectTarget && !selections?.length) {
       // A NEW MESSAGE TYPED IN THIS PANEL, not a reply: it says so to the agent
       // (USER 2026-11-23 m79c022311f95, m034b5c83b8f2), which then answers by
@@ -1327,8 +1357,9 @@ function DmConversation({ slug, tree, chat, nodes, toast, refs, onFocusAgent, fl
           {replies.length > 1 && <button type="button" className="dm-replybar-clear" onClick={() => setReplyIds([])}>Cancel all</button>}
         </div>}
         {replyError && <div role="alert" className="mail-reply-state failed">{replyError}</div>}
+        {unheard && <InboxNoListeners project={peer} />}
         {canWrite
-          ? <MailReplyBox key={peer} target={peer} slug={slug} toast={toast} objectActions
+          ? <MailReplyBox key={peer} target={peer} slug={slug} toast={toast} objectActions broadcast={broadcast}
               draftKey={draftKey} quietSent escapeRemovesFile transcriptTexts={chatTexts}
               /* Up and Down walk what was sent to this agent: its desk's own history */
               history={chat.kind === 'agent' ? { slug, id: peer } : undefined}
@@ -1341,11 +1372,11 @@ function DmConversation({ slug, tree, chat, nodes, toast, refs, onFocusAgent, fl
                  own controls with the desk's saves: the urgent option and fast
                  mode over effort and send (USER 2026-11-23 mae2b1aa37a9b) */
               desk={{
-                armed: agent?.dnd && urgent ? 'urgent-armed' : '',
+                armed: (agent?.dnd || (megaphone && castDnd.length > 0)) && urgent ? 'urgent-armed' : '',
                 fast: agent ? <>
                   <UrgentAgentOptions active={agent.dnd} value={urgent} onChange={setUrgent} />
                   <FastModeButton node={agent} slug={slug} toast={toast} />
-                </> : undefined,
+                </> : project ? <UrgentAgentOptions active={megaphone && castDnd.length > 0} value={urgent} onChange={setUrgent} /> : undefined,
                 primary: agent ? <AgentEffortButton node={agent} slug={slug} toast={toast} /> : undefined,
               }} />
           : <div className="dm-nowrite dim">{chat.kind === 'system' ? 'Orgtree’s own mail cannot be answered.'
