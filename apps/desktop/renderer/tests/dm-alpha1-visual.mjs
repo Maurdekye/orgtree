@@ -75,6 +75,7 @@ const head = HISTORY.slice(-PAGE), olderPages = []
 for (let end = HISTORY.length - PAGE; end > 0; end -= PAGE) olderPages.push(HISTORY.slice(Math.max(0, end - PAGE), end))
 // sparse's older mail: two short messages on each of the first three older pages
 const SPARSE_OLD = [0, 1, 2].map(p => [0, 1].map(k => mail(`sp-old-${p}${k}`, 'sparse', 3 * D + (p * 2 + k) * H, `Earlier note ${p * 2 + k + 1}.`)))
+let quoterTranscript = true
 const world = {
   // the grants the engine really lists: also a retired agent's (paused) and two names this tree does not hold
   audiences: [grant('quoter'), grant('worker'), grant('sparse'), grant('retired-one', { paused: true }), grant('accept-field'), grant('account-card')],
@@ -132,6 +133,9 @@ const server = createServer(async (req, res) => {
   if (url.pathname === '/__calls') return send({ calls, pages, mentionAsks })
   // 2026-11-25 (job G): the agent reads the waiting "ok" (u5); a message arrives in worker's chat; quoter's
   // desk has a transcript whose send call wrote q2. The first two only when the walk asks, at its end.
+  // quoter's transcript off, then on again: the integrator's late case (a desk open on an empty transcript
+  // when View in transcript is asked; the rows come with a later refresh)
+  if (url.pathname === '/__transcript') { quoterTranscript = url.searchParams.get('on') === '1'; return send({ ok: true }) }
   if (url.pathname === '/__read') { const u5 = world.sent.find(m => m.id === 'u5'); if (u5) u5.delivered = true; return send({ ok: true }) }
   if (url.pathname === '/__arrive') {
     const n = url.searchParams.get('n')
@@ -185,7 +189,7 @@ const server = createServer(async (req, res) => {
   }
   // a desk's own read of its chat: an empty transcript (only its message box is shown); quoter's has its
   // transcript from the start (the desk-box step hides it), for View in transcript
-  if (/^\/nodes\/[^/]+\/chat$/.test(p)) return send({ messages: p === '/nodes/quoter/chat' ? TRANSCRIPT : [], live: [], pending_mail: [], busy: false, responding: false, windowed: true, has_older: false, before: null, draft_epoch: 'synthetic:0' })
+  if (/^\/nodes\/[^/]+\/chat$/.test(p)) return send({ messages: p === '/nodes/quoter/chat' && quoterTranscript ? TRANSCRIPT : [], live: [], pending_mail: [], busy: false, responding: false, windowed: true, has_older: false, before: null, draft_epoch: 'synthetic:0' })
   if (/^\/nodes\/[^/]+\/file$/.test(p)) return /\.png$/.test(url.searchParams.get('path') ?? '') ? send(PNG, 'image/png') : send('synthetic file', 'application/octet-stream')
   if (/\/transfers$/.test(p)) return send({ transfers: [], next_cursor: null })
   if (p.startsWith('/mail/user/')) { const found = everyMail().find(m => m.id === decodeURIComponent(p.slice('/mail/user/'.length))) ?? null; return send({ found: !!found, mail: found }) }
@@ -457,8 +461,15 @@ if (flag === '--expect') {
   assert.notEqual(v.flash.row.bg, 'rgba(0, 0, 0, 0)', 'with the located-mail highlight')
   assert.equal(v.flash.after, 0, 'once: gone when its animation ends')
   checked.push('transcript flash')
+  // ---- the late case: the desk was empty when asked; its rows came with a later refresh (4.7.0 bounce)
+  const late = v.lateFlash
+  assert.equal(late.emptyBefore, true, 'POSITIVE CONTROL: quoter\'s desk showed no transcript when asked')
+  assert.equal(late.row.flashing, 1, 'the call line flashes when it comes in'); assert.match(late.row.text, /orgtree_message/)
+  assert.ok(late.row.inView && late.settled.inView, `the desk went to it: in view as it flashes (${late.row.top}..${late.row.bottom}) and after (${late.settled.top}..${late.settled.bottom})`)
+  assert.deepEqual(late.toasts, [], 'the empty desk did not say the message was gone')
+  checked.push('late transcript row')
   // View in transcript goes to the agent's desk, which closes the inbox (DmPanel focusAgent): that once, and only then
   assert.equal(v.flash.closedBefore, 0, 'the inbox was never closed before View in transcript')
-  assert.equal(v.end.confirms, 0); assert.equal(v.end.closed, 1, 'closed once, by View in transcript')
+  assert.equal(v.end.confirms, 0); assert.equal(v.end.closed, 2, 'closed twice, once by each View in transcript')
 }
 console.log(JSON.stringify({ ok: true, out: evidence, pinned: result.value.pinned?.real ? 'the app\'s own pin' : 'not pinned in this page', shots: result.value.shots.length, checked, consoleErrors: errors.length, session: result.session, guards: result.guards }))

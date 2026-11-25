@@ -116,7 +116,7 @@ function Probe() {
       </div>}
       {full && <div className="alpha1-fulldesk" data-alpha1="fulldesk">
         <div className="alpha1-cap">quoter's desk (canvas/desk.tsx)</div>
-        <DeskChat node={quoter} map={map} slug="mine" bare op={async () => ({})} toast={() => {}} />
+        <DeskChat node={quoter} map={map} slug="mine" bare op={async () => ({})} toast={lines => { window.__dm.toasts.push(...lines.map(l => `desk: ${l}`)) }} />
       </div>}
       {list && <div className="alpha1-list" data-alpha1="list">
         <div className="alpha1-cap">the canvas's agents list</div>

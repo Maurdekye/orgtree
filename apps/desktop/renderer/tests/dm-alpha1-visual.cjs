@@ -571,6 +571,35 @@ module.exports = async (page) => {
   await page.sleep(2000)
   v.flash.after = await page.eval(() => document.querySelectorAll('.alpha1-fulldesk .jflash').length)
   await shot('21b-the-flash-is-over')
+  // the integrator's late case (4.7.0 bounce): quoter's desk is open on an EMPTY transcript when View in
+  // transcript is asked; the rows come with the desk's next refresh. The desk goes to the row and it flashes.
+  const flashRow = () => page.eval(() => {
+    const f = document.querySelector('.alpha1-fulldesk .jflash'); if (!f) return null
+    const box = f.closest('.msgs').getBoundingClientRect(), r = f.getBoundingClientRect()
+    return { text: (f.textContent || '').slice(0, 80), top: Math.round(r.top - box.top), bottom: Math.round(r.bottom - box.top),
+      inView: r.top >= box.top - 1 && r.bottom <= box.bottom + 1, flashing: document.querySelectorAll('.alpha1-fulldesk .jflash').length }
+  })
+  await page.api('GET', '/__transcript?on=0')
+  await until('quoter\'s desk to show no transcript', async () => page.eval(() => !document.querySelector('.alpha1-fulldesk .tline[data-reply-event]')), 15000)
+  v.lateFlash = { emptyBefore: await page.eval(() => !document.querySelector('.alpha1-fulldesk [data-reply-event]')), toastsBefore: await page.eval(() => window.__dm.toasts.length) }
+  await openChat('quoter')
+  await page.eval(() => { const b = document.querySelector('[data-dm-entry="q2"] .dm-bubble'); b.scrollIntoView({ block: 'center' }) })
+  await page.sleep(300)
+  await page.eval(() => { const b = document.querySelector('[data-dm-entry="q2"] .dm-bubble'), r = b.getBoundingClientRect()
+    b.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: r.left + 30, clientY: r.top + 10, button: 2 })) })
+  await page.sleep(300)
+  await page.eval(() => { [...document.querySelectorAll('[role="menu"] [role="menuitem"]')].find(i => (i.textContent || '').trim() === 'View in transcript')?.click() })
+  await page.sleep(800)
+  await page.api('GET', '/__transcript?on=1')
+  await until('the late row to flash', async () => page.eval(() => !!document.querySelector('.alpha1-fulldesk .jflash')), 15000)
+  v.lateFlash.row = await flashRow()
+  await shot('21c-late-rows-the-desk-goes-to-the-row')
+  await page.sleep(700)
+  v.lateFlash.settled = await page.eval(() => {
+    const f = document.querySelector('.alpha1-fulldesk .tline[data-reply-event="ev-send-tool"]'), box = f.closest('.msgs').getBoundingClientRect(), r = f.getBoundingClientRect()
+    return { top: Math.round(r.top - box.top), bottom: Math.round(r.bottom - box.top), inView: r.top >= box.top - 1 && r.bottom <= box.bottom + 1 }
+  })
+  v.lateFlash.toasts = await page.eval((n) => window.__dm.toasts.slice(n), v.lateFlash.toastsBefore)
   await page.eval(() => window.__dm.fullDesk(false))
 
   v.end = await page.eval(() => ({ confirms: window.__dm.confirms, closed: window.__dm.closed, toasts: window.__dm.toasts.slice() }))
