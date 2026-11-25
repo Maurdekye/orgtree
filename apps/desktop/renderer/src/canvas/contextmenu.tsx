@@ -116,6 +116,9 @@ export interface MenuItem {
   actionDisabled?: boolean
   /** This parent only opens its submenu, including on click or Enter. */
   submenuOnly?: boolean
+  /** Placed right after the Open submenu, and kept there when the renderer moves Open second (an
+   *  agent's "Open chat", USER 2026-11-25 m9b2f753b0fa5): consecutive such entries travel with Open. */
+  withOpen?: boolean
   description?: string
   /** a destructive action — drawn in the caution colour; callers place it
    *  after a separator at the end of the list */
@@ -716,13 +719,17 @@ function MenuEntries({ entries, close, within }: { entries: MenuEntry[]; close: 
   // USER 2026-10-20: Open is the second action in every menu that offers
   // that submenu. Apply after copy/mention prefixes and async replacements,
   // at every nested level too. Keep caller arrays, other actions and separators.
+  // Entries marked `withOpen` right after it move with it.
   const open = entries.findIndex(entry => entry !== 'sep' && entry.label === 'Open' && entry.children)
   let ordered = entries
   if (open >= 0) {
-    const rest = entries.filter((_, i) => i !== open)
+    let end = open + 1
+    while (end < entries.length && entries[end] !== 'sep' && (entries[end] as MenuItem).withOpen) end++
+    const block = entries.slice(open, end)
+    const rest = entries.filter((_, i) => i < open || i >= end)
     const first = rest.findIndex(entry => entry !== 'sep')
     if (first >= 0 && open !== first + 1) {
-      rest.splice(first + 1, 0, entries[open]!)
+      rest.splice(first + 1, 0, ...block)
       ordered = rest
     }
   }

@@ -282,12 +282,6 @@ export function agentMenuEntries(node: CanvasNode, h: AgentMenuHandlers,
   if (h.onRetiredList && (h.retiredCount ?? 0) > 0) {
     entries.splice(2, 0, { label: `Open retired list (${h.retiredCount})`, onSelect: h.onRetiredList })
   }
-  // OPEN CHAT (USER 2026-11-25 13:04:54Z m9b2f753b0fa5 "an extra context menu entry for "open chat" for
-  // agent links that have audience with you directly or indirectly"): the plain click's chat, at the top
-  // level right after Open (before the retired list), for an agent holding a user audience of its own or through its project
-  // (canChatWith, the predicate the plain click uses). Open > Chat stays where it was.
-  if (canChatWith(node)) entries.splice(2, 0, { label: 'Open chat', title: `your chat with ${node.id}, in your Inbox`,
-    onSelect: () => { openAgentChat('', node.id) } })
   const hire = h.onHire
   if (canHire && hire) {
     // the menu just opened on a model choice: re-read agy's model list
@@ -394,6 +388,14 @@ export function agentMenuEntries(node: CanvasNode, h: AgentMenuHandlers,
   }
   entries.push(...portableEntries(node, h, live && !node.isBearerOf && !node.bearer_state, descendants.length > 0 || (node.children ?? []).some((c) => c.state === 'live')))
   if (lifecycle.length) entries.push('sep', ...lifecycle)
+  // OPEN CHAT (USER 2026-11-25 13:04:54Z m9b2f753b0fa5 "an extra context menu entry for "open chat" for
+  // agent links that have audience with you directly or indirectly"): the plain click's chat, at the top
+  // level right after Open, for an agent holding a user audience of its own or through its project
+  // (canChatWith, the predicate the plain click uses). `withOpen` keeps it there when the renderer moves
+  // Open second (contextmenu.tsx MenuEntries). Open > Chat stays where it was.
+  const openAt = entries.findIndex(e => e !== 'sep' && e.label === 'Open' && !!e.children)
+  if (canChatWith(node)) entries.splice(openAt >= 0 ? openAt + 1 : entries.length, 0, { label: 'Open chat',
+    title: `your chat with ${node.id}, in your Inbox`, withOpen: true, onSelect: () => { openAgentChat('', node.id) } })
   return entries
 }
 
