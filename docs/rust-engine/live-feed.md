@@ -70,3 +70,13 @@ An agent watches the feed with a websocket watchdog: `kind: websocket`, `target:
 ## Out of scope for v1
 
 Replacing the stream bridge's watchdog relay, remote or phone access, state-on-connect for kinds other than the two counts, and replay.
+
+
+## Moved from AGENTS.md (2026-11-25)
+
+These entries were moved verbatim from the root AGENTS.md to keep it under its size cap; AGENTS.md keeps a summary and a pointer here.
+
+- **The live engine feed (I1-I4, docs/rust-engine/live-feed.md, USER 2026-11-06 m07e19921dd18, m86783c79bd89).** Local WebSocket `ws://127.0.0.1:47830/v1/events` (`live_feed_enabled` default ON, `live_feed_port`). **I1 PARITY:** given the same events, bound agent and prior AuthState, the feed delivers exactly what the shared `events::authorize` passes, identical name and payload, as an event dog's would; dog-only policy after it (regex, threshold, interval/coalescing, silence, once, notice) is outside I1. No second filter or dedupe. **I2 CAP:** a bound connection never gets what its owner's dog would not; untokened: counts only. **I3:** `seq` rises; `agents.*` counts are read when authorized, never from a publication snapshot. **I4:** 127.0.0.1 only.
+  Ticket links share `Status · slug` hover text (2026-10-29); an unknown status
+  leaves the slug alone. See [ticket identity hover](docs/agents/desktop-and-renderer.md#ticket-identity-hover).
+  [decided: user 2026-10-21 17:38:28Z; verified: `canvas/objecttooltip.ts`]

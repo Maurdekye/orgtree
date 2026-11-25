@@ -3575,3 +3575,9 @@ path-absolute href resolves against the app's origin.
 - Platform comes from `navigator.platform`; tests set it through `setLinkPlatformForTests`.
 
 [verified: `tests/linuxfilelinks.test.ts` (9), `windowslinks`, `toolfilelinks`, `images` unchanged]
+
+## Moved from AGENTS.md (2026-11-25)
+
+These entries were moved verbatim from the root AGENTS.md to keep it under its size cap; AGENTS.md keeps a summary and a pointer here.
+
+- **Folder pickers use the OS native dialog on local desktop windows** (`dialog.showOpenDialog` via `handleHere('desktop:pick-folder')`, `openDirectory` + `createDirectory`, modal to the asking window, seeded from an existing field directory), narrowing v1 `1ec63e8`; remote-engine orgs (`remoteHere()`) and browser surfaces without the preload bridge keep the `/api/fs` picker. See [native folder picker](docs/agents/desktop-and-renderer.md#native-os-folder-picker-for-local-organizations-2026-11-13-460). [decided: user 2026-11-13 m365cee9110b5, m98bc74e8a3c7]

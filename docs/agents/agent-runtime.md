@@ -1097,3 +1097,12 @@ rebind/removal and rehire rely on that later pickup. Pure logic and tests:
 `runtime/state_history.rs`. See [state history](../rust-engine/state-history.md).
 [decided: user 2026-10-31, liaison spec 2026-11-01; verified:
 `runtime/{state_history,actor,freeze}.rs`, `tools/mailtools.rs`]
+
+
+## Moved from AGENTS.md (2026-11-25)
+
+These entries were moved verbatim from the root AGENTS.md to keep it under its size cap; AGENTS.md keeps a summary and a pointer here.
+
+- **A Claude Code tool call that seems to hang may never have reached the engine.** Claude Code (2.1.292) starts an MCP call without `readOnlyHint` only when no other call runs, and Orgtree sends no annotations: a reply's state-changing Orgtree calls run one at a time after every earlier call in that reply, foreground subagents included. Check the engine log for `tools.call` first (22 retires, 2026-10-22: none arrived); see `orgtree-harness-claude-code` (orgtree-app › harnesses). [verified: live log 2026-10-22 19:38–19:40Z; Claude Code 2.1.292 tool executor]
+
+- **A turn is mid-turn from admission.** `start_turn` claims mail and sets `inflight_at`, waits for the helper, starts the CLI and builds ORG STATE; `begin_turn` sets `self.turn` last. Published `starting` (turn slot held, no turn yet) covers that window ("▶ mid-turn"). "Never finished — the engine stopped mid-turn" means a claimed turn with none running/starting: judge a dead turn from `inflight_at` only with `busy`/`starting`. [verified: `runtime/actor.rs::{start_turn,runtime_value}`, `runtime/envelope.rs::live_from_view`; 2026-10-22]

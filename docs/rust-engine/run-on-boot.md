@@ -873,3 +873,16 @@ registers real per-user tasks), and any build, installation or real task.
 - **Downgrade (inferred, not measured):** a 4.3.x installer reads no
   `StartupMode`, which it takes as boot, and registers its sign-in task
   disabled; its launcher is gone, so nothing starts from it.
+
+
+## Moved from AGENTS.md (2026-11-25)
+
+These entries were moved verbatim from the root AGENTS.md to keep it under its size cap; AGENTS.md keeps a summary and a pointer here.
+
+- **The engine always runs in Session 0 (decision 94, replacing decision 93's restart target).** Restarts, updates and crash recovery start it through the S4U boot task, also with Run on boot off; the sign-in helper is the per-session agent host. The strict invariants 1-10 (any violation is a bug) are recorded verbatim in [decision 94](docs/rust-engine/run-on-boot.md#the-engine-stays-in-session-0-decision-94) and DECISIONS 94. [decided: user 2026-10-22 07:27Z-07:38Z, coordinator Q1/Q4/Q5; verified: `host.rs`, `main/sessionlaunch.ts`, `runtime/session_host.rs`, `runtime/session_watch.rs`, `credential_bridge.rs`, `credential_broker.rs`; proof `session0-handover.mjs`, run unsplit]
+
+- **PostgreSQL never runs as administrator.** On Windows `pg.rs` starts the postmaster only through `winproc::spawn_restricted` (`restricted_medium_token`: Medium LUA token with elevated groups deny-only, real pid, log streams, `pg_ctl` stop and engine job); initdb restricts itself (`PG_RESTRICT_EXEC` cleared). Never pass the engine's token to `postgres.exe`, and create user-process pipes (CLI stdio, tool bridge, OpenCode mail) via `winproc::create_user_pipe` so an elevated engine never leaves them read-only for the helper. See [decision 94](docs/rust-engine/run-on-boot.md#the-engine-stays-in-session-0-decision-94). [decided: coordinator 2026-10-21 22:51Z, alpha.29; verified: `pg.rs`, `winproc.rs`; test `pg::rights_tests`]
+
+- **"Elevated" means what Windows and Task Manager say.** `token_rights` checks `TokenElevation`, Administrators enabled or High label on the engine, boot host and helper (`CreateRestrictedToken` without `LUA_TOKEN` leaves S-1-5-114 enabled; `LUA_TOKEN` alone keeps High). Restart notices report the setting and measured rights for engine and helper; tests run un-elevated. See [run-on-boot.md](docs/rust-engine/run-on-boot.md#the-engine-stays-in-session-0-decision-94). [decided: user 2026-10-22 11:21Z-11:22Z; verified: `token_rights.rs`, `winproc.rs`, `domain/runtime_notices.rs`; tests `winproc::restricted_tests`]
+
+- **The installer's tasks match their operator by SID, never by the COM name.** Task Scheduler's COM `Principal.UserId` gives the account NAME of a task registered by SID, while its XML keeps the SID. The Run as admin and Run on boot elevated scripts resolve the operator to a SID before they compare (`runasadmin.ts` `OPERATOR_FUNCTIONS`); what does not resolve, or a record without an operator, never matches. An elevated script's failure reaches the desktop only through `LastChangeFailure` in the protected HKLM Runtime key under the change's nonce, never a file the user can write (a planted link could redirect it). See [run-on-boot.md](docs/rust-engine/run-on-boot.md#tasks-and-the-installers-record). [verified: `apps/desktop/main/runasadmin.ts`, `runonstartup.ts`, the user's PC 2026-10-22 13:10Z; tests `tests/session-task-settings.test.mjs`]

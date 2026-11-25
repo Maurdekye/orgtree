@@ -170,3 +170,9 @@ A desktop may let other computers open some of its organizations through a secon
 
 The registries kept in files (`client_tokens`, `live_feed/tokens`, `remote/store`, `remote_access/registry`) write a temporary file and move it over the old one with `client_tokens::replace`. On Windows a scanner or the indexer can hold the file for a moment and the move is refused, so `replace` asks again by itself: five more times, after 15, 30, 45, 60 and 75 ms, and then the save is given up. Each of these saves runs under its registry's lock, and `client_tokens::Registry::authenticate` takes that lock for every request with a client token. So nothing asks again around a call of `replace`. 4.5.12 did that in `Registry::persist` and 4.6.0 put the loop inside `replace`; merged, a save that stayed refused asked 36 times and held the lock for 1.6 s. `a_refused_save_gives_up_after_one_round_and_frees_the_lock` holds it to one round.
 [decided: coordinator 2026-11-13; verified: `client_tokens.rs`, `client_tokens/tests.rs`; 2026-11-13]
+
+## Moved from AGENTS.md (2026-11-25)
+
+These entries were moved verbatim from the root AGENTS.md to keep it under its size cap; AGENTS.md keeps a summary and a pointer here.
+
+- **Retry conflicted writes only through `ops::conflict_retry`** (`conflict_retry_when` for custom conflict tests like account removal's 55P03). Up to `CONFLICT_ATTEMPTS` (10) tries after full-jitter exponential backoff (20..1280 ms) and rollback; the last try refuses (`UserError::Conflict`). SERIALIZABLE topology ops conflict by design (fixed 20/40/60 ms retries left 7/22 concurrent retires failing, 2026-10-22, `tools/rig/proofs/retire-concurrent.mjs`). [verified: `domain/{ops,audiences,undo,account_removal}.rs`; 2026-10-22]

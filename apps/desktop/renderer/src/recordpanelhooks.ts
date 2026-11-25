@@ -70,4 +70,3 @@ export function useRecordHistory(slug: string, name: string) {
   const value = useMemo(() => view && agent && ready ? projectHistory(view.records, agent) : null, [view, agent, ready])
   return { ...selection, value: enabled ? value : legacy }
 }
-

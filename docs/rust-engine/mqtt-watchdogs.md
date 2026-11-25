@@ -261,3 +261,17 @@ payload matching, retained rules and data-fire semantics stay unchanged.
 ## On a project (`project=P`)
 
 An mqtt dog may be owned by a project ([project watchdogs](project-watchdogs.md)): the same rules as for a websocket dog. It runs with the project's hands, the creator must hold web and any credentials folder, publishing needs the caller's web tool and is open to every agent above or below the project, connection mail goes to its keeper, and a duplicate (same broker, topic filter, payload filter) is refused. Its fires are the project's event.
+
+
+## Moved from AGENTS.md (2026-11-25)
+
+These entries were moved verbatim from the root AGENTS.md to keep it under its size cap; AGENTS.md keeps a summary and a pointer here.
+
+- MQTT/WebSocket watchdog `send` uses the dog's existing authorized connection;
+  MQTT requires a publish topic and shares the 64 KiB encoded-payload cap.
+  Disconnected sends do not queue for reconnect. See [MQTT watchdogs](docs/rust-engine/mqtt-watchdogs.md).
+  [decided: user 2026-10-21 13:44:58Z; verified: `runtime/watchdogs/mqtt.rs`, `mqtt/conn.rs`]
+  Network watchdog `configure` changes `connection_messages` (notice by default, wake or off), with a required valid choice
+  and owner/authorized-superior reach, without reconnecting or replaying hellos.
+  See [WebSocket connection notices](docs/rust-engine/websocket-watchdogs.md#connection-notifications).
+  [verified: `tools/mod.rs`, `runtime/watchdogs.rs::configure_connect`, 2026-10-21]
