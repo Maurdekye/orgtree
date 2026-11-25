@@ -480,6 +480,10 @@ pub(crate) async fn grant_tx(engine: &Engine, client: &impl tokio_postgres::Gene
 #[logged]
 pub(super) async fn decision_notice_tx(client: &impl tokio_postgres::GenericClient, org_id: i64, grantee: &str, body: &str, notice: bool, ev: Option<Value>) -> Result<()> {
     let to = notice_recipient(client, org_id, grantee).await?;
+    // Routed to a project's manager: the typed event (access.audience_changed) can only say "you", and the
+    // reader is not its node, so the project-worded body stands alone (USER 2026-11-25 15:59:02Z
+    // mc7d686056940: a project's revoke read as the manager's own audience being rescinded).
+    let ev = if to == grantee { ev } else { None };
     let id: Option<i64> = if to == USER { None } else {
         Some(client.query_one("SELECT id FROM ot.agents WHERE org_id=$1 AND name=$2 AND state='live'", &[&org_id, &to]).await?.get(0))
     };
@@ -695,7 +699,11 @@ async fn revoke_once(engine: &Arc<Engine>, org: &Arc<OrgHandle>, actor: &Actor, 
         let project = sources.iter().find(|(target,_)|target==&grantor).map(|(_,p)|p.as_str());
         // Empty source means a checked absence; None on historical events means unknown.
         let ev = crate::events::audience_changed(&org.slug, &grantee, generation, "rescinded", &by, &grantor, Some(project.unwrap_or("")));
-        let body = super::audience_notices::revoke_body(&grantor, &by, held);
+        let body = if project_manager(client, org.id, &grantee).await?.is_some() {
+            super::audience_notices::project_revoke_body(&grantee, &grantor, &by)
+        } else {
+            super::audience_notices::revoke_body(&grantor, &by, held)
+        };
         decision_notice_tx(client, org.id, &grantee, &body, true, ev).await?;
         let recipient = notice_recipient(client, org.id, &grantee).await?;
         explicit_recipient = client.query_opt("SELECT id FROM ot.agents WHERE org_id=$1 AND name=$2 AND state='live' AND kind='agent'", &[&org.id,&recipient]).await?.map(|r|r.get::<_,i64>(0));

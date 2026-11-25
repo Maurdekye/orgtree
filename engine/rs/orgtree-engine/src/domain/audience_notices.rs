@@ -63,6 +63,17 @@ pub(crate) fn revoke_body(target: &str, by: &str, held: &[EffectiveGrant]) -> St
     )
 }
 
+/// A project's explicit audience was rescinded: told to the project's manager, who is not its holder.
+#[nolog]
+pub(crate) fn project_revoke_body(project: &str, target: &str, by: &str) -> String {
+    format!(
+        "Project {}: its explicit audience with {} was rescinded by {}. Its direct members no longer inherit it through this project. Your own audiences are unchanged.",
+        mention(project),
+        mention(target),
+        mention(by)
+    )
+}
+
 #[nolog]
 pub(crate) fn inheritance_messages(
     before: &AudienceSnapshot,
@@ -211,6 +222,13 @@ mod audience_notice_tests {
         let body = revoke_body("@user", "@user", &[grant("@user", Some("team"))]);
         assert!(body.contains("explicit"));
         assert!(body.contains("still reach @user through project @team"));
+    }
+    #[test]
+    fn a_projects_revoke_told_to_its_manager_names_the_project_not_the_reader() {
+        let body = project_revoke_body("team", "@user", "@user");
+        assert!(body.starts_with("Project @team: its explicit audience with @user was rescinded by @user."), "{body}");
+        assert!(!body.contains("Your explicit audience"), "{body}");
+        assert!(body.contains("Your own audiences are unchanged"), "{body}");
     }
     #[test]
     fn final_revoke_explicitly_says_inherited_access_is_gone() {
