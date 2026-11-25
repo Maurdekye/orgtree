@@ -895,8 +895,8 @@ mod dm_panel_tests {
     use super::*;
     use serde_json::json;
 
-    const LINE: &str = "↳ Sent from the user's DM panel, which shows only mail. Always answer with at least one \
-orgtree_message to user; a reply only in your turn's text does not appear there.";
+    // USER 2026-11-25 14:50:16Z mc6794469e5e7: "simplify that to \"sent from the chats panel, reply with mail\""
+    const LINE: &str = "↳ Sent from the chats panel, reply with mail.";
 
     fn row(extra: Value, notice: bool, sender: &str) -> Value {
         json!({ "uid": "m1", "sender": sender, "kind": "message", "body": "hello", "notice": notice,
@@ -918,20 +918,20 @@ orgtree_message to user; a reply only in your turn's text does not appear there.
         assert!(lines[1].starts_with("FROM user ("), "{text}");
         assert_eq!(lines[2], LINE, "one line, right under the header");
         assert_eq!(lines[3], "hello");
-        assert_eq!(text.matches("DM panel").count(), 1);
+        assert_eq!(text.matches("chats panel").count(), 1);
     }
 
     #[test]
     fn ordinary_mail_a_notice_and_another_senders_mail_say_nothing_of_the_panel() {
         let plain = crate::runtime::actor::mail_of(&row(json!({}), false, "@user"));
         assert!(!plain.dm_panel);
-        assert!(!block(&plain).contains("DM panel"));
+        assert!(!block(&plain).contains("chats panel"));
         // defence in depth: the send path never marks these, and the wrapper does not trust a stray mark either
         let notice = crate::runtime::actor::mail_of(&row(json!({ "surface": "dm" }), true, "@user"));
-        assert!(!block(&notice).contains("DM panel"), "a notice expects no reply");
+        assert!(!block(&notice).contains("chats panel"), "a notice expects no reply");
         let agent = crate::runtime::actor::mail_of(&row(json!({ "surface": "dm" }), false, "lead"));
-        assert!(!block(&agent).contains("DM panel"), "only the user's own mail");
+        assert!(!block(&agent).contains("chats panel"), "only the user's own mail");
         let other = crate::runtime::actor::mail_of(&row(json!({ "surface": "desk" }), false, "@user"));
-        assert!(!other.dm_panel && !block(&other).contains("DM panel"));
+        assert!(!other.dm_panel && !block(&other).contains("chats panel"));
     }
 }
