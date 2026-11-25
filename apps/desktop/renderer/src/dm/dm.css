@@ -306,6 +306,13 @@
 .dm-tick { display: inline-flex; align-items: center; height: 11px; font-size: 16px; line-height: 1; }
 .dm-tick svg { flex: none; }
 .dm-tick.t-read { color: var(--ok); }
+/* INSTANT SEND (Hubchat base.css .tick.t-queued, .tick.t-failed, .failed-line; USER 2026-11-25
+   m1454b39b8fd0): the clock while the engine has not taken it, and a refused message's line under its
+   bubble, on the user's side */
+.dm-tick.t-queued svg { width: 14px; height: 14px; }
+.dm-tick.t-failed { color: var(--bad); }
+.dm-failed { display: flex; align-items: center; justify-content: flex-end; gap: 8px; font-size: 12px; color: var(--bad); margin: 4px 2px 0; }
+.dm-failed .linkish { font-size: 12px; }
 /* typing (Hubchat base.css .typing-prev, .typing-row, .typing-dots): the list's preview, and a row under
    the last message of the open chat */
 .dm-row-typing { color: var(--accent); font-style: italic; display: inline-flex; align-items: center; gap: 5px; }

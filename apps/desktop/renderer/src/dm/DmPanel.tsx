@@ -104,7 +104,7 @@ import type { ReplyTarget } from '../generated/events'
 import type { SelectionTarget } from '../replySelection'
 import {
   ArrowDownIcon, CampaignIcon, ChatBubbleIcon, CheckIcon, ChipIcon, CloseIcon, CopyIcon, HearingIcon, NewChatIcon, ReplyIcon,
-  SettingsIcon,
+  ScheduleIcon, SettingsIcon, WarnIcon,
 } from '../icons'
 import { fmtDay, fmtFull, fmtHm, fmtStamp, isToday } from '../timefmt'
 import { useSurfaceDocument } from '../popout'
@@ -1190,8 +1190,48 @@ function DmConversation({ slug, tree, chat, nodes, toast, refs, onFocusAgent, fl
       ;[...e.dataTransfer.files].forEach(f => dropAttach.current?.(f))
     },
   }
+  // THE USER'S MESSAGES THE ENGINE HAS NOT STORED YET (DmLocal; Hubchat's outgoing store)
+  const [locals, setLocals] = useState<DmLocal[]>([])
+  const localsRef = useRef(locals); localsRef.current = locals
+  const localSeq = useRef(0)
+  const launch = (item: DmLocal) => {
+    item.run().then(
+      (r) => setLocals(ls => ls.map(l => l.key === item.key ? { ...l, state: 'sent', id: (r && r.id) || undefined } : l)),
+      (e: unknown) => setLocals(ls => ls.map(l => l.key === item.key
+        ? { ...l, state: 'failed', error: e instanceof Error ? e.message : String(e) } : l)))
+  }
+  const retryLocal = (key: string) => {
+    const item = localsRef.current.find(l => l.key === key)
+    if (!item || item.state !== 'failed') return
+    setLocals(ls => ls.map(l => l.key === key ? { ...l, state: 'sending', error: undefined } : l))
+    launch(item)
+  }
+  /** Discard: the bubble goes and its message is back in the box (Hubchat's restore) */
+  const discardLocal = (key: string) => {
+    const item = localsRef.current.find(l => l.key === key)
+    if (!item) return
+    setLocals(ls => ls.filter(l => l.key !== key))
+    restoreBox.current?.({ text: item.text === '(file attached)' ? '' : item.text, attached: item.attached })
+  }
+  // the engine's row has arrived: it replaces the local bubble (never both)
+  useEffect(() => {
+    const done = locals.filter(l => l.state === 'sent'
+      && (!l.id || all.some(e => e.key === l.id || e.mail?.id === l.id || e.copies?.includes(l.id!))))
+    if (done.length) setLocals(ls => ls.filter(l => !done.includes(l)))
+  }, [all, locals])
+
   const send = (text: string, attachments?: string[], notice?: boolean, cast?: boolean,
-    objectTarget?: ReplyTarget, selections?: SelectionTarget[]) => {
+    objectTarget?: ReplyTarget, selections?: SelectionTarget[], attachedFull?: { name: string; path: string; bytes: number }[]) => {
+    /** INSTANT SEND (USER 2026-11-25 m1454b39b8fd0): the message is a bubble now; the engine's
+     *  answer settles it, and a refusal leaves it with Retry and Discard instead of a toast */
+    const dispatch = (run: () => Promise<{ id?: string } | void>) => {
+      const item: DmLocal = { key: `local-${peer}-${++localSeq.current}`, peer, text,
+        attached: attachedFull ?? (attachments ?? []).map(p => ({ name: p.split('/').pop() ?? p, path: p, bytes: 0 })),
+        at: new Date().toISOString(), state: 'sending', run }
+      setLocals(ls => [...ls, item])
+      launch(item)
+      return Promise.resolve()
+    }
     const targets = replies
     // sending goes to the newest message and stays there while the sent message and its answers come in
     toBottom()
@@ -1216,7 +1256,6 @@ function DmConversation({ slug, tree, chat, nodes, toast, refs, onFocusAgent, fl
       pinned.current = true
       onChanged()
     }
-    const failed = (e: Error) => { toast([`error: ${e.message}`]); throw e }
     // WRITING TO A CHAT THAT IS A REQUEST APPROVES IT (USER 2026-11-23
     // mae2b1aa37a9b: "or just replied inline to auto-approve"): the existing
     // grant first, so the request is answered as a request. A grant the
@@ -1242,23 +1281,26 @@ function DmConversation({ slug, tree, chat, nodes, toast, refs, onFocusAgent, fl
       // A NEW MESSAGE TYPED IN THIS PANEL, not a reply: it says so to the agent
       // (USER 2026-11-23 m79c022311f95, m034b5c83b8f2), which then answers by
       // mail to the user, the only thing this panel shows.
-      return approved.then(() => sendPanelMessage(slug, peer, text, attachments, notice, urgency)).then(sent).catch(failed)
+      return dispatch(() => approved.then(() => sendPanelMessage(slug, peer, text, attachments, notice, urgency))
+        .then((receipt) => { sent(receipt); return { id: receipt.id } }))
     }
     // a reply: the classic mailbox's own call and target shapes
     const target = selections?.length
       ? [...(objectTarget ? [objectTarget] : []), ...targets.map(mailTarget), ...selections]
       : objectTarget ?? (targets.length > 1 ? targets.map(mailTarget) : mailTarget(targets[0]!))
-    return approved.then(() => sendLinkedReply(slug, recipient, text, target, attachments, notice, urgency))
+    // the reply targets leave the box with the message, as the text does
+    setReplyIds([])
+    return dispatch(() => approved.then(() => sendLinkedReply(slug, recipient, text, target, attachments, notice, urgency))
       .then(async (receipt) => {
-        setReplyIds([])
         sent(receipt)
         // commands have no mail receipt; read the originals only after a durable reply
         const answered = targets.filter(t => t.from !== USER)
-        if (!receipt.id || !answered.length) return
-        try { await readNow(answered as MailEntry[]) }
-        catch { toast(['Reply sent, but could not mark the original mail read.']) }
-      })
-      .catch(failed)
+        if (receipt.id && answered.length) {
+          try { await readNow(answered as MailEntry[]) }
+          catch { toast(['Reply sent, but could not mark the original mail read.']) }
+        }
+        return { id: receipt.id }
+      }))
   }
 
   const fileHref = (path: string, m: MailRow) => {
@@ -1330,6 +1372,18 @@ function DmConversation({ slug, tree, chat, nodes, toast, refs, onFocusAgent, fl
         }).then(() => { toast(['job acknowledged']); onChanged() })
           .catch((err: Error) => { toast([`error: ${err.message}`]); throw err }) : undefined} />)
     }
+    prev = e
+  }
+  // the user's messages the engine has not stored yet, newest last (DmLocal)
+  for (const l of locals) {
+    if (l.peer !== peer) continue
+    const m = { id: l.key, from: USER, to: peer, at: l.at, kind: 'message', body: l.text,
+      attachments: l.attached.map(a => ({ path: a.path, name: a.name, bytes: a.bytes })) } as unknown as MailRow
+    const e: DmEntry = { key: l.key, at: l.at, out: true, unread: false, mail: m }
+    const first = !prev || !prev.out || !!prev.ask || Date.parse(e.at) - Date.parse(prev.at) > GROUP_GAP_MS
+    rows.push(<DmBubble key={l.key} entry={e} m={m} first={first} slug={slug} refs={refs} toast={toast}
+      flash={null} replying={false} sender={senderChip} fileHref={fileHref} mdBase={mdBase} locateMail={locateMail}
+      local={{ state: l.state, error: l.error, retry: () => retryLocal(l.key), discard: () => discardLocal(l.key) }} />)
     prev = e
   }
   // the request itself, last: it is what waits on the user in this chat
@@ -1445,9 +1499,27 @@ function DmConversation({ slug, tree, chat, nodes, toast, refs, onFocusAgent, fl
   )
 }
 
+/** A MESSAGE THE USER JUST SENT, before the engine's row for it (Hubchat's local outgoing message,
+ *  USER 2026-11-25 m1454b39b8fd0): drawn at once with the clock; a refused one stays with "Not
+ *  sent", Retry and Discard; once the engine has it, its own row replaces this one. */
+interface DmLocal {
+  key: string
+  peer: string
+  text: string
+  attached: { name: string; path: string; bytes: number }[]
+  at: string
+  state: 'sending' | 'failed' | 'sent'
+  error?: string
+  /** the engine's id for it, once taken: its row replaces this bubble when it arrives */
+  id?: string
+  run: () => Promise<{ id?: string } | void>
+}
+
 function DmBubble({ entry, m, first, slug, refs, toast, flash, replying, system, sender, fileHref, mdBase,
-  locateMail, inbox, onTranscript, onReply, onRead, onDelete, onAckJob, highlighted }: {
+  locateMail, inbox, onTranscript, onReply, onRead, onDelete, onAckJob, highlighted, local }: {
   entry: DmEntry; m: MailRow; first: boolean; slug: string; refs: RefRoutes; toast: ToastFn
+  /** the user's own message the engine has not stored yet (DmLocal): its state and its two answers */
+  local?: { state: 'sending' | 'failed' | 'sent'; error?: string; retry: () => void; discard: () => void }
   locateMail: LocateMail
   /** the agent whose mailbox holds this message too, and the way to it there */
   inbox?: { agent: string; open: () => void }
@@ -1505,7 +1577,7 @@ function DmBubble({ entry, m, first, slug, refs, toast, flash, replying, system,
     const nav = author && !author.startsWith('@') ? registry?.current?.(author, anchor) ?? [] : []
     const senderEntry = nav.length ? nodeMenuAction('Sender…', anchor, author, nav, toast) : undefined
     return mailMenuEntries({
-    leading: [
+    leading: local?.state === 'failed' ? [{ label: 'Retry', onSelect: local.retry }, { label: 'Discard', onSelect: local.discard }] : [
       ...(onReply ? [{ label: 'Reply', onSelect: onReply }] : []),
       ...(onRead ? [{ label: 'Mark as read', onSelect: onRead }] : []),
       ...(onDelete ? [{ label: 'Delete', onSelect: onDelete }] : []),
@@ -1519,7 +1591,8 @@ function DmBubble({ entry, m, first, slug, refs, toast, flash, replying, system,
   return (
     <div ref={ref} data-dm-entry={entry.key} data-dm-via={entry.via}
       className={'dm-msg ' + (entry.out ? 'out' : 'in') + (first ? ' first' : '') + (entry.unread ? ' unread' : '')
-        + (flash != null ? ' flash' : '') + (replying ? ' replying' : '') + (highlighted ? ' hl' : '')}>
+        + (flash != null ? ' flash' : '') + (replying ? ' replying' : '') + (highlighted ? ' hl' : '')
+        + (local ? ' local' + (local.state === 'failed' ? ' failed' : '') : '')}>
       <div className="dm-msg-row">
         <div className={'dm-bubble' + (notice ? ' notice' : '') + (m.urgent ? ' urgent' : '') + (ordinary ? '' : ' typed')
           + (mega ? ' megaphone' : '')}
@@ -1566,7 +1639,10 @@ function DmBubble({ entry, m, first, slug, refs, toast, flash, replying, system,
           </div>}
           <div className="dm-meta"><time dateTime={m.at} title={fmtFull(m.at)} aria-label={fmtFull(m.at)}>{fmtHm(m.at)}</time>
             {/* Hubchat's tick, after the time: one check, grey while sent, green once read */}
-            {receipt && <span className={'dm-tick ' + (receipt.read ? 't-read' : 't-sent')} role="img"
+            {local ? (local.state === 'failed'
+              ? <span className="dm-tick t-failed" role="img" title="Not sent" aria-label="Not sent"><WarnIcon fontSize="inherit" /></span>
+              : <span className="dm-tick t-queued" role="img" title="Sending" aria-label="Sending"><ScheduleIcon fontSize="inherit" /></span>)
+            : receipt && <span className={'dm-tick ' + (receipt.read ? 't-read' : 't-sent')} role="img"
               title={receipt.label} aria-label={receipt.label}><CheckIcon fontSize="inherit" /></span>}
           </div>
         </div>
@@ -1576,6 +1652,13 @@ function DmBubble({ entry, m, first, slug, refs, toast, flash, replying, system,
           <button type="button" className="iconbtn" title="Copy message text" aria-label="Copy message text" onClick={copy}><CopyIcon fontSize="inherit" /></button>
         </div>
       </div>
+      {/* Hubchat's failed line, under the bubble: why, and its two answers */}
+      {local?.state === 'failed' && <div className="dm-failed" role="alert">
+        <WarnIcon fontSize="inherit" />
+        <span>Not sent{local.error ? ': ' + local.error.replace(/\.$/, '') : ''}.</span>
+        <button type="button" className="linkish" onClick={local.retry}>Retry</button>
+        <button type="button" className="linkish" onClick={local.discard}>Discard</button>
+      </div>}
       {menu.node}
     </div>
   )
