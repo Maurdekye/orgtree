@@ -41,6 +41,8 @@ try { componentCss = readFileSync(path.join(output, 'probe.css'), 'utf8') } catc
 const css = readFileSync(path.join(here, '../src/styles.css'), 'utf8') + '\n' + componentCss + `
 .alpha1-desk { position: fixed; left: 440px; top: 150px; width: 840px; z-index: 60; padding: 10px 12px 12px; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; box-shadow: var(--shadow); }
 .alpha1-list { position: fixed; left: 460px; top: 110px; z-index: 60; }
+.alpha1-fulldesk { position: fixed; right: 12px; top: 60px; width: 600px; height: 880px; z-index: 60; display: flex; flex-direction: column; padding: 10px 12px 12px; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; box-shadow: var(--shadow); }
+.alpha1-fulldesk > :not(.alpha1-cap) { flex: 1; min-height: 0; }
 .alpha1-cap { display: block !important; font-size: 11px; color: var(--dim); margin: 0 0 6px !important; }
 `
 assert.match(css, /\.dm-list > \.tray-panel\.dm-newchat/, 'the chat sheet is in the page')
@@ -99,7 +101,7 @@ const world = {
     sent('u3', 'quoter', 3.5 * H, 'Here is the chart I meant.', { delivered: true, attachments: [{ name: 'chart.png', path: 'outbox/chart.png', bytes: 1532 }],
       reply_to: { id: 'q2', kind: 'mail', from: 'quoter', at: ago(4.5 * H), gist: 'Shortening the summary now; the table stays as it is.', org: 'mine', box: 'user' } }),
     sent('u4', 'quoter', 3.2 * H, 'And the raw numbers.', { delivered: false, dnd_held: true, attachments: [{ name: 'numbers.csv', path: 'outbox/numbers.csv', bytes: 48211 }] }),
-    // the newest one waits: the agent has not taken it (the clock), the ones before it are delivered (one check)
+    // the newest one is not read yet (the grey check), the ones before it are read (the green check)
     sent('u5', 'quoter', 3 * H, 'ok', { delivered: false }),
     // a whole card in the user's bubble: the answers to a request, as the engine records them (point 19)
     sent('ans1', 'quoter', 2.6 * H, '[ANSWERS to your questions]', { delivered: true, ev: answers({ kind: 'user', id: USER }) }),
@@ -114,6 +116,13 @@ const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAAFElEQVR
 const html = `<!doctype html><meta charset="utf-8"><title>dm alpha.1 probe</title><link rel="stylesheet" href="/probe.css">`
   + `<div id="root"></div><script src="/probe.js"></script>`
 let seq = 0
+// quoter's transcript: notes before and after the message whose send call wrote q2 (desk.tsx finds it by the call's mail)
+const TRANSCRIPT = [
+  ...Array.from({ length: 24 }, (_, i) => ({ role: 'assistant', text: `Working note ${i + 1}: checked one more table of the spring figures.`, seq: i, ts: ago(6 * H - i * M), event_id: `ev-before-${i}` })),
+  { role: 'assistant', text: 'Sending the summary now', seq: 24, ts: ago(4.5 * H), event_id: 'ev-send',
+    tools: [{ name: 'mcp__orgtree__orgtree_message', id: 'toolu_q2', event_id: 'ev-send-tool', mail: { id: 'q2', to: 'user' } }] },
+  ...Array.from({ length: 24 }, (_, i) => ({ role: 'assistant', text: `Later note ${i + 1}: the table stays as it is.`, seq: 25 + i, ts: ago(4 * H - i * M), event_id: `ev-after-${i}` })),
+]
 const server = createServer(async (req, res) => {
   const url = new URL(req.url, 'http://x')
   const send = (body, type = 'application/json', status = 200) => { res.writeHead(status, { 'Content-Type': type }); res.end(typeof body === 'string' || Buffer.isBuffer(body) ? body : JSON.stringify(body)) }
@@ -121,6 +130,15 @@ const server = createServer(async (req, res) => {
   if (url.pathname === '/probe.js') return send(readFileSync(path.join(output, 'probe.js')), 'text/javascript')
   if (url.pathname === '/probe.css') return send(css, 'text/css')
   if (url.pathname === '/__calls') return send({ calls, pages, mentionAsks })
+  // 2026-11-25 (job G): the agent reads the waiting "ok" (u5); a message arrives in worker's chat; quoter's
+  // desk has a transcript whose send call wrote q2. The first two only when the walk asks, at its end.
+  if (url.pathname === '/__read') { const u5 = world.sent.find(m => m.id === 'u5'); if (u5) u5.delivered = true; return send({ ok: true }) }
+  if (url.pathname === '/__arrive') {
+    const n = url.searchParams.get('n')
+    // stamped now (not `ago`, whose clock is the server's start): it is the newest message of the chat
+    world.delivered.push({ ...mail(`arrived-${n}`, 'worker', 0, `A new message (${n}): the figures for the north region are in.`), at: new Date().toISOString() })
+    return send({ ok: true })
+  }
   // STREAM PRIVACY (job E): an outside sender writes, and an agent quotes it. Added only when the walk asks,
   // at its end, so every count before it is what it was.
   if (url.pathname === '/__privacy') {
@@ -165,8 +183,9 @@ const server = createServer(async (req, res) => {
     mentionAsks.push(url.searchParams.get('kinds'))
     return send({ items: rows.filter(r => kinds.includes(r.kind) && (!q || q.split(/\s+/).every(w => (r.label + ' ' + r.id).toLowerCase().includes(w)))), next_cursor: null, nodes: [], outside: [] })
   }
-  // a desk's own read of its chat: an empty transcript (only its message box is shown)
-  if (/^\/nodes\/[^/]+\/chat$/.test(p)) return send({ messages: [], live: [], pending_mail: [], busy: false, responding: false, windowed: true, has_older: false, before: null, draft_epoch: 'synthetic:0' })
+  // a desk's own read of its chat: an empty transcript (only its message box is shown); quoter's has its
+  // transcript from the start (the desk-box step hides it), for View in transcript
+  if (/^\/nodes\/[^/]+\/chat$/.test(p)) return send({ messages: p === '/nodes/quoter/chat' ? TRANSCRIPT : [], live: [], pending_mail: [], busy: false, responding: false, windowed: true, has_older: false, before: null, draft_epoch: 'synthetic:0' })
   if (/^\/nodes\/[^/]+\/file$/.test(p)) return /\.png$/.test(url.searchParams.get('path') ?? '') ? send(PNG, 'image/png') : send('synthetic file', 'application/octet-stream')
   if (/\/transfers$/.test(p)) return send({ transfers: [], next_cursor: null })
   if (p.startsWith('/mail/user/')) { const found = everyMail().find(m => m.id === decodeURIComponent(p.slice('/mail/user/'.length))) ?? null; return send({ found: !!found, mail: found }) }
@@ -263,8 +282,8 @@ if (flag === '--expect') {
   checked.push('8 padding')
 
   // ---- 17: the one check mark; 5: typing
-  assert.deepEqual([v.receipts.u1, v.receipts.u2, v.receipts.u3], ['dm-tick t-delivered', 'dm-tick t-delivered', 'dm-tick t-delivered'], 'a delivered message has one check')
-  assert.deepEqual([v.receipts.u4, v.receipts.u5], ['dm-tick t-queued', 'dm-tick t-queued'], 'a waiting one has the clock')
+  assert.deepEqual([v.receipts.u1, v.receipts.u2, v.receipts.u3], ['dm-tick t-read', 'dm-tick t-read', 'dm-tick t-read'], 'a read message has the green check')
+  assert.deepEqual([v.receipts.u4, v.receipts.u5], ['dm-tick t-sent', 'dm-tick t-sent'], 'one not read yet has the grey check')
   assert.equal(v.receiptsIn, 0, 'the agent\'s messages have no mark')
   for (const [id, r] of Object.entries(v.tickBox)) {
     assert.ok(r.afterTime, `${id}: the mark comes after the time`)
@@ -399,6 +418,45 @@ if (flag === '--expect') {
   assert.equal(v.ticket.kinds.every(k => !String(k).includes('ticket')), true, 'the engine is asked for its own kind')
   assert.equal(v.ticket.picked, 'see @ticket:mine/spring-figures ', 'picking writes the ticket form')
   checked.push('ticket prefix')
-  assert.equal(v.end.confirms, 0); assert.equal(v.end.closed, 0, 'the inbox was never closed')
+
+  // ---- one check, grey while sent, green once read, live (USER 2026-11-25 mcc1bee9a2771, ma76e93d834d1)
+  const rd = v.read
+  assert.equal(rd.before.u5.cls, 'dm-tick t-sent'); assert.equal(rd.before.u5.label, 'Sent: quoter has not read it yet')
+  assert.equal(rd.before.u5.color, rd.before.u5.time, 'sent: the grey of the time')
+  assert.notEqual(rd.before.u5.time, rd.before.u5.ok, 'POSITIVE CONTROL: the time is not green')
+  assert.equal(rd.before.u1.cls, 'dm-tick t-read'); assert.equal(rd.before.u1.color, rd.before.u1.ok, 'read: Hubchat\'s read green, var(--ok)')
+  // the production bundle's icons carry no test ids: the glyph is compared by its path (MUI Check)
+  for (const t of [rd.before.u5, rd.before.u1]) { assert.equal(t.svgs, 1); assert.match(t.icon ?? '', /^M9 16\.17/, 'one check, never a clock or two') }
+  assert.equal(rd.before.u5.icon, rd.before.u1.icon, 'the same check, sent and read')
+  assert.equal(rd.after.u5.cls, 'dm-tick t-read'); assert.equal(rd.after.u5.color, rd.after.u5.ok, 'the grey check turned green by itself')
+  assert.equal(rd.after.u4.cls, 'dm-tick t-sent', 'and only that one')
+  checked.push('read tick')
+
+  // ---- the chat stays at its newest message; the jump button whenever it is not stuck
+  const st = v.stick
+  assert.ok(st.bottom.gap <= 1 && !st.bottom.button, 'POSITIVE CONTROL: at the newest message, no button')
+  assert.equal(st.received.last, 'arrived-1'); assert.ok(st.received.gap <= 1, `a received message keeps it at the newest (${st.received.gap} px)`)
+  assert.equal(st.received.button, false)
+  assert.ok(Math.abs(st.up50.gap - 50) <= 2 && !st.up50.button, 'within 80 px it is stuck: no button')
+  assert.ok(Math.abs(st.up150.gap - 150) <= 2 && st.up150.button, 'from 80 px it is not stuck: the button')
+  assert.equal(st.up150.label, 'Jump to the newest message'); assert.ok(st.up150.box.hit, 'the button is on top')
+  assert.deepEqual([st.up150.box.right, st.up150.box.bottom, st.up150.box.w, st.up150.box.h], [22, 16, 40, 40], 'Hubchat\'s round 40 px button at the lower right')
+  assert.ok(st.receivedUp.gap >= 150 && st.receivedUp.button, 'scrolled up, a received message leaves the reader where they are')
+  assert.ok(st.jumped.gap <= 1 && !st.jumped.button && st.jumped.last === 'arrived-2', 'the button goes to the newest message')
+  assert.ok(st.farUp.gap > 1000 && st.farUp.button, 'POSITIVE CONTROL: far up before sending')
+  assert.ok(st.sent.gap <= 1 && !st.sent.button && /Sent from far up the chat/.test(st.sent.lastText), `sending goes to the newest message (${st.sent.gap} px)`)
+  checked.push('stick to bottom', 'jump button')
+
+  // ---- View in transcript flashes the row it lands on (USER 2026-11-25 m6b1d486777c1)
+  assert.deepEqual(v.flash.focused.slice(-1), ['quoter'], 'it goes to quoter\'s desk')
+  assert.equal(v.flash.row.flashing, 1, 'one row flashes'); assert.ok(v.flash.row.inView, 'in view')
+  assert.match(v.flash.row.text, /orgtree_message/, 'the line of the call that sent q2 (desk.tsx: the call, else the message)')
+  assert.match(v.flash.row.cls, /\btline\b/, 'a tool line')
+  assert.notEqual(v.flash.row.bg, 'rgba(0, 0, 0, 0)', 'with the located-mail highlight')
+  assert.equal(v.flash.after, 0, 'once: gone when its animation ends')
+  checked.push('transcript flash')
+  // View in transcript goes to the agent's desk, which closes the inbox (DmPanel focusAgent): that once, and only then
+  assert.equal(v.flash.closedBefore, 0, 'the inbox was never closed before View in transcript')
+  assert.equal(v.end.confirms, 0); assert.equal(v.end.closed, 1, 'closed once, by View in transcript')
 }
 console.log(JSON.stringify({ ok: true, out: evidence, pinned: result.value.pinned?.real ? 'the app\'s own pin' : 'not pinned in this page', shots: result.value.shots.length, checked, consoleErrors: errors.length, session: result.session, guards: result.guards }))

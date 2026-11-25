@@ -59,6 +59,8 @@ declare global {
       toasts: string[]; focused: string[]; closed: number; opened: unknown[]; confirms: number
       /** show the desk's own message box beside the panel */
       deskBox(on: boolean): void
+      /** show the whole desk of quoter beside the panel (View in transcript lands there) */
+      fullDesk(on: boolean): void
       /** show the canvas's agents list beside the panel */
       canvasList(on: boolean): void
       /** the engine says this agent is writing a message to the user (null: nobody is) */
@@ -84,9 +86,10 @@ function Probe() {
   const [nav, setNav] = useState(false)
   const [desk, setDesk] = useState(false)
   const [list, setList] = useState(false)
+  const [full, setFull] = useState(false)
   const [t, setTree] = useState(tree)
   useEffect(() => {
-    window.__dm.deskBox = setDesk; window.__dm.canvasList = setList; window.__dm.nav = setNav
+    window.__dm.deskBox = setDesk; window.__dm.canvasList = setList; window.__dm.nav = setNav; window.__dm.fullDesk = setFull
     // a new tree, as the engine publishes one when an agent's runtime view changes
     window.__dm.typing = (id) => {
       const mark = (n: TreeNode): TreeNode => ({ ...n, writing_to_user: n.id === id, children: (n.children ?? []).map(mark) }) as TreeNode
@@ -111,6 +114,10 @@ function Probe() {
         <div className="alpha1-cap">the desk's message box (canvas/desk.tsx)</div>
         <DeskChat node={quoter} map={map} slug="mine" bare op={async () => ({})} toast={() => {}} />
       </div>}
+      {full && <div className="alpha1-fulldesk" data-alpha1="fulldesk">
+        <div className="alpha1-cap">quoter's desk (canvas/desk.tsx)</div>
+        <DeskChat node={quoter} map={map} slug="mine" bare op={async () => ({})} toast={() => {}} />
+      </div>}
       {list && <div className="alpha1-list" data-alpha1="list">
         <div className="alpha1-cap">the canvas's agents list</div>
         <div className="tray-panel"><AgentTray map={map} rows={trayRows(map, {})} query="" onQuery={() => {}}
@@ -120,7 +127,7 @@ function Probe() {
   )
 }
 
-window.__dm = { toasts: [], focused: [], closed: 0, opened: [], confirms: 0, deskBox() {}, canvasList() {}, typing() {}, theme: id => applyContrast(id),
+window.__dm = { toasts: [], focused: [], closed: 0, opened: [], confirms: 0, deskBox() {}, fullDesk() {}, canvasList() {}, typing() {}, theme: id => applyContrast(id),
   nav() {}, draft: (peer, text, attached) => writeComposerDraft(dmDraftKey('mine', peer), { text, attached }),
   streamer: on => { void setStreamerMode(on) } }
 // stream privacy as the app starts it: off until the capture switches it on

@@ -146,7 +146,9 @@ module.exports = async (page) => {
   v.quotes.opened = await page.eval(() => window.__dm.opened.slice())
 
   // ------------------------------------------------------- 8. the bubble's padding
-  await page.eval(() => { const el = document.querySelector('.dm-timeline'); el.scrollTop = el.scrollHeight })
+  // the reader scrolls down with the wheel: after a quote's jump only the reader's own move lets the chat stick
+  // again (Hubchat's jumpHold / userMoves), so the scroll is preceded by the wheel event a real one sends
+  await page.eval(() => { const el = document.querySelector('.dm-timeline'); el.dispatchEvent(new WheelEvent('wheel', { bubbles: true, deltaY: 400 })); el.scrollTop = el.scrollHeight })
   await page.sleep(300)
   v.padding = await page.eval(() => {
     const px = (n) => Math.round(n * 10) / 10
@@ -477,6 +479,98 @@ module.exports = async (page) => {
   v.ticket.picked = await page.eval(() => document.querySelector('.dm-compose textarea').value.replace(/^With two files /, ''))
   v.ticket.kinds = (await asked()).mentionAsks
   await shot('18b-picking-a-ticket-writes-the-ticket-form')
+
+  // ---------------- 2026-11-25: one check, grey while sent, green once read, live (USER mcc1bee9a2771, ma76e93d834d1)
+  await openChat('quoter')
+  const ticks = () => page.eval(() => {
+    const probe = document.createElement('span'); probe.style.color = 'var(--ok)'; document.body.append(probe)
+    const ok = getComputedStyle(probe).color; probe.remove()
+    return Object.fromEntries([...document.querySelectorAll('.dm-msg.out[data-dm-entry]')].map(r => {
+      const t = r.querySelector('.dm-meta .dm-tick'), time = r.querySelector('.dm-meta time')
+      return [r.dataset.dmEntry, t ? { cls: t.className, color: getComputedStyle(t).color, time: getComputedStyle(time).color, ok,
+        svgs: t.querySelectorAll('svg').length, icon: t.querySelector('svg path')?.getAttribute('d') ?? null, label: t.getAttribute('aria-label') } : null]
+    }))
+  })
+  await page.eval(() => document.querySelector('[data-dm-entry="u5"]')?.scrollIntoView({ block: 'center' }))
+  await page.sleep(300)
+  v.read = { before: await ticks() }
+  await shot('19a-sent-is-a-grey-check-read-a-green-one')
+  await page.api('GET', '/__read')
+  await until('the grey check of u5 to turn green', async () => (await ticks()).u5?.cls === 'dm-tick t-read', 12000)
+  await page.sleep(300)
+  v.read.after = await ticks()
+  await shot('19b-the-grey-check-turned-green-by-itself')
+
+  // ---------------- 2026-11-25: a chat stays at its newest message; the jump button whenever it is not stuck
+  // (USER m9165e9874f48, m694bf862b15a, m279ace747448; @coordinator-opus m66f9dc335c98: the button from 80 px)
+  await openChat('worker')
+  const pos = () => page.eval(() => {
+    const el = document.querySelector('.dm-timeline'), b = document.querySelector('.dm-conv .dm-jump'), t = el.getBoundingClientRect()
+    const r = b?.getBoundingClientRect()
+    return { gap: Math.round(el.scrollHeight - el.scrollTop - el.clientHeight), button: !!b,
+      box: r ? { right: Math.round(t.right - r.right), bottom: Math.round(t.bottom - r.bottom), w: Math.round(r.width), h: Math.round(r.height),
+        hit: !!b.contains(document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2)) } : null,
+      label: b?.getAttribute('aria-label') ?? null, last: [...el.querySelectorAll('[data-dm-entry]')].pop()?.dataset.dmEntry ?? null }
+  })
+  const scrollGap = (gap) => page.eval((g) => { const el = document.querySelector('.dm-timeline'); el.scrollTop = el.scrollHeight - el.clientHeight - g }, gap)
+  await scrollGap(0)
+  await page.sleep(500)
+  v.stick = { bottom: await pos() }
+  await page.api('GET', '/__arrive?n=1')
+  await until('the received message to be drawn', async () => (await pos()).last === 'arrived-1', 12000)
+  await page.sleep(500)
+  v.stick.received = await pos()
+  await shot('20a-a-received-message-keeps-the-chat-at-its-newest')
+  await scrollGap(50)
+  await page.sleep(400)
+  v.stick.up50 = await pos()
+  await scrollGap(150)
+  await page.sleep(400)
+  v.stick.up150 = await pos()
+  await shot('20b-not-stuck-the-jump-button')
+  await page.api('GET', '/__arrive?n=2')
+  await until('the second message to be drawn', async () => page.eval(() => !!document.querySelector('[data-dm-entry="arrived-2"]')), 12000)
+  await page.sleep(500)
+  v.stick.receivedUp = await pos()
+  await page.click('.dm-conv .dm-jump')
+  await page.sleep(600)
+  v.stick.jumped = await pos()
+  await shot('20c-the-button-jumped-to-the-newest-and-it-sticks')
+  await scrollGap(1500)
+  await page.sleep(500)
+  v.stick.farUp = await pos()
+  await page.click('.dm-compose textarea')
+  await page.type('Sent from far up the chat.')
+  await page.click('.dm-compose .mail-reply-send')
+  await until('the sent message to be drawn', async () => page.eval(() => [...document.querySelectorAll('.dm-msg.out')].some(m => /Sent from far up the chat/.test(m.textContent || ''))), 12000)
+  await page.sleep(600)
+  v.stick.sent = { ...(await pos()), lastText: await page.eval(() => [...document.querySelectorAll('.dm-timeline [data-dm-entry]')].pop()?.textContent ?? '') }
+  await shot('20d-sending-from-far-up-goes-to-the-newest')
+
+  // ---------------- 2026-11-25: View in transcript flashes the row it lands on (USER m6b1d486777c1)
+  await page.eval(() => window.__dm.fullDesk(true))
+  await page.waitFor('.alpha1-fulldesk .msgs')
+  await page.sleep(600)
+  await openChat('quoter')
+  const closedBefore = await page.eval(() => window.__dm.closed)
+  await page.eval(() => { const b = document.querySelector('[data-dm-entry="q2"] .dm-bubble'); b.scrollIntoView({ block: 'center' }) })
+  await page.sleep(300)
+  await page.eval(() => { const b = document.querySelector('[data-dm-entry="q2"] .dm-bubble'), r = b.getBoundingClientRect()
+    b.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: r.left + 30, clientY: r.top + 10, button: 2 })) })
+  await page.sleep(300)
+  await page.eval(() => { [...document.querySelectorAll('[role="menu"] [role="menuitem"]')].find(i => (i.textContent || '').trim() === 'View in transcript')?.click() })
+  const flashAt = Date.now()
+  await until('a transcript row to flash', async () => page.eval(() => !!document.querySelector('.alpha1-fulldesk .jflash')), 5000)
+  v.flash = { closedBefore, ms: Date.now() - flashAt, focused: await page.eval(() => window.__dm.focused.slice()), row: await page.eval(() => {
+    const f = document.querySelector('.alpha1-fulldesk .jflash'), box = f.closest('.msgs').getBoundingClientRect(), r = f.getBoundingClientRect()
+    return { tag: f.tagName, cls: f.className, text: (f.textContent || '').slice(0, 80), bg: getComputedStyle(f).backgroundColor,
+      inView: r.bottom > box.top && r.top < box.bottom, flashing: document.querySelectorAll('.alpha1-fulldesk .jflash').length }
+  }) }
+  await shot('21a-view-in-transcript-the-row-flashes')
+  await page.sleep(2000)
+  v.flash.after = await page.eval(() => document.querySelectorAll('.alpha1-fulldesk .jflash').length)
+  await shot('21b-the-flash-is-over')
+  await page.eval(() => window.__dm.fullDesk(false))
 
   v.end = await page.eval(() => ({ confirms: window.__dm.confirms, closed: window.__dm.closed, toasts: window.__dm.toasts.slice() }))
   v.pages = (await asked()).pages
