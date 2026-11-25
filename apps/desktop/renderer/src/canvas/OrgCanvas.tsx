@@ -66,7 +66,7 @@ import {
   FullscreenIcon, PublicIcon, RemoveIcon, ViewListIcon,
 } from '../icons'
 import {
-  ALL_TIER_SEAT, hireTierOffer, anyTierSeat, attentionPip, setOfferedConditionalTiers, setOfferedClaudeTiers, setMuseProvider, useMuseHire, MUSE_TIERS, bySeatDesc, orderAntigravityTiers, MUSE_TIER_LETTER, MUSE_TIER_SEAT, CODEX_TIER_LETTER, CODEX_TIER_SEAT, CODEX_TIERS, DOG_H, DOG_W, DRAFT, ease, edgeJumpPlacement, type EJForm, EXTERN, EXTERN_WEAK, familyOffer, inboxDropChoice, orgInboxLines, providersWithAccounts, flatten, fmtCredits, ANTIGRAVITY_TIER_LETTER, ANTIGRAVITY_TIER_SEAT, ANTIGRAVITY_TIERS, hireOf, INBOX, INBOX_H, modelChoiceLabel, modelChoiceTitle, useShowLegacyModels, jumpTo, layout, NODE_H, NODE_W, noteTierModels, langserverTierIds, openrouterTierIds, orgPxc, presenceOfHires, segD, setLangServerTiers, setOpenRouterTiers,
+  ALL_TIER_SEAT, hireTierOffer, anyTierSeat, attentionPip, setOfferedConditionalTiers, setOfferedClaudeTiers, setMuseProvider, useMuseHire, MUSE_TIERS, bySeatDesc, orderAntigravityTiers, MUSE_TIER_LETTER, MUSE_TIER_SEAT, CODEX_TIER_LETTER, CODEX_TIER_SEAT, CODEX_TIERS, DOG_H, DOG_W, DRAFT, ease, edgeJumpPlacement, type EJForm, EXTERN, EXTERN_WEAK, familyOffer, inboxDropAction, inboxDropHint, type InboxDragMode, orgInboxLines, providersWithAccounts, flatten, fmtCredits, ANTIGRAVITY_TIER_LETTER, ANTIGRAVITY_TIER_SEAT, ANTIGRAVITY_TIERS, hireOf, INBOX, INBOX_H, modelChoiceLabel, modelChoiceTitle, useShowLegacyModels, jumpTo, layout, NODE_H, NODE_W, noteTierModels, langserverTierIds, openrouterTierIds, orgPxc, presenceOfHires, segD, setLangServerTiers, setOpenRouterTiers,
   cardFurniture, draftOpeningGrant, placeOrgInbox, providerOf, PROVIDER_LABEL, savedView, saveView, segPoint, sizeOf, smooth, SPRING_C, SPRING_K, startView, startZoomOn, TIER_LETTER, TIER_SEAT, tierLabel, TIERS, chartLayoutOf, useChartLayout, useCrowdPiles, useHideRetired, USER, USER_H,
   canvasOwner, fairQueueLinks, peerLinkPairs, peerOrder, ringInsertSide, treeParents, USER_W, withDraftTree, withPendingMoves, Z_DESK, Z_MAX, Z_MINI, EJ_FULL, EJ_H, type EJRect,
 } from './shared'
@@ -214,6 +214,8 @@ export interface OrgCanvasProps {
   canvasContent?: 'shown' | 'hidden'
   activeAgentsOnly?: boolean
   onActiveAgentsOnly?: (value: boolean) => void
+  /** App settings > Org mailbox: what dragging an agent onto the org mailbox does (absent: make it the holder) */
+  inboxDragMode?: InboxDragMode
   /** filled with the Agents List on screen (its map and rows, in its
    *  order, for a filter) — Quick chat's superior picker reads it (App owns
    *  the ref) */
@@ -578,7 +580,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
   onAccounts, focusAgent, focusAgentDesk, onFocusAgentHandled, openMailAt,
   onOpenMailHandled, openDocAt, onOpenDocHandled, openDogAt, onOpenDogHandled, canvasShortcuts,
   renderOrgSlot, canvasContent = 'shown', agentList, activeAgentsOnly = false,
-  onActiveAgentsOnly, attract = false, onAttractPanel, attractDocket }: OrgCanvasProps) {
+  onActiveAgentsOnly, inboxDragMode = 'holder', attract = false, onAttractPanel, attractDocket }: OrgCanvasProps) {
   const worldHidden = canvasContent === 'hidden'
   const worldHiddenRef = useRef(worldHidden)
   worldHiddenRef.current = worldHidden
@@ -1448,6 +1450,9 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
   const glStylesRef = useRef<{ sig: string; styles: WireStyles } | null>(null)
   const [dropId, setDropId] = useState<string | null>(null)
   const [replaceHolder, setReplaceHolder] = useState<{ id: string; current: string; multi: boolean; weakOk: boolean } | null>(null)
+  // while a node is over the org mailbox: what dropping it will do (App settings > Org mailbox)
+  const [inboxHint, setInboxHint] = useState<string | null>(null)
+  const inboxDragModeRef = useRef(inboxDragMode); inboxDragModeRef.current = inboxDragMode
   const surfaceBody = useSurfaceDocument().body
   useEffect(() => {
     if (tree.org_inbox?.enabled === false || !tree.org_inbox?.visible) {
@@ -3461,6 +3466,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
     }
     const drop = dropTargetAt(toWorld(e), id)
     setDropId(drop)
+    setInboxHint(drop === INBOX ? inboxDropHint(tree.org_inbox, id, mapRef.current.get(id)?.kind, inboxDragModeRef.current) : null)
     d.reorder = undefined
     const parent = mapRef.current.get(id)?.parent
     if (!drop || drop === parent) {
@@ -3539,15 +3545,17 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
     }
     if (drop === INBOX) {
       if (!targetRef.current.has(INBOX)) { finish(); return }
-      // dropping on the mailbox grants the org-mailbox audience, never reparents. With one holder
-      // allowed, a different node would replace the current one: ask first (spec rev 2 §4.2).
-      const ask = inboxDropChoice(tree.org_inbox, id, mapRef.current.get(id)?.kind)
-      if (ask) {
-        setReplaceHolder({ id, ...ask })
+      // dropping on the mailbox grants an org-mailbox audience, never reparents. What it grants is the App
+      // setting's (USER 2026-11-25 m3f7018605789): the holder at once (default), ask first (spec rev 2 §4.2),
+      // or a weak link when the mailbox already has a holder.
+      const action = inboxDropAction(tree.org_inbox, id, mapRef.current.get(id)?.kind, inboxDragModeRef.current)
+      if (action.kind === 'ask') {
+        setReplaceHolder({ id, current: action.current, multi: action.multi, weakOk: action.weakOk })
         finish()
         return
       }
-      grantInbox(id).finally(finish)
+      if (action.kind === 'noop') { toast([action.why]); finish(); return }
+      ;(action.kind === 'weak' ? grantWeak(id) : grantInbox(id)).finally(finish)
       return
     }
     if (drop && drop !== parent) {
@@ -5081,6 +5089,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
           onOpen={(id, dog) => routeDog(id, false, dog)}/>}
         {(tree.org_inbox?.enabled !== false && tree.org_inbox?.visible) && posOf(INBOX) && (
           <div className={'sq orginbox' + (lod === 'mini' ? ' orginbox-far' : '') + (dropId === INBOX ? ' drop' : '')}
+            data-drop-hint={dropId === INBOX && inboxHint ? inboxHint : undefined}
             style={{
               transform: `translate(${posOf(INBOX)!.x}px, ${posOf(INBOX)!.y}px)`,
               width: USER_W, height: INBOX_H,

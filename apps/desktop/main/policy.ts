@@ -40,6 +40,9 @@ export function preferencesPatch(value: unknown): Partial<DesktopPreferences> {
     } else if (key === 'agentColorSource') {
       if (!isAgentColorSource(val)) throw new Error('Invalid agent color source')
       result.agentColorSource = val
+    } else if (key === 'inboxDragMode') {
+      if (val !== 'ask' && val !== 'holder' && val !== 'weak') throw new Error('Invalid org mailbox drag setting')
+      result.inboxDragMode = val
     } else if (key === 'questionTarget') {
       if (val !== 'desk' && val !== 'mail') throw new Error('Invalid question destination')
       result.questionTarget = val

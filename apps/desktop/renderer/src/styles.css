@@ -6499,6 +6499,15 @@ svg.MuiSvgIcon-root {
   background: linear-gradient(180deg, rgba(169, 194, 216, .07), var(--panel) 75%);
 }
 .sq.orginbox:hover { border-color: #6d8496; }
+/* while a node is dragged over the mailbox: what the drop will do (App settings > Org mailbox, USER 2026-11-25
+   m3f7018605789); under the tile, so the fixed-height tile keeps its layout */
+.sq.orginbox[data-drop-hint]::after {
+  content: attr(data-drop-hint); position: absolute; left: 50%; top: calc(100% + 8px); transform: translateX(-50%);
+  white-space: nowrap; padding: 4px 9px; border-radius: 6px; border: 1px solid #6d8496;
+  background: var(--panel); color: var(--fg); font-size: 12px; font-weight: 500; line-height: 1.4;
+  pointer-events: none; z-index: 5; box-shadow: 0 2px 8px rgba(0, 0, 0, .35);
+}
+.sq.orginbox-far[data-drop-hint]::after { font-size: 30px; padding: 8px 16px; top: calc(100% + 14px); }
 .sq.orginbox-far {
   align-items: center; justify-content: center; padding: 0;
   color: var(--dim); font-size: 48px;

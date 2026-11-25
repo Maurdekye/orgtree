@@ -2195,6 +2195,7 @@ export default function App() {
                 mailEvt={mailEvt}
                 canvasShortcuts={canvasShortcuts}
                 activeAgentsOnly={activeAgentsOnly} onActiveAgentsOnly={setActiveAgentsOnly}
+                inboxDragMode={deskPrefs?.inboxDragMode ?? 'holder'}
                 /* ⚠ THE SHELL SAYS WHICH VIEW IS PRESENTED; THE HOST DOES THE
                    HIDING. This must never become `display: none` on the canvas
                    or on `.viewport` here — `adoptPinLayer` appends the pin

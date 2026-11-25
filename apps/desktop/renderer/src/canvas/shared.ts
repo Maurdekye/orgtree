@@ -1705,15 +1705,26 @@ export type InboxDropAction =
 /** The drop of node `id` (of `kind`) on the org mailbox, decided by the App setting `mode`. */
 export function inboxDropAction(inbox: Parameters<typeof inboxDropChoice>[0], id: string, kind: string | undefined,
   mode: InboxDragMode): InboxDropAction {
-  void mode
+  const holders = inbox?.holders ?? []
+  // a weak link needs a holder to stand beside, an agent, and an engine that knows weak links (`weak` listed)
+  if (mode === 'weak' && holders.length && !holders.includes(id) && kind !== 'project' && Array.isArray(inbox?.weak)) {
+    return inbox!.weak!.includes(id) ? { kind: 'noop', why: `${id} already has a weak link to the org mailbox` } : { kind: 'weak' }
+  }
+  if (mode === 'holder') return { kind: 'grant' }
   const ask = inboxDropChoice(inbox, id, kind)
   return ask ? { kind: 'ask', ...ask } : { kind: 'grant' }
 }
 /** What the mailbox tile says while node `id` is dragged over it: what the drop will do. */
 export function inboxDropHint(inbox: Parameters<typeof inboxDropChoice>[0], id: string, kind: string | undefined,
   mode: InboxDragMode): string {
-  void inbox; void id; void kind; void mode
-  return ''
+  const a = inboxDropAction(inbox, id, kind, mode)
+  const holders = inbox?.holders ?? []
+  if (a.kind === 'noop') return a.why
+  if (a.kind === 'weak') return `Drop: ${id} gets a weak link`
+  if (a.kind === 'ask') return `Drop to choose: ${id} ${a.multi ? 'is added as a holder' : `replaces ${a.current}`}${a.weakOk ? ', or gets a weak link' : ''}`
+  if (holders.includes(id)) return `${id} already holds the org mailbox`
+  if (!holders.length) return `Drop: ${id} becomes the holder`
+  return inbox?.multi_holder_enabled === true ? `Drop: ${id} is added as a holder` : `Drop: ${id} becomes the holder, replacing ${holders.join(', ')}`
 }
 /** Plain-language explanation shown when hovering an audience grant chip. */
 export function audienceGrantTooltip(target: string, kind?: string): string {

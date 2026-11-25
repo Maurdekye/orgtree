@@ -167,6 +167,19 @@ export function DesktopSettings() {
       checked={currentPrefs[key]} disabled={!prefs || busy || !masterOn}
       onChange={value => put({ [key]: value })}
       hint={key === 'notifyWhileFocused' ? 'When off, notifications pause while any Orgtree window has focus.' : undefined} />)}
+  </SetGroup>
+  {/* USER 2026-11-25 m3f7018605789, mcc0fb84c475f, md9ca7ea6df12: what a drag onto the org mailbox does, for
+      every org; "Make it the holder" is the default */}
+  <SetGroup title="Org mailbox">
+    <SetRow label="Dragging an agent onto the org mailbox"
+      hint="When the mailbox already has a holder. With no holder, the agent becomes the holder. Projects never get weak links.">
+      <select aria-label="Dragging an agent onto the org mailbox" value={prefs?.inboxDragMode ?? 'holder'} disabled={!prefs || busy}
+        onChange={e => put({ inboxDragMode: e.target.value === 'ask' || e.target.value === 'weak' ? e.target.value : 'holder' })}>
+        <option value="holder">Make it the holder</option>
+        <option value="ask">Ask each time</option>
+        <option value="weak">Add a weak link if it already has a holder</option>
+      </select>
+    </SetRow>
   </SetGroup></>
 }
 
