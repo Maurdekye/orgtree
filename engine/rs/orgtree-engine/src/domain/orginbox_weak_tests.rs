@@ -346,13 +346,15 @@ async fn failover_the_earliest_runnable_weak_link_acts_while_every_holder_is_una
 #[ignore = "requires an isolated orginbox_queue_fixture database"]
 #[nolog]
 async fn failover_comes_before_the_auto_grant_when_no_holder_is_live() {
+    // since the promotion rule (USER 2026-11-25 mff1aa564451b): with no primary grant at all, new mail promotes the weak
+    // link rather than letting it act; the top-level auto-grant still never happens while a weak link exists
     let w = world(false).await;
     w.weak("scout").await;
     w.c.execute("UPDATE ot.audiences SET revoked_at=now() WHERE org_id=$1 AND grantor='@extern'", &[&w.org]).await.unwrap();
-    assert_eq!(acting_weak(&w.c, w.org, false).await.unwrap().as_deref(), Some("scout"), "no holder at all: the weak link acts");
+    assert_eq!(acting_weak(&w.c, w.org, false).await.unwrap().as_deref(), Some("scout"), "no holder at all: the weak link would act");
     let (_, _, got) = w.from_desk("first", vec![]).await;
     assert_eq!(got, json!(["scout"]));
-    assert!(w.rows("@extern").await.is_empty(), "no primary is auto-granted while a weak link acts");
+    assert_eq!(w.rows("@extern").await, vec!["scout"], "the weak link is promoted, never a top-level agent");
 }
 
 #[tokio::test]
@@ -666,4 +668,54 @@ async fn a6_releasing_a_held_reply_in_a_retired_holders_thread_grants_nothing() 
     let got: Value = w.c.query_one("SELECT delivered_to FROM ot.org_inbox WHERE org_id=$1 AND dir='in' AND body='held reply'", &[&w.org]).await.unwrap().get(0);
     assert_eq!(got, json!(["front"]), "released into the retired holder's thread, waiting");
     assert_eq!(w.rows("@extern").await, vec!["front"], "no new primary was granted by the release");
+}
+
+// ── Promotion (USER 2026-11-25 11:54:27Z mff1aa564451b; edges @coordinator-opus m423778515c90) ──────────────────────
+// With NO primary grant at all, new mail promotes a weak link to primary (persisted; its weak link drops): the
+// earliest-granted that can run, else the earliest-granted. No weak links: today's auto-grant. A retired holder whose
+// grant stands is not "removed" (failover applies instead).
+
+#[tokio::test]
+#[ignore = "requires an isolated orginbox_queue_fixture database"]
+#[nolog]
+async fn a_removed_primary_is_replaced_by_promoting_a_weak_link() {
+    let revoke_primary = "UPDATE ot.audiences SET revoked_at=now() WHERE org_id=$1 AND grantor='@extern'";
+    // the earliest-granted weak link that can run
+    let w = world(false).await;
+    w.c.execute("INSERT INTO ot.agents(org_id,name,parent_id,tier,state,born) VALUES($1,'late',$2,'sol','live','2026-11-24')", &[&w.org, &w.boss]).await.unwrap();
+    w.weak("scout").await;
+    w.weak("late").await;
+    w.c.execute(revoke_primary, &[&w.org]).await.unwrap();
+    w.set(HALTED, w.scout).await;
+    let (_, _, got) = w.from_desk("news", vec![]).await;
+    assert_eq!(got, json!(["late"]), "the runnable weak link is promoted and gets the mail");
+    assert_eq!(w.rows("@extern").await, vec!["late"], "a real, persisted primary");
+    assert_eq!(w.rows(WEAK).await, vec!["scout"], "its weak link dropped");
+    assert!(user(&w.c, w.org).await.iter().any(|b| b.contains("@late was promoted")), "{:?}", user(&w.c, w.org).await);
+    assert!(to(&w.c, w.org, "late").await.iter().any(|b| b.contains("You are now the holder of the org mailbox")));
+    // none can run: the earliest-granted, whose copy waits
+    let w = world(false).await;
+    w.c.execute("INSERT INTO ot.agents(org_id,name,parent_id,tier,state,born) VALUES($1,'late',$2,'sol','live','2026-11-24')", &[&w.org, &w.boss]).await.unwrap();
+    w.weak("scout").await;
+    w.weak("late").await;
+    w.c.execute(revoke_primary, &[&w.org]).await.unwrap();
+    w.set(HALTED, w.scout).await;
+    w.c.execute("UPDATE ot.agents SET frozen='{\"cause\":\"limit\"}'::jsonb WHERE org_id=$1 AND name='late'", &[&w.org]).await.unwrap();
+    let (_, _, got) = w.from_desk("news", vec![]).await;
+    assert_eq!(got, json!(["scout"]));
+    assert_eq!(w.rows("@extern").await, vec!["scout"]);
+    // no weak links: today's auto-grant
+    let w = world(false).await;
+    w.c.execute(revoke_primary, &[&w.org]).await.unwrap();
+    let (_, _, got) = w.from_desk("news", vec![]).await;
+    assert_eq!(got, json!(["boss"]));
+    assert_eq!(w.rows("@extern").await, vec!["boss"]);
+    // a retired holder whose grant stands is not removed: failover, no promotion
+    let w = world(false).await;
+    w.weak("scout").await;
+    w.set(RETIRED, w.front).await;
+    let (_, _, got) = w.from_desk("news", vec![]).await;
+    assert_eq!(got, json!(["scout"]), "the weak link acts");
+    assert_eq!(w.rows("@extern").await, vec!["front"], "nobody promoted");
+    assert_eq!(w.rows(WEAK).await, vec!["scout"]);
 }
