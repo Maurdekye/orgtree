@@ -185,7 +185,7 @@ function engine(world: World) {
 }
 
 async function setup(t: TestContext, world: World, opts: {
-  tree?: TreePayload; jumpTo?: string | null; active?: boolean; openChat?: { peer: string; seq: number; grant?: boolean } | null
+  tree?: TreePayload; jumpTo?: string | null; jumpPeer?: string; active?: boolean; openChat?: { peer: string; seq: number; grant?: boolean } | null
   /** around the panel, e.g. the canvas's agent-menu registry */
   wrap?: (panel: React.ReactElement) => React.ReactElement
 } = {}) {
@@ -206,7 +206,7 @@ async function setup(t: TestContext, world: World, opts: {
   const panel = (o = opts) => (
     <CurrentOrg.Provider value="mine">
       <UserMailbox slug="mine" tree={o.tree ?? opts.tree ?? tree()} toast={(lines) => { state.toasts.push(...lines) }}
-        close={() => { state.closed++ }} jumpTo={o.jumpTo ?? null} jumpSeq={o.jumpTo ? 1 : null}
+        close={() => { state.closed++ }} jumpTo={o.jumpTo ?? null} jumpSeq={o.jumpTo ? 1 : null} jumpPeer={o.jumpPeer}
         openChat={o.openChat ?? null} onFocusAgent={(id) => { state.focused.push(id) }}
         onOpenMail={(ref) => { state.opened.push(ref) }} />
     </CurrentOrg.Provider>
@@ -2555,4 +2555,29 @@ test('the user’s own unread message has the desk’s ×: it takes the mail bac
   await inAct(async () => { await flush(12) })
   assert.ok(bubble('u6'), 'the bubble is back where it was')
   assert.ok(s.state.toasts.some(m => /already delivered/.test(m)), `the engine’s reason is shown (${s.state.toasts.join(' | ')})`)
+})
+
+// VIEW IN CHAT (USER 2026-11-25 m70e86c04946e): the user's own message, outside the loaded window, read back by id
+// names no recipient; the asker names the chat (mailboxpref viewMailIn's peer), and it joins that chat's sent mail
+test("View in chat on the user's own older message opens the chat the asker named, with the message flashed in it", async (t) => {
+  const s = await setup(t, {
+    audiences: [grant('worker')],
+    delivered: [mail('m1', 'worker', '2026-11-20T10:00:00Z')],
+    byId: { old8: { id: 'old8', from: USER, at: '2026-10-01T09:00:00Z', kind: 'message', body: 'body of old8' } },
+  }, { jumpTo: 'old8', jumpPeer: 'worker' })
+  assert.equal(document.querySelector('.dm-head')?.getAttribute('data-dm-peer'), 'worker', "the named chat, not the user's own")
+  const old = s.all<HTMLElement>('.dm-msg').find(m => m.dataset.dmEntry === 'old8')
+  assert.ok(old, 'the message is in that chat')
+  assert.equal(old!.classList.contains('out'), true, "as the user's own message")
+  assert.equal(old!.classList.contains('flash'), true, 'flashed, as a reference jump is')
+})
+
+test("without a named chat, the user's own older message says it is not in a chat, and opens nothing", async (t) => {
+  const s = await setup(t, {
+    audiences: [grant('worker')],
+    delivered: [mail('m1', 'worker', '2026-11-20T10:00:00Z')],
+    byId: { old8: { id: 'old8', from: USER, at: '2026-10-01T09:00:00Z', kind: 'message', body: 'body of old8' } },
+  }, { jumpTo: 'old8' })
+  assert.deepEqual(s.state.toasts, ['That message is not in a chat.'])
+  assert.equal(s.all<HTMLElement>('.dm-msg').some(m => m.dataset.dmEntry === 'old8'), false)
 })

@@ -44,7 +44,8 @@ for (const box of ['user', 'org', 'node'] as const) test(`mail ${box} identity s
     assert.equal(event.defaultPrevented, true)
     const labels = [...document.querySelectorAll('.ctxmenu:not(.ctxmenu-submenu) > .ctxmenu-branch > [role="menuitem"]')].map(el => el.textContent!.trim())
     assert.ok(['Open', 'Close'].includes(labels[0]))
-    assert.deepEqual(labels.filter(label => !['Open', 'Close', 'Reply', 'Mark as read', 'Retract (undelivered)', 'Delete'].includes(label)), ['Copy message text', 'Copy reference'])
+    // the user's own mail (box user) adds both views on a link (USER 2026-11-25 m2fb0c88ab8f8; viewinchat.test.tsx)
+    assert.deepEqual(labels.filter(label => !['Open', 'Close', 'Reply', 'Mark as read', 'Retract (undelivered)', 'Delete', 'View in chat', 'View in classic inbox'].includes(label)), ['Copy message text', 'Copy reference'])
   }
   assert.deepEqual(opened, [], 'hover/menu cannot route or change message state')
   assert.deepEqual(changed, [])

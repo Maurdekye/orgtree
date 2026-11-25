@@ -13,6 +13,7 @@
 // windows, no engine setting.
 
 import { useSyncExternalStore } from 'react'
+import { getMailById } from './api'
 
 export const CLASSIC_MAILBOX_KEY = 'orgtree-classic-mailbox'
 export const OPEN_CHAT_ON_REPLY_KEY = 'orgtree-chat-on-object-reply'
@@ -152,4 +153,51 @@ export const agentLinkChat = (org: string, node: { id: string; kind?: string | n
 export const replySentOnObject = (org: string, peer: string): void => {
   if (!org || !peer || classicMailbox() || !openChatOnReply()) return
   for (const fn of [...chatSubs]) fn(org, peer)
+}
+
+/** VIEW A MAIL IN THE CHAT OR IN THE CLASSIC INBOX (USER 2026-11-25 m70e86c04946e "any mail between you and an
+ *  agent in an agent's or your classic mailbox gets a context menu "view in chat" which switches to the chat
+ *  view and highlights the message"; m53e908235395 a mail mention's click does the same while the chats are on;
+ *  m2fb0c88ab8f8 a mail mention's menu has both, "which switches to the appropriate one before opening").
+ *
+ *  `chatPeerOf`: the agent or project on the other side of a mail between the user and it, or null for any
+ *  other mail (agent to agent, outside or org mail, the system's). `userBox`: the row comes from the user's own
+ *  mailbox, whose received mail carries no `to`. A row the user sent whose `to` is unknown is taken as a chat
+ *  mail: the chat's own jump then finds it or says it cannot (DmPanel's not-found notice).
+ *
+ *  `viewMailIn` sets the view first with the toggle's own setting, then asks the shell (App.tsx) to open the
+ *  user's mailbox on that mail: the chats select its chat and flash it, as a reference jump does; the classic
+ *  mailbox opens its folder, selects it and scrolls to it. An empty `org` is this window's organization. */
+export const chatPeerOf = (m: { from?: unknown; to?: unknown }, userBox = false): string | null => {
+  const name = (v: unknown): string | null => typeof v === 'string' && v !== '' && !v.startsWith('@') ? v : null
+  if (m.from === '@user') return m.to == null || m.to === '' ? '' : name(m.to)
+  return m.to === '@user' || userBox && m.to == null ? name(m.from) : null
+}
+export const isChatMail = (m: { from?: unknown; to?: unknown }, userBox = false): boolean => chatPeerOf(m, userBox) !== null
+/** `peer`: the chat that holds it, where the asker knows (the user's own mail read back by id names no recipient) */
+type MailViewRequest = (org: string, mailId: string, peer?: string) => void
+const mailViewSubs = new Set<MailViewRequest>()
+export const onMailViewRequest = (fn: MailViewRequest): (() => void) => {
+  mailViewSubs.add(fn)
+  return () => { mailViewSubs.delete(fn) }
+}
+export const VIEW_IN_CHAT = 'View in chat'
+export const VIEW_IN_CLASSIC = 'View in classic inbox'
+export const viewMailIn = (view: 'chat' | 'classic', org: string, mailId: string, peer?: string | null): boolean => {
+  if (!mailId || !mailViewSubs.size) return false
+  if (classicMailbox() !== (view === 'classic')) setClassicMailbox(view === 'classic')
+  for (const fn of [...mailViewSubs]) fn(org, mailId, peer || undefined)
+  return true
+}
+
+/** A MAIL LINK INTO AN AGENT'S OR PROJECT'S MAILBOX (OrgCanvas's mail router), USER 2026-11-25 m53e908235395
+ *  "clicking a mail mention to you in a transcript or body elsewhere will do the same if chats is open": while
+ *  the chats are the mailbox, a mail between the user and `agent` opens in that chat, flashed. The user's box
+ *  answers by id for exactly the user's mail. The classic view, any other mail and a failed read go `elsewhere`
+ *  (the agent's mailbox, as before). */
+export const mailLinkToChat = (slug: string, id: string, agent: string, elsewhere: () => void): void => {
+  if (classicMailbox()) { elsewhere(); return }
+  getMailById(slug, 'user', id)
+    .then(r => { if (!(r.found && r.mail && isChatMail(r.mail as { from?: unknown; to?: unknown }, true) && viewMailIn('chat', slug, id, agent))) elsewhere() })
+    .catch(elsewhere)
 }
