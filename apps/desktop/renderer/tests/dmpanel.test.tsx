@@ -2432,3 +2432,66 @@ test('a regular read that replaces an older page on its way does not leave the r
   assert.ok(s.server.calls.some(c => /\/nodes\/worker\/message$/.test(c.path)), 'POSITIVE CONTROL: the message was sent')
   assert.deepEqual(rows.seen, [], 'no "loading older messages" row for a read of the newest mail or a send')
 })
+
+// "VIEW IN CLASSIC INBOX" (USER 2026-11-25 ma79665bf7f2e "new context menu entry for messages; "view in classic
+// inbox": switches the view to the classic mailbox, and then selects the message clicked in the list and jumps to
+// it"; @ticket:orgtree/mailbox-dm-panel-view-in-classic-inbox-message-m). The same switch as the title bar's, then
+// the classic mailbox's own reference jump (its folder, a cleared tag filter, a lookup, the not-found notice).
+test('a message’s menu has "View in classic inbox": the classic mailbox opens on its folder with that message selected; a message still sending has none', async (t) => {
+  const world: World = {
+    audiences: [grant('worker')],
+    delivered: [mail('in1', 'worker', '2026-11-20T10:00:00Z'), mail('in2', 'worker', '2026-11-20T12:00:00Z')],
+    sent: [sent('out1', 'worker', '2026-11-20T11:00:00Z', { delivered: true })],
+  }
+  const s = await setup(t, world, { active: false })
+  await s.openChat('worker')
+  const menuOf = async (id: string) => {
+    const bubble = s.all<HTMLElement>('.dm-msg').find(m => m.dataset.dmEntry === id)?.querySelector<HTMLElement>('.dm-bubble')
+    assert.ok(bubble, `the bubble of ${id}`)
+    await inAct(async () => { bubble.dispatchEvent(new W.MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 20, clientY: 20 })); await flush(4) })
+    const menus = [...document.querySelectorAll<HTMLElement>('[role="menu"]')]
+    const items = menus.length ? [...menus[menus.length - 1]!.querySelectorAll<HTMLElement>('[role="menuitem"]')] : []
+    return { labels: items.map(i => i.textContent?.trim() ?? ''), item: (label: string) => items.find(i => i.textContent?.trim() === label) }
+  }
+  const classicShows = () => ({
+    chats: document.querySelector('.dm-panel') !== null,
+    folder: document.querySelector('.mail-folders button.on')?.textContent?.trim().toLowerCase().replace(/\s*\d+$/, '') ?? null,
+    selected: document.querySelector('.mailrow.on')?.textContent ?? null,
+  })
+  // a received message
+  let menu = await menuOf('in1')
+  assert.ok(menu.labels.includes('View in classic inbox'), `the agent’s message has it (${menu.labels.join(' | ')})`)
+  await s.click(menu.item('View in classic inbox'), 'View in classic inbox')
+  await inAct(async () => { await flush(20) })
+  let now = classicShows()
+  assert.equal(now.chats, false, 'the chats gave way to the classic mailbox')
+  assert.equal(window.localStorage.getItem(CLASSIC_MAILBOX_KEY), '1', 'by the same switch as the title bar’s')
+  assert.match(now.folder ?? '', /^inbox/, `on the Inbox folder (${now.folder})`)
+  assert.match(now.selected ?? '', /body of in1/, 'with that message selected')
+  assert.doesNotMatch(now.selected ?? '', /body of in2/, 'POSITIVE CONTROL: not the newest one')
+  // back to the chats, and the user's own message
+  await inAct(async () => { setClassicMailbox(false); await flush(12) })
+  await s.openChat('worker')
+  menu = await menuOf('out1')
+  assert.ok(menu.labels.includes('View in classic inbox'), 'the user’s own message has it too')
+  await s.click(menu.item('View in classic inbox'), 'View in classic inbox')
+  await inAct(async () => { await flush(20) })
+  now = classicShows()
+  assert.equal(now.chats, false)
+  assert.match(now.folder ?? '', /^sent/, `on the Sent folder (${now.folder})`)
+  assert.match(now.selected ?? '', /body of out1/, 'with that message selected')
+  // a message the engine has not taken: its menu is Retry and Discard only
+  await inAct(async () => { setClassicMailbox(false); await flush(12) })
+  await s.openChat('worker')
+  world.refuse = true
+  await s.type('this one will not go')
+  await s.send()
+  await inAct(async () => { await flush(20) })
+  const local = document.querySelector<HTMLElement>('.dm-msg.local .dm-bubble')
+  assert.ok(local, 'POSITIVE CONTROL: the refused message is on screen')
+  await inAct(async () => { local!.dispatchEvent(new W.MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 20, clientY: 20 })); await flush(4) })
+  const menus = [...document.querySelectorAll<HTMLElement>('[role="menu"]')]
+  const labels = menus.length ? [...menus[menus.length - 1]!.querySelectorAll('[role="menuitem"]')].map(i => i.textContent?.trim()) : []
+  assert.ok(labels.includes('Retry'), `POSITIVE CONTROL: its menu (${labels.join(' | ')})`)
+  assert.equal(labels.includes('View in classic inbox'), false, 'no entry: it has no mail yet')
+})
