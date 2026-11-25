@@ -284,3 +284,43 @@ async fn set_aside_letters_are_read_one_at_a_time_by_the_user_and_real_holders()
     let user = super::lockdown::set_aside_read(&w.e, w.org, None, &id).await.unwrap();
     assert_eq!(user["from"], json!("@net:mal.111111"));
 }
+
+#[test]
+fn a_poll_answer_says_who_is_locked_for_each_member() {
+    let data = json!({"locked": {"lock-a": {"eve.000000": "closed", "ann.1a2b3c": "open", "odd.222222": "maybe"}, "lock-b": {}}});
+    let a = super::lockdown::locked_view(&data, "lock-a");
+    assert_eq!(a.get("eve.000000").map(String::as_str), Some("closed"));
+    assert_eq!(a.get("ann.1a2b3c").map(String::as_str), Some("open"));
+    assert_eq!(a.len(), 2, "only open and closed are kept");
+    assert!(super::lockdown::locked_view(&data, "lock-b").is_empty());
+    assert!(super::lockdown::locked_view(&json!({}), "lock-a").is_empty(), "no map: nobody is locked (Astra 11)");
+}
+
+#[tokio::test]
+#[ignore = "requires an isolated orginbox_queue_fixture database"]
+#[nolog]
+async fn a_contacts_lockdown_refusal_ends_the_message_and_tells_its_sender() {
+    let w = world().await;
+    let (front, generation): (i64, i32) = { let r = w.c.query_one("SELECT id, generation FROM ot.agents WHERE org_id=$1 AND name='front'", &[&w.org]).await.unwrap(); (r.get(0), r.get(1)) };
+    let row: i64 = w.c.query_one(
+        "INSERT INTO ot.org_inbox (uid, org_id, dir, peer, body, by_name, state, state_at, sender_agent_id, sender_generation) VALUES ('o-1',$1,'out','@net:eve.000000','hi','front','queued',now(),$2,$3) RETURNING id",
+        &[&w.org, &front, &generation]).await.unwrap().get(0);
+    super::blocks::refused(&w.e, w.org, row, "eve.000000", &json!({"detail": "@eve.000000 is in lockdown", "locked": "eve.000000"})).await.unwrap();
+    let (state, err): (String, String) = { let r = w.c.query_one("SELECT state, last_err FROM ot.org_inbox WHERE id=$1", &[&row]).await.unwrap(); (r.get(0), r.get(1)) };
+    assert_eq!(state, "failed", "never retried: the hub would refuse it again");
+    assert!(err.contains("is in lockdown and only takes messages from addresses on its list"), "{err}");
+    let told: i64 = w.c.query_one("SELECT count(*) FROM ot.mail WHERE org_id=$1 AND recipient_agent_id=$2 AND body LIKE '%is in lockdown%'", &[&w.org, &front]).await.unwrap().get(0);
+    assert_eq!(told, 1, "its sender is told");
+}
+
+#[tokio::test]
+#[ignore = "requires an isolated orginbox_queue_fixture database"]
+#[nolog]
+async fn the_tree_carries_the_lockdown_summary() {
+    let w = world().await;
+    assert_eq!(super::lockdown::summary(&w.c, w.org).await.unwrap(), json!({"setting": "org", "on": false, "coverage": "off", "set_aside": false, "set_aside_unread": 0}));
+    super::lockdown::change(&w.e, w.org, Who::Agent("front"), Edit { on: Some(true), set_aside: Some(true), ..Edit::default() }).await.unwrap();
+    orginbox::set_aside_inbound(&w.e, w.org, "h1", &json!({"id": "s-1", "from": "eve.000000", "body": "x"})).await.unwrap();
+    assert_eq!(super::lockdown::summary(&w.c, w.org).await.unwrap(), json!({"setting": "org", "on": true, "coverage": "pending", "set_aside": true, "set_aside_unread": 1}),
+        "no hub has acknowledged it yet");
+}

@@ -733,6 +733,12 @@ pub(super) async fn reconcile(engine: &Arc<Engine>, parts: &[Part]) {
     }
 }
 
+/// RED STUBS (E3)
+#[nolog]
+pub(super) fn locked_view(_data: &Value, _slug: &str) -> BTreeMap<String, String> { BTreeMap::new() }
+#[logged]
+pub async fn summary<C: tokio_postgres::GenericClient + Sync>(_c: &C, _org_id: i64) -> Result<Value> { Ok(json!({})) }
+
 #[nolog]
 fn notify(engine: &Arc<Engine>, org_id: i64) {
     if let Some(o) = engine.orgs.by_id(org_id) {
