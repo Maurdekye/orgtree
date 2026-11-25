@@ -736,6 +736,13 @@ main {
    still dashed (the link stays weak), and its mailbox badge tagged */
 .edge.aud-line.weak.acting { opacity: .9; stroke-width: 2.2px; }
 .aud-badge.acting { border-color: #a9c2d8; }
+/* the org mailbox tile names the acting holder above itself (the tile body has a fixed height, INBOX_H) */
+.sq.orginbox .oi-acting {
+  position: absolute; left: 50%; bottom: calc(100% + 6px); transform: translateX(-50%); white-space: nowrap;
+  padding: 2px 8px; border-radius: 6px; border: 1px solid #a9c2d8; background: var(--panel); color: #a9c2d8;
+  font-size: 11px; font-weight: 600; pointer-events: none;
+}
+.sq.orginbox-far .oi-acting { font-size: 28px; padding: 6px 14px; bottom: calc(100% + 12px); }
 .aud-badge .acting-tag { margin-left: 4px; font-size: 10.5px; font-weight: 600; letter-spacing: .02em; color: #a9c2d8; text-transform: uppercase; }
 .edge.aud-line.from-user {
   stroke: var(--aud-user); stroke-width: 2.2px; opacity: .7;

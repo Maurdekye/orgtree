@@ -66,7 +66,7 @@ import {
   FullscreenIcon, PublicIcon, RemoveIcon, ViewListIcon,
 } from '../icons'
 import {
-  ALL_TIER_SEAT, hireTierOffer, anyTierSeat, attentionPip, setOfferedConditionalTiers, setOfferedClaudeTiers, setMuseProvider, useMuseHire, MUSE_TIERS, bySeatDesc, orderAntigravityTiers, MUSE_TIER_LETTER, MUSE_TIER_SEAT, CODEX_TIER_LETTER, CODEX_TIER_SEAT, CODEX_TIERS, DOG_H, DOG_W, DRAFT, ease, edgeJumpPlacement, type EJForm, EXTERN, EXTERN_WEAK, familyOffer, inboxDropAction, inboxDropHint, type InboxDragMode, orgInboxLines, providersWithAccounts, flatten, fmtCredits, ANTIGRAVITY_TIER_LETTER, ANTIGRAVITY_TIER_SEAT, ANTIGRAVITY_TIERS, hireOf, INBOX, INBOX_H, modelChoiceLabel, modelChoiceTitle, useShowLegacyModels, jumpTo, layout, NODE_H, NODE_W, noteTierModels, langserverTierIds, openrouterTierIds, orgPxc, presenceOfHires, segD, setLangServerTiers, setOpenRouterTiers,
+  ALL_TIER_SEAT, hireTierOffer, anyTierSeat, attentionPip, setOfferedConditionalTiers, setOfferedClaudeTiers, setMuseProvider, useMuseHire, MUSE_TIERS, bySeatDesc, orderAntigravityTiers, MUSE_TIER_LETTER, MUSE_TIER_SEAT, CODEX_TIER_LETTER, CODEX_TIER_SEAT, CODEX_TIERS, DOG_H, DOG_W, DRAFT, ease, edgeJumpPlacement, type EJForm, EXTERN, EXTERN_WEAK, familyOffer, inboxDropAction, inboxDropHint, type InboxDragMode, orgInboxLines, orgInboxTileTitle, orgInboxActingLine, providersWithAccounts, flatten, fmtCredits, ANTIGRAVITY_TIER_LETTER, ANTIGRAVITY_TIER_SEAT, ANTIGRAVITY_TIERS, hireOf, INBOX, INBOX_H, modelChoiceLabel, modelChoiceTitle, useShowLegacyModels, jumpTo, layout, NODE_H, NODE_W, noteTierModels, langserverTierIds, openrouterTierIds, orgPxc, presenceOfHires, segD, setLangServerTiers, setOpenRouterTiers,
   cardFurniture, draftOpeningGrant, placeOrgInbox, providerOf, PROVIDER_LABEL, savedView, saveView, segPoint, sizeOf, smooth, SPRING_C, SPRING_K, startView, startZoomOn, TIER_LETTER, TIER_SEAT, tierLabel, TIERS, chartLayoutOf, useChartLayout, useCrowdPiles, useHideRetired, USER, USER_H,
   canvasOwner, fairQueueLinks, peerLinkPairs, peerOrder, ringInsertSide, treeParents, USER_W, withDraftTree, withPendingMoves, Z_DESK, Z_MAX, Z_MINI, EJ_FULL, EJ_H, type EJRect,
 } from './shared'
@@ -5094,12 +5094,14 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
               transform: `translate(${posOf(INBOX)!.x}px, ${posOf(INBOX)!.y}px)`,
               width: USER_W, height: INBOX_H,
             }}
-            title="the org mailbox — outside mail addressed to this organization"
+            title={orgInboxTileTitle(tree.org_inbox?.acting)}
             aria-label="org mailbox"
             onPointerDown={(e) => e.stopPropagation()}
             onClick={() => {
               toggleOrRaiseModal('org-inbox', oiOpen, setOiOpen, slug)
             }}>
+            {/* failover: who acts as the holder, above the tile (its body has a fixed height) */}
+            {orgInboxActingLine(tree.org_inbox?.acting) && <div className="oi-acting">{orgInboxActingLine(tree.org_inbox?.acting)}</div>}
             {lod === 'mini' ? <PublicIcon className="oi-far-icon" fontSize="inherit" /> : <>
             <div className="oi-head">
               {/* the label is its own element so it can ELLIPSIS instead of

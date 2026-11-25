@@ -1679,13 +1679,11 @@ export const ACTING_HOLDER_TIP = 'Acting holder: no holder of the org mailbox ca
 /** The org mailbox tile's hover title (@coordinator-opus edge 5, me3ba3bf828a2): who acts as the holder, if anyone. */
 export const ORG_INBOX_TITLE = 'the org mailbox — outside mail addressed to this organization'
 export function orgInboxTileTitle(acting?: string | null): string {
-  void acting
-  return ORG_INBOX_TITLE
+  return acting ? `${ORG_INBOX_TITLE}\nActing holder: @${acting} (no holder can receive mail now)` : ORG_INBOX_TITLE
 }
 /** The tile's small line naming the acting holder; null when none acts. */
 export function orgInboxActingLine(acting?: string | null): string | null {
-  void acting
-  return null
+  return acting ? `acting: ${acting}` : null
 }
 
 /** The org mailbox's lines on the canvas, `[node, class]`: a holder's solid, a weak link's long-dashed
