@@ -21,6 +21,7 @@ import type { NetHub, TreePayload, ToastFn } from '../types'
 import { CloseIcon } from '../icons'
 import { PinFrame } from './modalpin'
 import { ConnectionList, NO_RECENCY, hubDotTitle, toRecency, type Recency } from './connectionlist'
+import { hubListControls, useOrgBlocks } from './orgblocks'
 
 export function ConnectionsPanel({ tree, toast, close }: {
   tree: TreePayload; toast: ToastFn; close: () => void
@@ -70,6 +71,9 @@ export function Connections({ tree, toast, adding, setAdding }: {
 }) {
   const hubs = tree.net?.hubs ?? []
   const recent = useNetRecent(tree.slug, tree)
+  // Mail hub 2.6.0: each row's red × blocks for this org (USER 2026-11-25 21:50:37Z m706c3054c21d)
+  const blocks = useOrgBlocks(tree.slug, JSON.stringify(hubs.map(h => [h.blocks, h.blocked_by])),
+    message => { if (message) toast([`error: ${message}`]) })
   const [busy, setBusy] = useState(false)
   const [secret, setSecret] = useState('')
   const address = tree.net?.slug ?? ''
@@ -142,7 +146,7 @@ export function Connections({ tree, toast, adding, setAdding }: {
           hint="Connect to this hub to send and receive mail."
           onChange={next => { void apply({ net_hubs: settings.map(x => x.id === h.id ? { ...x, enabled: next } : x) }, 'Connection updated') }} />}
         {(h.stuck ?? 0) > 0 && <SetBlock><p className="oi-stuck" title={h.stuck_err}>⚠ {h.stuck} failing — {h.stuck_err}</p></SetBlock>}
-        {h.roster?.length ? <SetBlock><ConnectionList rows={h.roster} recent={recent}
+        {h.roster?.length ? <SetBlock><ConnectionList rows={h.roster} recent={recent} {...hubListControls(h, blocks)}
           label={`Connections on ${h.name || (h.id === 'local' ? 'this computer' : h.address)}`} /></SetBlock>
           : h.connected ? <SetBlock hint="No other organizations on this hub yet." /> : null}
       </section>)}

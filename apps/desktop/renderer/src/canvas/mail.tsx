@@ -30,10 +30,10 @@ import type { CSSProperties, KeyboardEvent, MutableRefObject, ReactNode } from '
 import { mailTagKey, mailTagHue, mailMatchesTags, toggleMailTag } from './mailtags'
 import { MailTagPicker } from './mailtagpicker'
 import type { MailTagPickerProps } from './mailtagpicker'
-import type { InboxPayload, MailQueueState, NetBlocks, NetLockdown, OrgInboxEntry, SetAsideLetter, SetAsidePage, ToastFn, TreePayload } from '../types'
+import type { InboxPayload, MailQueueState, NetHub, NetLockdown, NetPeer, OrgInboxEntry, SetAsideLetter, SetAsidePage, ToastFn, TreePayload } from '../types'
 import {
-  audienceAction, fileBase, fileUrl, getMailById, getNetBlocks, getNetLockdown, getOrgInbox, getSetAside, orgInboxRead,
-  readSetAside, setNetBlock, setNetLockdown, uploadFile,
+  audienceAction, fileBase, fileUrl, getMailById, getNetLockdown, getOrgInbox, getSetAside, orgInboxRead,
+  readSetAside, setNetLockdown, uploadFile,
 } from '../api'
 import type { MailTransfer } from '../api'
 import { AttachThumb, fmtBytes, isImg } from './img'
@@ -50,7 +50,8 @@ import { AgentLink, AgentName } from './identity'
 import { megaphoneWords } from './inboxwarning'
 import { WatchdogLink } from './watchdoglink'
 import { HubContactChip, useAgentMentions, useOrgMentionCandidates } from './agentmentions'
-import { PresenceDot, hubDotTitle, rowPresence } from './connectionlist'
+import { ConnectionList, NO_RECENCY, PresenceDot, connectionName, hubDotTitle, rowPresence } from './connectionlist'
+import { contactStatus, hubListControls, useOrgBlocks, type OrgBlocks } from './orgblocks'
 import { composerTarget, ObjectReplyDraft, useObjectComposer } from './composerobjects'
 import type { ComposerObject } from './composerobjects'
 import type { ReplyTarget } from '../generated/events'
@@ -2574,16 +2575,30 @@ export function OrgInboxModal({ inbox, net, map, slug, toast, close, jumpTo,
 // ---- F-06: every mailserver, its status, and all clients on each ----
 // The org mailbox lockdown (USER 2026-11-25 13:26Z m0388b64a9372; setting On / Off / Org decides 14:10:49Z): the
 // user always edits it here; set-aside letters are listed as envelopes and opened one at a time (13:37Z Q5).
-function LockdownSection({ slug, lockdown, change }: {
+// THE LIST (USER 2026-11-25 21:48:05Z m6f4d40461dde "make it a list you edit under lockdown that appears only when
+// lockdown is enabled ... should look like the connected list underneath mailhubs"; 21:51:09Z md60a3e7803d1 "the
+// allowlist add opens a dropdown with searchable names"): while it is on, the listed addresses show under their hub
+// in the shared ConnectionList, each with the list's × to take it off; Add opens a searchable dropdown of the
+// connected contacts not listed yet, and a choice adds it at once. No address box: agents add any address with
+// orgtree_lockdown.
+function LockdownSection({ slug, lockdown, change, hubs, blocks }: {
   slug: string; lockdown: NetLockdown; change: (c: Parameters<typeof setNetLockdown>[1]) => Promise<void>
+  hubs: NetHub[]; blocks: OrgBlocks
 }) {
-  const [adding, setAdding] = useState('')
   const [page, setPage] = useState<SetAsidePage | null>(null)
   const [open, setOpen] = useState<SetAsideLetter | null>(null)
   const loadPage = (before?: string | null) => getSetAside(slug, before).then((p) => setPage(before && page
     ? { ...p, set_aside: [...page.set_aside, ...p.set_aside] } : p)).catch(() => {})
   const who = (by?: string | null) => !by ? '' : by === '@user' ? 'you' : '@' + by
   const hubWord: Record<string, string> = { enforced: 'enforced', pending: 'pending', failed: 'failed', unsupported: 'needs an update: suspended while locked' }
+  // the list, by hub: a listed address the hub still lists keeps its roster row (its presence), one no longer
+  // connected still shows, so it can be taken off
+  const byHub = new Map<string, { name: string; rows: NetPeer[] }>()
+  for (const a of lockdown.allow) {
+    const g = byHub.get(a.hub) ?? { name: a.hub_name, rows: [] }
+    g.rows.push(hubs.find((h) => h.id === a.hub)?.roster.find((r) => r.slug === a.address) ?? { slug: a.address, online: false })
+    byHub.set(a.hub, g)
+  }
   return (
     <div className="oi-hub oi-lockdown">
       <div className="oi-hub-head"><LockIcon fontSize="inherit" /> <b>lockdown</b>
@@ -2597,18 +2612,21 @@ function LockdownSection({ slug, lockdown, change }: {
         {lockdown.hubs.map((h) => (
           <div key={h.hub} className="dim pad-s">{h.hub_name}: {hubWord[h.state] ?? h.state}{h.detail ? ' — ' + h.detail : ''}</div>
         ))}
-        {lockdown.allow.length === 0 && <div className="dim pad-s">nobody outside is on the list: only organizations on this computer can reach the org</div>}
-        {lockdown.allow.map((a) => (
-          <div key={a.hub + ':' + a.address} className="oi-peer">
-            <HubContactChip address={'@net:' + a.address} />
-            <span className="dim"> on {a.hub_name} · added by {who(a.added_by)}</span>
-            <button className="link" onClick={() => void change({ remove: [{ hub: a.hub, address: a.address }] })}>unlist</button>
+        <div className="oi-lock-list pad-s">
+          <div className="oi-lock-list-head"><b>the list</b>
+            <span className="dim"> · only these can reach the org while it is locked</span>
+            <LockdownAdd hubs={hubs} lockdown={lockdown} change={change} />
           </div>
-        ))}
-        <form className="pad-s" onSubmit={(e) => { e.preventDefault(); const a = adding.trim(); if (a) void change({ add: [a] }).then(() => setAdding('')) }}>
-          <input aria-label="Address to allow" placeholder="@net:address" value={adding} onChange={(e) => setAdding(e.target.value)} />
-          <button type="submit" className="link" disabled={!adding.trim()}>allow</button>
-        </form>
+          {lockdown.allow.length === 0 && <div className="dim">nobody outside is on the list: only organizations on this computer can reach the org</div>}
+          {[...byHub.entries()].map(([hub, g]) => (
+            <div key={hub} className="oi-lock-hub">
+              <div className="oi-origin">{g.name}</div>
+              <ConnectionList rows={g.rows} recent={NO_RECENCY} label={`On the lockdown list on ${g.name}`}
+                status={(p) => contactStatus(hubs.find((h) => h.id === hub), p, blocks)}
+                x={(p) => ({ title: `Take @net:${p.slug} off the lockdown list`, onClick: () => void change({ remove: [{ hub, address: p.slug }] }) })} />
+            </div>
+          ))}
+        </div>
       </>}
       <label className="pad-s">
         <input type="checkbox" checked={lockdown.set_aside} onChange={(e) => void change({ set_aside: e.target.checked })} />
@@ -2639,16 +2657,66 @@ function LockdownSection({ slug, lockdown, change }: {
   )
 }
 
+/** The lockdown list's Add: a dropdown of the connected contacts across the org's hubs that are not listed there
+ *  yet, filtered by name or address as you type; a choice adds it at once and closes the dropdown. */
+function LockdownAdd({ hubs, lockdown, change }: {
+  hubs: NetHub[]; lockdown: NetLockdown; change: (c: Parameters<typeof setNetLockdown>[1]) => Promise<void>
+}) {
+  const [open, setOpen] = useState(false)
+  const [q, setQ] = useState('')
+  const box = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (!open) return
+    const doc = box.current?.ownerDocument
+    const away = (e: PointerEvent) => { if (!box.current?.contains(e.target as Node)) setOpen(false) }
+    doc?.addEventListener('pointerdown', away)
+    return () => doc?.removeEventListener('pointerdown', away)
+  }, [open])
+  const shown = hubs.filter((h) => !h.hidden)
+  const several = shown.length > 1
+  const needle = q.trim().toLowerCase()
+  const candidates = shown.flatMap((h) => h.roster
+    .filter((r) => !lockdown.allow.some((a) => a.hub === h.id && a.address === r.slug))
+    .map((r) => ({ hub: h, r, name: connectionName(r) })))
+    .filter(({ r, name }) => !needle || name.toLowerCase().includes(needle) || r.slug.toLowerCase().includes(needle))
+    .sort((a, b) => a.name.localeCompare(b.name) || a.r.slug.localeCompare(b.r.slug))
+  const pick = (hub: string, address: string) => { setOpen(false); setQ(''); void change({ add: [{ hub, address }] }) }
+  return (
+    <span className="oi-lock-addwrap" ref={box}>
+      <button type="button" className="link" aria-expanded={open} onClick={() => { setOpen(!open); setQ('') }}>Add</button>
+      {open && <div className="oi-lock-add">
+        <input autoFocus aria-label="Search contacts" placeholder="Search contacts" value={q} onChange={(e) => setQ(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Escape') { e.stopPropagation(); setOpen(false) }
+            if (e.key === 'Enter' && candidates.length) { e.preventDefault(); pick(candidates[0].hub.id, candidates[0].r.slug) }
+          }} />
+        <div role="listbox" aria-label="Connected contacts not on the list">
+          {candidates.map(({ hub, r, name }) => (
+            <div key={hub.id + ':' + r.slug} role="option" aria-selected={false} tabIndex={0} data-address={r.slug}
+              className="oi-lock-option" onClick={() => pick(hub.id, r.slug)}
+              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); pick(hub.id, r.slug) } }}>
+              <PresenceDot state={rowPresence(r)} />
+              <span className="oi-lock-option-name">{name}</span>
+              <span className="dim mono-sm">@net:{r.slug}</span>
+              {several && <span className="dim"> · {hub.name || hub.address}</span>}
+            </div>
+          ))}
+          {!candidates.length && <div className="dim oi-lock-none">{needle ? 'no connected contact matches' : 'every connected contact is on the list'}</div>}
+        </div>
+      </div>}
+    </span>
+  )
+}
+
 // A client's presence wears the Connections lists' dot (USER 2026-10-29
 // m4c84e393768e "thought the gray dot meant offline"): a green dot online, a
 // hollow grey ring offline (m019c9500d23a), never a filled grey bullet.
+// Each hub's contacts are the shared ConnectionList with the org's block × (USER 2026-11-25 21:49:37Z m8ee22829e340).
 function NetSection({ net, slug }: { net?: TreePayload['net']; slug: string }) {
-  // Mail hub 2.6.0: blocking, for the whole org (user 2026-11-24). Block asks
-  // once more on the same button; Unblock acts at once.
-  const [blocks, setBlocks] = useState<NetBlocks | null>(null)
-  const [asking, setAsking] = useState<string | null>(null)
   const [err, setErr] = useState<string | null>(null)
   const hubsKey = JSON.stringify((net?.hubs ?? []).map((h) => [h.blocks, h.blocked_by, h.locked]))
+  // Mail hub 2.6.0: blocking, for the whole org (user 2026-11-24); the row's red × blocks at once
+  const blocks = useOrgBlocks(slug, hubsKey, setErr)
   // Mail hub 2.6.0 lockdown (USER 2026-11-25 13:26Z): the org's own allow list; null on an engine without it
   const [lockdown, setLockdown] = useState<NetLockdown | null>(null)
   useEffect(() => {
@@ -2659,31 +2727,7 @@ function NetSection({ net, slug }: { net?: TreePayload['net']; slug: string }) {
   const lockChange = (change: Parameters<typeof setNetLockdown>[1]) =>
     setNetLockdown(slug, change).then((l) => { setLockdown(l); setErr(null) })
       .catch((e: unknown) => setErr(e instanceof Error ? e.message : String(e)))
-  const listed = (hub: string, address: string) => (lockdown?.allow ?? []).some((a) => a.hub === hub && a.address === address)
-  // an engine before blocking (or any odd answer) has no lists: read as none
-  const lists = (b: unknown): NetBlocks => {
-    const o = (b ?? {}) as Partial<NetBlocks>
-    return { blocked: Array.isArray(o.blocked) ? o.blocked.filter((x) => typeof x?.address === 'string') : [],
-      blocked_by: Array.isArray(o.blocked_by) ? o.blocked_by.filter((x) => typeof x === 'string') : [] }
-  }
-  useEffect(() => {
-    let live = true
-    getNetBlocks(slug).then((b) => { if (live) setBlocks(lists(b)) }).catch(() => {})
-    return () => { live = false }
-  }, [slug, hubsKey])
-  const change = (address: string, on: boolean) => {
-    setAsking(null)
-    setNetBlock(slug, address, on).then((b) => { setBlocks(lists(b)); setErr(null) })
-      .catch((e: unknown) => setErr(e instanceof Error ? e.message : String(e)))
-  }
-  const mine = new Set((blocks?.blocked ?? []).map((b) => b.address))
-  const by = new Set(blocks?.blocked_by ?? [])
-  const blockButton = (address: string) => mine.has(address)
-    ? <button className="link" onClick={() => change(address, false)}>unblock</button>
-    : asking === address
-      ? <button className="link bad" onClick={() => change(address, true)}
-          title="They can't message the org, and the org can't message them, until you unblock them">block — sure?</button>
-      : <button className="link" onClick={() => setAsking(address)}>block</button>
+  const unblock = (address: string) => <button className="link" onClick={() => blocks.change(address, false)}>unblock</button>
   return (
     <div className="oi-net">
       {net?.slug && <div className="dim" style={{ paddingBottom: 4 }}>
@@ -2706,69 +2750,26 @@ function NetSection({ net, slug }: { net?: TreePayload['net']; slug: string }) {
               </span>
             )}
           </div>
-          {h.roster.length > 0 && (() => {
-            // FR-11 parity in-app: group by ORIGIN — the slug's username
-            // segment, shared by every org and session registered from one
-            // machine profile — so "who is this cluster of clients" reads
-            // at a glance, same as the hub's own web UI
-            const groups = new Map<string, typeof h.roster>()
-            for (const r of h.roster) {
-              const origin = r.slug.split('.')[1] ?? '?'
-              groups.set(origin, [...(groups.get(origin) ?? []), r])
-            }
-            return [...groups.entries()].sort().map(([origin, rs]) => (
-              <div key={origin}>
-                <div className="oi-origin">{origin} · {rs.length}</div>
-                <div className="oi-roster">
-                  {rs.map((r) => (
-                    <span key={r.slug} className="oi-peer"
-                      title={(r.blurb || '') + (r.last_seen
-                        ? ` · last seen ${fmtShort(r.last_seen)}` : '')
-                        + ' · reachable via: '
-                        + (r.transports ?? ['net']).join(', ')}>
-                      {mine.has(r.slug) || by.has(r.slug)
-                        ? <BlockIcon className="oi-blocked" fontSize="inherit" role="img"
-                            aria-label={mine.has(r.slug) ? 'blocked' : 'has blocked this org'}
-                            titleAccess={mine.has(r.slug) ? 'Blocked: no messages either way' : 'Has blocked this org: no messages either way'} />
-                        // lockdown: a closed contact shows only the lock; an open one its dot with a small lock
-                        : h.locked?.[r.slug] === 'closed'
-                          ? <LockIcon className="oi-locked" fontSize="inherit" role="img" aria-label="in lockdown, can't be messaged"
-                              titleAccess="In lockdown: this org isn't on their list and can't message them" />
-                          : h.locked?.[r.slug] === 'open'
-                            ? <span className="oi-lockbadge" role="img" aria-label="in lockdown, this org is on their list"
-                                title="In lockdown: this org is on their list"><PresenceDot state={rowPresence(r)} /><LockIcon className="oi-lockbadge-lock" fontSize="inherit" /></span>
-                            : <PresenceDot state={rowPresence(r)} />}
-                      <HubContactChip address={'@net:' + r.slug} />
-                      <span className="dim"> {(r.transports ?? ['net']).join('·')}</span>
-                      {lockdown?.on && (listed(h.id, r.slug)
-                        ? <button className="link" onClick={() => lockChange({ remove: [{ hub: h.id, address: r.slug }] })}
-                            title="Take them off the lockdown list: they can't message the org while it is locked">unlist</button>
-                        : <button className="link" onClick={() => lockChange({ add: [{ hub: h.id, address: r.slug }] })}
-                            title="Put them on the lockdown list: they can message the org while it is locked">allow</button>)}
-                      {h.blocks !== undefined && blockButton(r.slug)}
-                    </span>
-                  ))}
-                </div>
-              </div>
-            ))
-          })()}
+          {h.roster.length > 0 && <div className="pad-s">
+            <ConnectionList rows={h.roster} recent={NO_RECENCY} label={`Connections on ${h.name || h.address}`} {...hubListControls(h, blocks)} />
+          </div>}
           {h.connected && !h.roster.length &&
             <div className="dim pad-s">no other orgs on this hub yet</div>}
           {h.connected && h.blocks === undefined && h.version &&
             <div className="dim pad-s">this mail hub needs an update before it can block contacts</div>}
         </div>
       ))}
-      {((blocks?.blocked.length ?? 0) > 0 || (blocks?.blocked_by.length ?? 0) > 0) && (
+      {((blocks.blocks?.blocked.length ?? 0) > 0 || (blocks.blocks?.blocked_by.length ?? 0) > 0) && (
         <div className="oi-hub">
           <div className="oi-hub-head"><BlockIcon fontSize="inherit" /> <b>blocked contacts</b></div>
-          {blocks!.blocked.map((b) => (
+          {blocks.blocks!.blocked.map((b) => (
             <div key={b.address} className="oi-peer">
               <HubContactChip address={'@net:' + b.address} />
               <span className="dim"> blocked by {b.set_by === '@user' ? 'you' : '@' + b.set_by}{b.reason ? ' — ' + b.reason : ''}</span>
-              {blockButton(b.address)}
+              {unblock(b.address)}
             </div>
           ))}
-          {blocks!.blocked_by.map((a) => (
+          {blocks.blocks!.blocked_by.map((a) => (
             <div key={'by:' + a} className="oi-peer">
               <HubContactChip address={'@net:' + a} />
               <span className="dim"> has blocked this org: no messages either way</span>
@@ -2776,7 +2777,7 @@ function NetSection({ net, slug }: { net?: TreePayload['net']; slug: string }) {
           ))}
         </div>
       )}
-      {lockdown && <LockdownSection slug={slug} lockdown={lockdown} change={lockChange} />}
+      {lockdown && <LockdownSection slug={slug} lockdown={lockdown} change={lockChange} hubs={net?.hubs ?? []} blocks={blocks} />}
       {err && <div className="oi-stuck">{err}</div>}
     </div>
   )

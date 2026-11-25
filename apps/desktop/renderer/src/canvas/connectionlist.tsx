@@ -28,7 +28,16 @@
 // each address's newest mail. While the pointer is over the list, a chip in it
 // has focus or it is scrolling, the rows keep their places (a dot still
 // changes at once); the new order applies when that stops.
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+//
+// ONE LIST FOR EVERY HUB (USER 2026-11-25 21:49:37Z m8ee22829e340 "use the same
+// list for each hub, and add a small red cancel button by each entry";
+// 21:50:37Z m706c3054c21d "integrate it into the ux and style of the general
+// list component"): the org mailbox's mailservers tab, Org settings ›
+// Connections and the lockdown list all use this list. A caller may give a
+// row its own status (a blocked or lockdown badge in place of the dot), a
+// trailing control and the list's small red × at the row's end (block, or
+// take off the lockdown list): `RowControls`.
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import type { NetHub, NetPeer } from '../types'
 import { HubContactChip } from './agentmentions'
 import { NET_PRESENCE_WORD, PRESENCE_RANK, netPresence, peerPresence, useNetMentionState, type NetPresence } from './netmentions'
@@ -91,9 +100,17 @@ export function PresenceDot({ state }: { state: NetPresence }) {
   return <span className={'presence-dot ' + state} role="img" aria-label={word} title={word} />
 }
 
+/** What a caller adds to each row: its status (default: the presence dot), a
+ *  control after the chip, and the small red × at the end (null: none). */
+export interface RowControls {
+  status?: (p: NetPeer) => ReactNode
+  trail?: (p: NetPeer) => ReactNode
+  x?: (p: NetPeer) => { title: string; onClick: () => void } | null
+}
+
 /** One hub's connections: rows, sorted, scrolling past VISIBLE_ROWS, with
  *  only the rows near the view mounted. Renders nothing for an empty list. */
-export function ConnectionList({ rows, recent, label }: { rows: readonly NetPeer[]; recent: Recency; label: string }) {
+export function ConnectionList({ rows, recent, label, status, trail, x }: { rows: readonly NetPeer[]; recent: Recency; label: string } & RowControls) {
   const tick = useNetMentionState()   // presence the hubs list moves rows
   const sorted = useMemo(() => sortConnections(rows, recent, rowPresence), [rows, recent, tick])   // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -148,8 +165,13 @@ export function ConnectionList({ rows, recent, label }: { rows: readonly NetPeer
     {first > 0 && <div className="conn-gap" aria-hidden="true" style={{ height: first * rowPx }} />}
     {order.slice(first, last).map((p, i) =>
       <div key={p.slug} className="conn-row" role="listitem" aria-posinset={first + i + 1} aria-setsize={order.length}>
-        <PresenceDot state={rowPresence(p)} />
+        {status ? status(p) : <PresenceDot state={rowPresence(p)} />}
         <HubContactChip address={'@net:' + p.slug} />
+        {trail?.(p)}
+        {(() => {
+          const act = x?.(p)
+          return act && <button type="button" className="conn-x" title={act.title} aria-label={act.title} onClick={act.onClick}>×</button>
+        })()}
       </div>)}
     {last < order.length && <div className="conn-gap" aria-hidden="true" style={{ height: (order.length - last) * rowPx }} />}
   </div>
