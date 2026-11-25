@@ -672,6 +672,98 @@ module.exports = async (page) => {
   v.tickColours.released = await tickColours()
   await shot('23-the-clock-became-the-sent-check')
 
+  // ---------------- 24. "loading older messages…" never flickers, and the clock bubble keeps its size and place as it
+  // becomes sent (USER 2026-11-25 mc186df41cb3c, m8e421f3791ee, m172168e14e79;
+  // @ticket:orgtree/mailbox-dm-panel-loading-older-messages-flickers). A frame trace: every animation frame records
+  // whether the row is drawn and where the newest of the user's bubbles is.
+  await page.eval(() => window.__dm.theme('charcoal'))
+  const traceStart = () => page.eval(() => {
+    const frames = []; const t0 = performance.now(); window.__trace = { frames, on: true }
+    const step = () => {
+      if (!window.__trace?.on) return
+      const tl = document.querySelector('.dm-timeline')
+      const outs = [...document.querySelectorAll('.dm-msg.out[data-dm-entry]')]
+      const last = outs[outs.length - 1], b = last?.querySelector('.dm-bubble'), r = b?.getBoundingClientRect()
+      frames.push({ t: Math.round(performance.now() - t0), older: !!document.querySelector('.dm-older'), n: outs.length,
+        entry: last?.dataset.dmEntry ?? null, tick: last?.querySelector('.dm-meta .dm-tick')?.className ?? null,
+        h: r ? +r.height.toFixed(2) : null, top: r ? +r.top.toFixed(2) : null,
+        gap: tl ? Math.round(tl.scrollHeight - tl.scrollTop - tl.clientHeight) : null })
+      requestAnimationFrame(step)
+    }
+    requestAnimationFrame(step)
+    return true
+  })
+  const traceStop = () => page.eval(() => { const tr = window.__trace; if (tr) tr.on = false; return tr ? tr.frames : [] })
+  // (a) a send: held while the engine has not taken it (the clock), then let go (the sent check)
+  await openChat('quoter')
+  await page.eval(() => { const el = document.querySelector('.dm-timeline'); el.scrollTop = el.scrollHeight })
+  await page.sleep(400)
+  await page.api('GET', '/__hold?on=1')
+  await traceStart()
+  await page.click('.dm-compose textarea')
+  await page.type('A last line before the weekend.')
+  await page.click('.dm-compose .mail-reply-send')
+  await until('the clock of the held send', async () => page.eval(() => !!document.querySelector('.dm-msg.out .dm-tick.t-queued')), 12000)
+  await page.sleep(700)
+  await shot('24a-a-send-on-its-way-the-clock')
+  await page.api('GET', '/__hold?on=0')
+  await until('the clock to become the sent check', async () => page.eval(() => !document.querySelector('.dm-msg.out .dm-tick.t-queued')), 12000)
+  await page.sleep(1500)
+  await shot('24b-sent-the-same-bubble-the-same-place')
+  v.olderSend = await traceStop()
+  // (b) a short chat for seven seconds from the moment it opens: its older pages come by themselves
+  await traceStart()
+  await openChat('sparse')
+  await page.sleep(7000)
+  v.olderShort = await traceStop()
+  v.olderShortPages = (await asked()).pages.filter(p => /sparse|inbox:|sent:/.test(p)).length
+  await shot('24c-a-short-chat-no-loading-row')
+
+  // ---------------- 25. "View in classic inbox" (USER 2026-11-25 ma79665bf7f2e;
+  // @ticket:orgtree/mailbox-dm-panel-view-in-classic-inbox-message-m)
+  const titleNow = () => page.eval(() => {
+    const h3 = document.querySelector('.settings h3'), label = document.querySelector('label.modalpin-active-filter')
+    const span = label?.querySelector('span'), bar = label?.closest('.modalpin-bar, .settings-head, header') ?? label?.parentElement
+    const lr = label?.getBoundingClientRect(), br = bar?.getBoundingClientRect()
+    return { title: h3?.textContent?.trim() ?? null, label: span?.textContent?.trim() ?? null,
+      clipped: span ? span.scrollWidth > span.clientWidth + 1 : null,
+      inside: lr && br ? lr.left >= br.left - 0.5 && lr.right <= br.right + 0.5 : null,
+      bell: document.querySelector('.ask-bell')?.getAttribute('title') ?? null }
+  })
+  await openChat('quoter')
+  await page.sleep(300)
+  v.classic = { chats: await titleNow() }
+  await shot('26a-the-chats-window-is-chats')
+  v.classic.target = await page.eval(() => {
+    const m = [...document.querySelectorAll('.dm-msg.in[data-dm-entry]')].pop()
+    m?.scrollIntoView({ block: 'center' })
+    return m ? { entry: m.dataset.dmEntry, text: [...(m.querySelector('.dm-bubble')?.childNodes ?? [])].filter(n => !n.classList?.contains('dm-sr')).map(n => n.textContent).join('').slice(0, 60) } : null
+  })
+  await page.sleep(300)
+  await page.eval((id) => {
+    const b = document.querySelector(`.dm-msg[data-dm-entry="${id}"] .dm-bubble`), r = b.getBoundingClientRect()
+    b.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: r.left + 30, clientY: r.top + 10, button: 2 }))
+  }, v.classic.target.entry)
+  await page.sleep(300)
+  v.classic.menu = await page.eval(() => { const ms = [...document.querySelectorAll('[role="menu"]')]; return ms.length ? [...ms[ms.length - 1].querySelectorAll('[role="menuitem"]')].map(i => i.textContent.trim()) : [] })
+  await shot('25a-a-message-menu-view-in-classic-inbox')
+  await page.eval(() => { const ms = [...document.querySelectorAll('[role="menu"]')]; [...ms[ms.length - 1].querySelectorAll('[role="menuitem"]')].find(i => i.textContent.trim() === 'View in classic inbox')?.click() })
+  await until('the classic mailbox on that message', async () => page.eval(() => !document.querySelector('.dm-panel') && !!document.querySelector('.mailrow.on')), 12000)
+  await page.sleep(600)
+  v.classic.landed = await page.eval(() => {
+    const row = document.querySelector('.mailrow.on'), list = row?.closest('.mailer-list'), r = row?.getBoundingClientRect(), lr = list?.getBoundingClientRect()
+    return { folder: document.querySelector('.mail-folders button.on')?.textContent?.trim() ?? null, row: row?.textContent?.slice(0, 120) ?? null,
+      inView: !!(r && lr && r.top >= lr.top - 1 && r.bottom <= lr.bottom + 1), reading: document.querySelector('.mailer-read')?.textContent?.slice(0, 200) ?? null }
+  })
+  v.classic.classic = await titleNow()
+  await shot('25b-the-classic-inbox-on-that-message')
+  // back to the chats by the same switch
+  await page.click('input[aria-label="Classic mailbox"]')
+  await until('the chats again', async () => page.eval(() => !!document.querySelector('.dm-panel')), 12000)
+  await page.sleep(400)
+  v.classic.back = await titleNow()
+  await shot('26b-back-to-chats')
+
   v.end = await page.eval(() => ({ confirms: window.__dm.confirms, closed: window.__dm.closed, toasts: window.__dm.toasts.slice() }))
   v.pages = (await asked()).pages
   return v

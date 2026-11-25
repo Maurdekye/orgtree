@@ -529,8 +529,43 @@ if (flag === '--expect') {
     v.tickSeen = seen
   }
   checked.push('tick colours')
+  // ---- 24. "loading older messages…" never flickers; the clock bubble keeps its size and place (frame trace)
+  {
+    const send = v.olderSend, short = v.olderShort
+    assert.ok(send.length > 60 && short.length > 120, `POSITIVE CONTROL: frames were traced (${send.length}, ${short.length})`)
+    assert.deepEqual(send.filter(f => f.older).map(f => f.t), [], 'no frame of a send drew "loading older messages"')
+    assert.deepEqual(short.filter(f => f.older).map(f => f.t), [], 'no frame of a short chat drew it, over seven seconds')
+    const clock = send.filter(f => f.tick === 'dm-tick t-queued'), sentF = send.filter(f => f.tick === 'dm-tick t-sent' && f.t > (clock[clock.length - 1]?.t ?? Infinity))
+    assert.ok(clock.length > 5 && sentF.length > 5, `POSITIVE CONTROL: frames with the clock (${clock.length}) and then the sent check (${sentF.length})`)
+    const span = (fs, k) => Math.max(...fs.map(f => f[k])) - Math.min(...fs.map(f => f[k]))
+    const lastClock = clock[clock.length - 1], firstSent = sentF[0]
+    assert.ok(Math.abs(lastClock.h - firstSent.h) <= 0.5, `the bubble keeps its height from clock to sent (${lastClock.h} -> ${firstSent.h} px)`)
+    assert.ok(Math.abs(lastClock.top - firstSent.top) <= 0.5, `and its place (${lastClock.top} -> ${firstSent.top} px)`)
+    assert.ok(span(sentF, 'h') <= 0.5 && span(sentF, 'top') <= 0.5, 'and holds still once sent')
+    const between = send.filter(f => f.t >= lastClock.t && f.t <= firstSent.t)
+    assert.ok(between.every(f => f.n === lastClock.n), `no frame with an extra or a missing bubble at the swap (${between.map(f => f.n).join(',')})`)
+    v.olderSummary = { sendFrames: send.length, shortFrames: short.length, clockH: lastClock.h, sentH: firstSent.h, clockTop: lastClock.top, sentTop: firstSent.top, shortPages: v.olderShortPages }
+  }
+  checked.push('no loading-older flicker')
+  // ---- 25. View in classic inbox; 26. the window's name follows the view, and the switch reads "classic inbox"
+  {
+    const c = v.classic
+    assert.ok(c.target, 'POSITIVE CONTROL: a message of quoter to click')
+    assert.ok(c.menu.includes('View in classic inbox'), `the menu has it (${c.menu.join(' | ')})`)
+    assert.match(c.landed.folder ?? '', /^inbox/i, `on the Inbox folder (${c.landed.folder})`)
+    assert.ok(c.landed.row && c.landed.row.includes(c.target.text.slice(0, 20).trim()) || (c.landed.reading ?? '').includes(c.target.text.slice(0, 20).trim()),
+      `that message is selected (${c.landed.row})`)
+    assert.ok(c.landed.inView, 'and its row is in view')
+    assert.equal(c.chats.title, 'Chats'); assert.equal(c.classic.title, 'Your inbox'); assert.equal(c.back.title, 'Chats', 'and back, live')
+    for (const s of [c.chats, c.classic, c.back]) {
+      assert.equal(s.label, 'classic inbox')
+      assert.equal(s.clipped, false, 'the switch label is not cut')
+      assert.notEqual(s.inside, false, 'and sits inside the title bar')
+    }
+  }
+  checked.push('view in classic inbox', 'window title')
   // View in transcript goes to the agent's desk, which closes the inbox (DmPanel focusAgent): that once, and only then
   assert.equal(v.flash.closedBefore, 0, 'the inbox was never closed before View in transcript')
   assert.equal(v.end.confirms, 0); assert.equal(v.end.closed, 2, 'closed twice, once by each View in transcript')
 }
-console.log(JSON.stringify({ ok: true, out: evidence, pinned: result.value.pinned?.real ? 'the app\'s own pin' : 'not pinned in this page', shots: result.value.shots.length, checked, ticks: result.value.tickSeen ?? null, consoleErrors: errors.length, session: result.session, guards: result.guards }))
+console.log(JSON.stringify({ ok: true, out: evidence, pinned: result.value.pinned?.real ? 'the app\'s own pin' : 'not pinned in this page', shots: result.value.shots.length, checked, ticks: result.value.tickSeen ?? null, older: result.value.olderSummary ?? null, consoleErrors: errors.length, session: result.session, guards: result.guards }))
