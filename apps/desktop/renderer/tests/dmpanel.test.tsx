@@ -111,8 +111,10 @@ function engine(world: World) {
     if (/\/nodes\/[^/]+\/message$/.test(path)) {
       if (world.refuse) return json({ error: 'the agent is not taking mail' }, 500)
       // `keepSent`: the sent mail is in the mailbox at the next read, as on the engine
-      if (world.keepSent) world.sent = [...(world.sent ?? []), sent(`m-new-${(world.sent ?? []).length}`, path.match(/\/nodes\/([^/]+)\/message$/)![1]!, world.keepSent)]
-      return json({ accepted: true, id: 'm-new', ref: '@mail:m-new' })
+      // the receipt names the row it stores, as the engine's does (instant send matches its bubble by that id)
+      const id = world.keepSent ? `m-new-${(world.sent ?? []).length}` : 'm-new'
+      if (world.keepSent) world.sent = [...(world.sent ?? []), sent(id, path.match(/\/nodes\/([^/]+)\/message$/)![1]!, world.keepSent)]
+      return json({ accepted: true, id, ref: `@mail:${id}` })
     }
     // a desk's own chat read (the desk box mounted beside the chats' box)
     if (/\/nodes\/[^/]+\/chat(\?|$)/.test(path)) return json({ messages: [], live: [], pending_mail: [], busy: false, responding: false,
@@ -1282,7 +1284,7 @@ test('alpha.1 point 10: the chats fill their frame in the modal, pinned and popp
   assert.match(css.match(/\.popout-mount \.settings\.dm-panel \{([^}]*)\}/)?.[1] ?? '', /border: 0; border-radius: 0;/, 'popped out, the window\'s own frame is the only one')
 })
 
-test('alpha.1 point 11: nothing is written under the box, after a send or after a refused one; a refused send is a toast, with the text back', async (t) => {
+test('alpha.1 point 11: nothing is written under the box, after a send or after a refused one; a refused send is a toast, and its failed bubble keeps the text', async (t) => {
   const world: World = { audiences: [grant('worker')] }
   const s = await setup(t, world)
   await s.openChat('worker')
@@ -1295,7 +1297,11 @@ test('alpha.1 point 11: nothing is written under the box, after a send or after 
   await s.send()
   assert.equal(document.querySelector('.dm-compose .mail-reply-state') === null, true, 'no "not sent" line either')
   assert.equal(s.state.toasts.some(line => /error: .*not taking mail/.test(line)), true, 'the app\'s toast says why')
-  assert.equal(s.draft(), 'this one fails', 'and the text is back in the box')
+  // the text no longer comes back into the box by itself: it stays in the chat as Hubchat's failed
+  // bubble, with Retry and Discard (Discard puts it back); USER 2026-11-25 m1454b39b8fd0, point 1
+  assert.equal(s.draft(), '', 'the box stays empty')
+  assert.equal(s.all<HTMLElement>('.dm-msg.failed').some(m => m.textContent?.includes('this one fails')), true,
+    'the refused message is its failed bubble')
   const box = document.querySelector('.dm-compose .cc-composer')
   assert.equal(box?.nextElementSibling ?? null, null, 'the box is the last thing in its area')
 })

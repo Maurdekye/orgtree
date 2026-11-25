@@ -703,11 +703,11 @@ function DmRow({ chat, selected, losing, toast, child, hidden, fold, writing, on
       : { label: 'Acquire audience', title: 'Grant this agent the user audience', onSelect: onAcquire }
     return [
       { label: 'Open chat', onSelect: onOpen },
-      // Hubchat's contact block: copy the chat's mention (USER 2026-11-25 m1454b39b8fd0)
-      ...(chat.kind !== 'system' ? [agentCopyEntry(anchor, chat.peer, toast)] : []),
       ...(acquire ? [acquire] : []),
       ...(rule.can ? [{ label: rule.deny ? 'Deny the audience request' : rule.project ? 'Revoke the project\u2019s audience'
         : 'Revoke its audience', onSelect: onClose }] : []),
+      // Hubchat's contact block: copy the chat's mention (USER 2026-11-25 m1454b39b8fd0)
+      ...(chat.kind !== 'system' ? [agentCopyEntry(anchor, chat.peer, toast)] : []),
       ...(node ? ['sep' as const, node] : []),
     ]
   }
@@ -1201,8 +1201,12 @@ function DmConversation({ slug, tree, chat, nodes, toast, refs, onFocusAgent, fl
   const launch = (item: DmLocal) => {
     item.run().then(
       (r) => setLocals(ls => ls.map(l => l.key === item.key ? { ...l, state: 'sent', id: (r && r.id) || undefined } : l)),
-      (e: unknown) => setLocals(ls => ls.map(l => l.key === item.key
-        ? { ...l, state: 'failed', error: e instanceof Error ? e.message : String(e) } : l)))
+      (e: unknown) => {
+        const error = e instanceof Error ? e.message : String(e)
+        // alpha.1 point 11's toast stays; the message stays too, as its failed bubble
+        toast([`error: ${error}`])
+        setLocals(ls => ls.map(l => l.key === item.key ? { ...l, state: 'failed', error } : l))
+      })
   }
   const retryLocal = (key: string) => {
     const item = localsRef.current.find(l => l.key === key)
@@ -1219,8 +1223,9 @@ function DmConversation({ slug, tree, chat, nodes, toast, refs, onFocusAgent, fl
   }
   // the engine's row has arrived: it replaces the local bubble (never both)
   useEffect(() => {
-    const done = locals.filter(l => l.state === 'sent'
-      && (!l.id || all.some(e => e.key === l.id || e.mail?.id === l.id || e.copies?.includes(l.id!))))
+    const sameText = (l: DmLocal) => all.filter(e => e.out && e.mail?.body === l.text).length
+    const done = locals.filter(l => l.state === 'sent' && (sameText(l) > l.same
+      || (!!l.id && all.some(e => e.key === l.id || e.mail?.id === l.id || e.copies?.includes(l.id!)))))
     if (done.length) setLocals(ls => ls.filter(l => !done.includes(l)))
   }, [all, locals])
 
@@ -1231,7 +1236,7 @@ function DmConversation({ slug, tree, chat, nodes, toast, refs, onFocusAgent, fl
     const dispatch = (run: () => Promise<{ id?: string } | void>) => {
       const item: DmLocal = { key: `local-${peer}-${++localSeq.current}`, peer, text,
         attached: attachedFull ?? (attachments ?? []).map(p => ({ name: p.split('/').pop() ?? p, path: p, bytes: 0 })),
-        at: new Date().toISOString(), state: 'sending', run }
+        at: new Date().toISOString(), state: 'sending', run, same: all.filter(e => e.out && e.mail?.body === text).length }
       setLocals(ls => [...ls, item])
       launch(item)
       return Promise.resolve()
@@ -1516,6 +1521,9 @@ interface DmLocal {
   error?: string
   /** the engine's id for it, once taken: its row replaces this bubble when it arrives */
   id?: string
+  /** how many of the user's rows in this chat had this text when it was sent: one more, and it has arrived
+   *  (an engine whose receipt names no id, or another one, still replaces it, never doubles it) */
+  same: number
   run: () => Promise<{ id?: string } | void>
 }
 
