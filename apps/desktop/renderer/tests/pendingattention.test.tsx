@@ -11,6 +11,7 @@ import type { DesktopNotice } from '../src/notifications'
 import { publishPending, resetPending, summarizePending } from '../src/pending-attention'
 import { AskBell } from '../src/App'
 import { DocketToolbarButton } from '../src/canvas/docket'
+import { setClassicMailbox } from '../src/mailboxpref'
 
 const question: DesktopNotice = { id: 'q-1', org: 'orgtree', kind: 'question', source_id: 'qa',
   title: 'Question from state-audit', body: 'Which providers?' }
@@ -162,7 +163,8 @@ test('the dot is not the only way to learn it is there', async () => {
   const docket = await mountView(<DocketToolbarButton summary={{ attention: 0, active: 0 }} />, el => el)
   const title = (v: typeof bell, sel: string) => v.el.querySelector<HTMLElement>(sel)!.title
   try {
-    assert.equal(title(bell, 'button.ask-bell'), 'your inbox')
+    // the 4.7 chat view is the default, so the bell is named after it (USER m3599f869626b)
+    assert.equal(title(bell, 'button.ask-bell'), 'chats')
     assert.equal(title(docket, 'button.docket-bell'), 'work docket')
 
     await inAct(async () => { publishPending(summarizePending([question, urgentHere, urgent, attention])) })
@@ -171,9 +173,15 @@ test('the dot is not the only way to learn it is there', async () => {
     assert.match(title(docket, 'button.docket-bell'), /1 ticket\(s\) still waiting on you/)
 
     await inAct(async () => { publishPending(summarizePending([])) })
-    assert.equal(title(bell, 'button.ask-bell'), 'your inbox', 'and it stops saying so when nothing remains')
+    assert.equal(title(bell, 'button.ask-bell'), 'chats', 'and it stops saying so when nothing remains')
     assert.equal(title(docket, 'button.docket-bell'), 'work docket')
-  } finally { await bell.unmount(); await docket.unmount(); resetPending() }
+
+    // the classic mailbox keeps today's name, waiting count included
+    await inAct(async () => { setClassicMailbox(true) })
+    assert.equal(title(bell, 'button.ask-bell'), 'your inbox', 'the classic mailbox keeps its name')
+    await inAct(async () => { publishPending(summarizePending([question, urgentHere])) })
+    assert.match(title(bell, 'button.ask-bell'), /^your inbox .* 2 request\(s\) still waiting on you$/)
+  } finally { setClassicMailbox(false); await bell.unmount(); await docket.unmount(); resetPending() }
 })
 
 test('the dot survives a desktop with no native attention bridge at all', async () => {
