@@ -24,6 +24,10 @@ struct Input {
     /// outside: open or closed
     mode: Option<String>,
     rev: Option<i64>,
+    /// set_aside: page size and cursor; read: the letter
+    limit: Option<i64>,
+    before: Option<String>,
+    id: Option<String>,
 }
 
 #[logged]
@@ -40,7 +44,7 @@ async fn resolve(engine: &Engine, org_id: i64, list: &[String], hub: Option<&str
 #[logged]
 pub async fn run(engine: &Arc<Engine>, caller: &Caller, args: &Value) -> Result<Done> {
     let input: Input = serde_json::from_value(args.clone()).map_err(|_| {
-        crate::domain::UserError::BadRequest("expected action status/on/off/add/remove/configure/outside, with address(es), hub, set_aside, mode or rev".into())
+        crate::domain::UserError::BadRequest("expected action status/on/off/add/remove/configure/outside/set_aside/read, with address(es), hub, set_aside, mode, rev, limit, before or id".into())
     })?;
     let org = caller.org_id;
     let who = Who::Agent(&caller.name);
@@ -54,6 +58,12 @@ pub async fn run(engine: &Arc<Engine>, caller: &Caller, args: &Value) -> Result<
     };
     let out = match input.action.as_str() {
         "status" => lockdown::status(engine, org).await?,
+        // reading set-aside mail changes no policy: any setting (Fable I3)
+        "set_aside" => lockdown::set_aside_list(engine, org, Some(&caller.name), input.limit.unwrap_or(20), input.before.as_deref()).await?,
+        "read" => {
+            let Some(id) = input.id.as_deref() else { crate::refuse!(BadRequest, "read needs id (from action=set_aside)") };
+            lockdown::set_aside_read(engine, org, Some(&caller.name), id).await?
+        }
         "on" => {
             edit.on = Some(true);
             edit.set_aside = input.set_aside;
@@ -84,7 +94,7 @@ pub async fn run(engine: &Arc<Engine>, caller: &Caller, args: &Value) -> Result<
             };
             crate::domain::orginbox::set_org_choice(engine, org, &caller.name, mode).await?
         }
-        _ => crate::refuse!(BadRequest, "action must be status, on, off, add, remove, configure or outside"),
+        _ => crate::refuse!(BadRequest, "action must be status, on, off, add, remove, configure, outside, set_aside or read"),
     };
     Done::json(&out)
 }

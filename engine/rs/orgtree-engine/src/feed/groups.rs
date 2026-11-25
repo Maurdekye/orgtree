@@ -285,7 +285,7 @@ pub async fn group(engine: &Engine, client: &Client, org: &Value, name: &str) ->
                 .await?;
             let counts = client
                 .query_one(
-                    "SELECT count(*), count(*) FILTER (WHERE dir = 'in' AND NOT read) FROM ot.org_inbox WHERE org_id = $1",
+                    "SELECT count(*), count(*) FILTER (WHERE dir = 'in' AND NOT read AND set_aside_at IS NULL) FROM ot.org_inbox WHERE org_id = $1",
                     &[&org_id],
                 )
                 .await?;

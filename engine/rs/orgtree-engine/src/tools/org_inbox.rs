@@ -27,7 +27,7 @@ fn after(args:&Value,org:i64,agent:i64)->Result<i64> {
 pub(super) fn check_args(args:&Value)->Result<()> {
     let allowed:&[&str]=match args["action"].as_str() {
         Some("settings")=>&["action"],
-        Some("configure")=>crate::refuse!(Forbidden,"org mailbox mode changes are user-only; ask your superior or the user"),
+        Some("configure")=>crate::refuse!(Forbidden,"org mailbox mode changes are user-only here; under the user's Org decides, holders open or close it with orgtree_lockdown action=outside; otherwise ask your superior or the user"),
         Some("list") if args["org_inbox"]==true=>&["action","org_inbox","limit","cursor"],
         Some("pull")=>&["action","limit"],
         _=>crate::refuse!(BadRequest,"org mailbox supports settings, list with org_inbox=true, or pull"),
