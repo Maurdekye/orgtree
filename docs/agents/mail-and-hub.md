@@ -897,7 +897,7 @@ but give it a longer timeout, say an hour" (23:06Z mac1516a71553); "Yes, widen t
 - Grants: a top-level agent in its subtree; a holder, primary or weak, for its own reports (Q4). Becoming the
   primary drops the weak row; a weak grant to the primary is refused. Export, duplicate and import never carry it.
 - Prompt: `Identity.extern_weak` adds `WEAK_LINK` after the org-mailbox section. Feed: `org_inbox.weak` (an array
-  means the engine knows weak links; the desktop offers none without it). Desktop: dotted `edge aud-line weak`
+  means the engine knows weak links; the desktop offers none without it). Desktop: long-dashed `edge aud-line weak` (10 8, USER 2026-11-25 m70add47eb0b6)
   (`shared.orgInboxLines`), the drop choice (`shared.inboxDropChoice`, `InboxReplaceConfirm onWeak`), the panel's
   "weak links" row and the "org mailbox (weak)" chip. Tests: `domain/orginbox_weak_tests.rs` (ignored, the
   orginbox_queue_fixture database), `apps/desktop/renderer/tests/weaklinks.test.tsx`.

@@ -17,7 +17,7 @@ A holder may be a project (USER 2026-11-03): it receives each outside message as
 
 ## Weak links
 
-Beside its holders, the org mailbox can have any number of weak links (`extern-weak`, live agents only, drawn as dotted lines on the canvas). A weak-link agent may send outside mail as the org, but new outside mail still goes to the holders. Only a reply to mail it sent comes back to it, and only while its link stands. If its link is revoked or it retires, the reply goes to the holders. Mail that carries no reply reference always goes to the holders. A weak-link agent reads its own mail only: it does not pull or list the org mailbox. It does not count for busy presence or "last seen". A holder, primary or weak, may block an outside contact for the whole org.
+Beside its holders, the org mailbox can have any number of weak links (`extern-weak`, live agents only, drawn as long-dashed lines on the canvas). A weak-link agent may send outside mail as the org, but new outside mail still goes to the holders. Only a reply to mail it sent comes back to it, and only while its link stands. If its link is revoked or it retires, the reply goes to the holders. Mail that carries no reply reference always goes to the holders. A weak-link agent reads its own mail only: it does not pull or list the org mailbox. It does not count for busy presence or "last seen". A holder, primary or weak, may block an outside contact for the whole org.
 
 Where several holders receive copies, they receive the same correspondence. Coordinate who owns the answer and send one organizational reply. Outside mail goes out under the org's identity; it is not a private message from whichever holder composed it.
 

@@ -1673,7 +1673,7 @@ export const queuedAccountTitle = (n: {
 export const EXTERN = '@extern'      // the org-mailbox audience grantor sentinel
 export const EXTERN_WEAK = '@extern-weak'  // a weak link to the org mailbox: sends as the org, gets replies to its own mail
 
-/** The org mailbox's lines on the canvas, `[node, class]`: a holder's solid, a weak link's dotted
+/** The org mailbox's lines on the canvas, `[node, class]`: a holder's solid, a weak link's long-dashed
  *  (`aud-line weak`, USER 2026-11-24 m020bbd1926c3), on the same path. */
 export function orgInboxLines(inbox?: { holders?: string[]; weak?: string[] } | null): [string, string][] {
   return [...(inbox?.holders ?? []).map((h): [string, string] => [h, 'edge aud-line']),

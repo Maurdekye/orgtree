@@ -4646,7 +4646,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
     // audience lines to its holders. Those connect FACING sides: an agent
     // left of the box joins from its RIGHT side (user spec), an agent right
     // of it from its left.
-    // a holder's line solid; a weak link's DOTTED (USER 2026-11-24 m020bbd1926c3), on the same path
+    // a holder's line solid; a weak link's in long DASHES (USER 2026-11-24 m020bbd1926c3, 2026-11-25 m70add47eb0b6), on the same path
     for (const [h, cls] of orgInboxLines(tree.org_inbox)) {
       if (!map.has(h) || !posOf(h)) continue
       const a = posOf(INBOX)!, b = posOf(h)!

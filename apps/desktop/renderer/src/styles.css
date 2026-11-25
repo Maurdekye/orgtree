@@ -728,8 +728,9 @@ main {
   stroke: #a9c2d8; stroke-width: 1.8px; opacity: .5;
   filter: drop-shadow(0 0 3px rgba(169, 194, 216, .5));
 }
-/* a weak link to the org mailbox (USER 2026-11-24 m020bbd1926c3): the holder's line, dotted */
-.edge.aud-line.weak { stroke-dasharray: 2 5; stroke-linecap: round; }
+/* a weak link to the org mailbox (USER 2026-11-24 m020bbd1926c3): the holder's line in long dashes, the longest on the
+   canvas (USER 2026-11-25 m70add47eb0b6 "much longer dashes": was 2 5) */
+.edge.aud-line.weak { stroke-dasharray: 10 8; stroke-linecap: round; }
 .badge.weak-link { border-style: dotted; }
 .edge.aud-line.from-user {
   stroke: var(--aud-user); stroke-width: 2.2px; opacity: .7;
