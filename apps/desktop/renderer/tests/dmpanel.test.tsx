@@ -832,6 +832,28 @@ test('a project\'s chat is one thread: the message says who holds it, the member
   assert.equal(entry('g1a')!.querySelector('.dm-bubble')?.classList.contains('megaphone'), true, 'the copy in a member chat has the same fill')
 })
 
+test('opening a project\'s chat never moves a chat in the list: the older mailbox pages it loads do not set the order (coordinator m3854136c7a6e)', async (t) => {
+  // crew's chat is a thread of the whole mailbox's pages; it does not fill its view, so it reads older pages,
+  // and those hold solo's only mail
+  layOut(t, { scroll: 300, client: 600 })
+  const s = await setup(t, {
+    audiences: [grant('crew')],
+    delivered: [mail('m1', 'lead', '2026-11-20T12:00:00Z')],
+    sent: [sent('j1', 'crew', '2026-11-20T11:00:00Z')],
+    older: [{ delivered: [mail('o1', 'solo', '2026-11-19T10:00:00Z')] }],
+  }, { tree: tree({ roots: [node('lead'), projectNode('crew', [node('member')]), node('idle'), node('solo')] }), active: false })
+  const order = () => s.rows().map(r => r.dataset.dmChat)
+  const before = order()
+  assert.deepEqual(before, ['lead', 'crew', 'member', 'idle', 'solo'], 'POSITIVE CONTROL: solo has nothing in the loaded window, so it sits in tree order (member under crew)')
+  await s.openChat('crew')
+  await inAct(async () => { await flush(60) })
+  assert.ok(s.server.pages.some(p => /^(inbox|sent):1$/.test(p)), `POSITIVE CONTROL: the project's chat read an older mailbox page (${s.server.pages.join(', ')})`)
+  assert.deepEqual(order(), before, 'opening crew moved no chat')
+  await s.openChat('lead')
+  await inAct(async () => { await flush(20) })
+  assert.deepEqual(order(), before, 'and opening another moved none either')
+})
+
 test('in a project\'s chat, Reply on a member\'s bubble writes to that member', async (t) => {
   const s = await setup(t, crewWorld(), { tree: crewTree(), active: false })
   await s.openChat('crew')
