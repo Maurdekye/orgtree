@@ -158,13 +158,13 @@ export const CODEX_TIER_SEAT: Record<string, number> = {
 export const ANTIGRAVITY_TIERS = ['flash', 'hydrogen', 'pro', 'argon', 'krypton', 'neon', 'carbon', 'agy-sonnet', 'agy-opus']
 export const ANTIGRAVITY_TIER_LETTER: Record<string, string> =
   { flash: 'F', hydrogen: 'H', pro: 'P', argon: 'A', krypton: 'K', neon: 'N', carbon: 'C', 'agy-sonnet': 'S', 'agy-opus': 'O' }
-/** Argon, Krypton and Neon seats are PLACEHOLDERS copied from pro (coordinator ruling
+/** Argon and Krypton seats are PLACEHOLDERS copied from pro (coordinator ruling
  *  2026-10-01; Krypton took Barium's row, user 2026-11-11). Carbon costs 4 by the
  *  user's ruling (2026-11-12 "change carbon's credit cost to 4"); it was the same
  *  placeholder 2 before. Mirrors catalog.rs. */
-// Neon: inferred, speculative; USER 2026-11-18 mcfdf1e158062. Seat 2 is copied from Krypton.
+// Neon: speculative (USER 2026-11-18 mcfdf1e158062); seat 3 by the user's ruling 2026-11-25 meb8ff6987262.
 export const ANTIGRAVITY_TIER_SEAT: Record<string, number> =
-  { flash: 1, hydrogen: 1, pro: 2, argon: 2, krypton: 2, neon: 2, carbon: 4, 'agy-sonnet': 2, 'agy-opus': 4 }
+  { flash: 1, hydrogen: 1, pro: 2, argon: 2, krypton: 2, neon: 3, carbon: 4, 'agy-sonnet': 2, 'agy-opus': 4 }
 /** CONDITIONAL antigravity tiers — Gemini 4 Argon (`gemini-4-argon`, user
  *  2026-10-01), Krypton (`gemini-4-krypton`, user 2026-11-11, in Barium's place) and
  *  Neon (`gemini-4-neon`, speculative USER 2026-11-18 mcfdf1e158062) and

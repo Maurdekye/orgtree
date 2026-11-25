@@ -103,9 +103,10 @@ pub static TIERS: &[Tier] = &[
     Tier { tier: "krypton", provider: GOOGLE, seat: 2.0, model: "gemini-4-krypton",
         versions: &[("4", "gemini-4-krypton")], letter: "K",
         context: Some(1_000_000), live_effort: false, legacy: false, conditional: true, prices: None },
-    // Neon seat 2 is inferred and speculative (USER 2026-11-18 mcfdf1e158062). No published price.
+    // Neon (speculative, USER 2026-11-18 mcfdf1e158062): seat 3 by the user's ruling (2026-11-25 meb8ff6987262
+    // "neon should cost 3"), no longer the inferred 2; seats hired at 2 keep it until rehired or switched.
     // Low, medium, high and xhigh follow Hydrogen. Provider acceptance of these levels is inferred.
-    Tier { tier: "neon", provider: GOOGLE, seat: 2.0, model: "gemini-4-neon",
+    Tier { tier: "neon", provider: GOOGLE, seat: 3.0, model: "gemini-4-neon",
         versions: &[("4", "gemini-4-neon")], letter: "N",
         context: Some(1_000_000), live_effort: false, legacy: false, conditional: true, prices: None },
     // Gemini 4 Carbon (speculative 2026-10-10, confirmed on a real turn 2026-11-11): offered only while the
