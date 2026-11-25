@@ -160,6 +160,8 @@ export interface DmPanelProps {
   jumpPeer?: string
   /** open the chat with this agent; a new `seq` is a new request */
   openChat?: { peer: string; seq: number; grant?: boolean } | null
+  /** back from the classic mailbox (its toggle): reopen the chat that was open, or none, and choose nothing afresh */
+  resume?: boolean
   onFocusAgent?: (agentId: string) => void
   /** the chat header's gear; without it the panel asks for the settings
    *  window itself (`openSettingsAt`, which the canvas answers) */
@@ -245,7 +247,7 @@ const remembered = (slug: string): string | null => {
   try { return window.sessionStorage.getItem(rememberKey(slug)) } catch { return null }
 }
 
-export function DmPanel({ slug, tree, toast, refresh, close, jumpTo, jumpSeq, jumpPeer, openChat,
+export function DmPanel({ slug, tree, toast, refresh, close, jumpTo, jumpSeq, jumpPeer, openChat, resume,
   onFocusAgent, onAgentSettings, onViewClassic, refs, headerActions }: DmPanelProps) {
   const nodes = useMemo(() => dmNodes(tree), [tree])
   // ⚠ THE SAME READS THE CLASSIC MAILBOX MAKES, nothing more: the pushed inbox
@@ -388,9 +390,11 @@ export function DmPanel({ slug, tree, toast, refresh, close, jumpTo, jumpSeq, ju
       if (first && (!oldest || first.at < oldest.at)) oldest = { peer: c.peer, at: first.at }
     }
     const last = remembered(slug)
-    const pick = oldest?.peer ?? (last && chats.some(c => c.peer === last) ? last : null)
+    const kept = last && chats.some(c => c.peer === last) ? last : null
+    // back from the classic mailbox the toggle chooses nothing: the chat that was open, or none
+    const pick = resume ? kept : oldest?.peer ?? kept
     if (pick) select(pick)
-  }, [box, slug, chats, sel, jumpTo, openChat, select])
+  }, [box, slug, chats, sel, jumpTo, openChat, select, resume])
 
 
   // A REFERENCE TO ONE MAIL opens the chat that holds it and shows the mail.

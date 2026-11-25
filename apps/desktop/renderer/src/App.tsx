@@ -3172,14 +3172,29 @@ export function UserMailbox(props: Parameters<typeof InboxPanel>[0] & {
   useEffect(() => { if (!classic) setClassicJump(null) }, [classic])
   useEffect(() => { setClassicJump(null) }, [mail.jumpTo, mail.jumpSeq])
   const viewClassic = useCallback((id: string) => { setClassicJump({ id, seq: Date.now() }); setClassicMailbox(true) }, [])
+  // THE TOGGLE KEEPS THE OPEN CHAT (USER 2026-11-25 m4acfafd4792f): the chats remount on the way back from the
+  // classic mailbox, so a jump or an Open chat request they (or the classic mailbox) already followed is not handed
+  // to them again, and they reopen the chat that was open (DmPanel `resume`) instead of choosing afresh. What the
+  // shell asks while the classic view shows is recorded as followed; a request that arrives WITH the switch back
+  // (View in chat sets the view and asks in one go) renders with the chats, so it is new and still followed.
+  const jumpNow = mail.jumpTo ? `${mail.jumpTo}#${mail.jumpSeq ?? ''}` : null
+  const followed = useRef<{ jump: string | null; open: number | null } | null>(null)
+  if (classic) followed.current = { jump: jumpNow, open: openChat?.seq ?? null }
+  const resume = followed.current !== null
+  const fresh = followed.current
+  const chatsProps = fresh ? {
+    ...props,
+    ...(fresh.jump !== null && fresh.jump === jumpNow ? { jumpTo: null, jumpSeq: null, jumpPeer: undefined } : {}),
+    ...(fresh.open !== null && fresh.open === (openChat?.seq ?? null) ? { openChat: null } : {}),
+  } : props
   return classic
     ? <InboxPanel {...mail} headerActions={toggle}
         {...(classicJump ? { jumpTo: classicJump.id, jumpSeq: classicJump.seq } : {})} />
-    : <UserChats {...props} headerActions={toggle} onViewClassic={viewClassic} />
+    : <UserChats {...chatsProps} resume={resume} headerActions={toggle} onViewClassic={viewClassic} />
 }
 
 function UserChats({ slug, tree, onFocusAgent, onOpenItem, onOpenDoc, onOpenMail, ...rest }:
-  Parameters<typeof UserMailbox>[0] & { onViewClassic?: (mailId: string) => void }) {
+  Parameters<typeof UserMailbox>[0] & { onViewClassic?: (mailId: string) => void; resume?: boolean }) {
   // the same reference world the classic mailbox's bodies are read against
   const refs = useShellRefs(slug, tree, { onOpenItem, onFocusAgent, onOpenDoc, onOpenMail })
   return <DmPanel slug={slug} tree={tree} refs={refs} onFocusAgent={onFocusAgent} {...rest} />
