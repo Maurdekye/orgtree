@@ -180,8 +180,8 @@ tools.orgtree_disabled currently restores no Antigravity tools: its existing nat
 
 ## Speculative Neon
 
-Gemini Neon (`gemini-4-neon`, N) is prepared ahead of availability. Its 2-credit
-seat is an inferred placeholder, like Krypton. It appears directly after Krypton
+Gemini Neon (`gemini-4-neon`, N) is prepared ahead of availability. Its seat costs 3
+credits, by the user's ruling (2026-11-25). It appears directly after Krypton
 only when the account model list reports it. It offers low, medium, high and xhigh and has one
 version, 4 (also the latest). No access or real turn has been verified. Neon
 makes Carbon opt-in legacy when available. Argon is always opt-in legacy.
