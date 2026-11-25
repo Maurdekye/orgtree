@@ -1509,7 +1509,21 @@ function DmBubble({ entry, m, first, slug, refs, toast, flash, replying, system,
       <div className="dm-msg-row">
         <div className={'dm-bubble' + (notice ? ' notice' : '') + (m.urgent ? ' urgent' : '') + (ordinary ? '' : ' typed')
           + (mega ? ' megaphone' : '')}
-          onContextMenu={(e: ReactMouseEvent<HTMLDivElement>) => { const anchor = e.currentTarget; menu.open(e, () => entries(anchor)) }}>
+          onContextMenu={(e: ReactMouseEvent<HTMLDivElement>) => {
+            const anchor = e.currentTarget
+            // A PLAIN WEB LINK has Hubchat's two entries first (USER 2026-11-25 m1454b39b8fd0): the link
+            // itself is the menu's object, so the browser's (empty) menu does not take the press
+            const link = (e.target as Element | null)?.closest?.('a[href]') as HTMLAnchorElement | null
+            const href = link?.getAttribute('href') ?? ''
+            if (link && anchor.contains(link) && /^https?:\/\//i.test(href)) {
+              menu.open(e, () => [
+                { label: 'Open link', title: href, onSelect: () => { window.open(href, '_blank', 'noopener') } },
+                { label: 'Copy link', title: href, onSelect: () => {
+                  void copyToClipboard(anchor, href).then(ok => toast([ok ? 'copied the link' : 'could not copy the link — clipboard unavailable'])) } },
+                'sep' as const, ...entries(anchor)], link)
+              return
+            }
+            menu.open(e, () => entries(anchor)) }}>
           <span className="dm-sr">{entry.out ? 'You' : m.from}{notice ? ', notice' : ''}: </span>
           {/* in a project's chat: which agent wrote this, or which one it was written to */}
           {entry.via && <div className="dm-via">{entry.out && <span className="dim">to</span>}{sender(entry.via, m)}</div>}
