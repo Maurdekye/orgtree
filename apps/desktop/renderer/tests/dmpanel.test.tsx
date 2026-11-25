@@ -2723,3 +2723,63 @@ test('a jump highlights the whole row across the chat, in one shared style that 
   assert.match(frames, /100% \{[^}]*transparent/, 'it fades')
   assert.match(css, /prefers-reduced-motion: reduce\) \{[^}]*\.dm-msg\.flash \{[^}]*animation: dm-row-flash-still /, 'with reduced motion it shows and goes without fading')
 })
+
+// THE TOGGLE KEEPS THE OPEN CHAT (USER 2026-11-25 21:34:30Z m4acfafd4792f, 4.7.0-alpha.6: "switching between chats and
+// classic inbox changes the active chat window open"). Chats -> classic -> Chats reopens the chat that was open. The
+// toggle remounts the chats, so neither the first-open pick (the chat with the oldest unread) nor a jump or an Open
+// chat request the chats already followed may choose again.
+const openPeer = () => document.querySelector('.dm-head')?.getAttribute('data-dm-peer') ?? null
+async function roundTrip(t: TestContext) {
+  t.after(() => setClassicMailbox(false))
+  await inAct(async () => { setClassicMailbox(true); await flush(12) })
+  assert.equal(document.querySelector('.dm-head'), null, 'POSITIVE CONTROL: the classic mailbox is showing')
+  await inAct(async () => { setClassicMailbox(false); await flush(12) })
+}
+const twoChats = (): World => ({
+  audiences: [grant('worker'), grant('solo')],
+  // worker's is the oldest mail still waiting on the user: the chats open on it the first time
+  pending: [mail('w1', 'worker', '2026-11-20T09:00:00Z')],
+  delivered: [mail('o1', 'solo', '2026-11-20T10:00:00Z')],
+})
+
+test('the toggle keeps the open chat: classic and back reopens the chat that was open, not the one with the oldest unread', async (t) => {
+  const s = await setup(t, twoChats(), { active: false })
+  assert.equal(openPeer(), 'worker', 'POSITIVE CONTROL: the first open picks the chat with the oldest unread')
+  await s.openChat('solo')
+  assert.equal(openPeer(), 'solo')
+  await roundTrip(t)
+  assert.equal(openPeer(), 'solo', 'back from the classic inbox, the same chat is open')
+  await roundTrip(t)
+  assert.equal(openPeer(), 'solo', 'and again')
+})
+
+test('the toggle opens no chat when none was open', async (t) => {
+  await setup(t, { audiences: [grant('worker'), grant('solo')], delivered: [mail('o1', 'solo', '2026-11-20T10:00:00Z')] }, { active: false })
+  assert.equal(openPeer(), null, 'POSITIVE CONTROL: nothing waits, nothing was open: no chat opens')
+  await roundTrip(t)
+  assert.equal(openPeer(), null, 'the toggle opens nothing')
+})
+
+test('the toggle does not replay a jump the chats already followed', async (t) => {
+  const s = await setup(t, twoChats(), { active: false, jumpTo: 'w1' })
+  assert.equal(openPeer(), 'worker', 'POSITIVE CONTROL: the jump opened its chat')
+  await s.openChat('solo')
+  await roundTrip(t)
+  assert.equal(openPeer(), 'solo', 'the old jump does not pull the chats back to worker')
+  assert.deepEqual(s.all<HTMLElement>('.dm-msg.flash').map(m => m.dataset.dmEntry), [], 'and nothing flashes')
+})
+
+test('the toggle does not replay an Open chat request the chats already followed', async (t) => {
+  const s = await setup(t, twoChats(), { active: false, openChat: { peer: 'worker', seq: 7 } })
+  assert.equal(openPeer(), 'worker', 'POSITIVE CONTROL: the request opened its chat')
+  await s.openChat('solo')
+  await roundTrip(t)
+  assert.equal(openPeer(), 'solo', 'the old request does not pull the chats back to worker')
+})
+
+test('closing the panel and opening it again still opens on the oldest unread', async (t) => {
+  const s = await setup(t, twoChats(), { active: false })
+  await s.openChat('solo')
+  await s.remount()
+  assert.equal(openPeer(), 'worker', 'a fresh open keeps the first-open rule')
+})
