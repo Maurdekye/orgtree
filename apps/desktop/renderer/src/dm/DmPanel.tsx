@@ -48,7 +48,7 @@ import type { DragEvent as ReactDragEvent, KeyboardEvent as ReactKeyboardEvent, 
 import type { AskInfo, InboxPayload, MailEntry, ToastFn, TreePayload } from '../types'
 import {
   audienceAction, broadcastMessage, clearInbox, deleteUserMail, fileBase, fileUrl, getAudiences, getMailById,
-  markRead, runOp,
+  markRead, retractMail, runOp,
 } from '../api'
 import type { MailTransfer } from '../api'
 import { useMessageTransfers } from '../canvas/transfers'
@@ -333,6 +333,8 @@ export function DmPanel({ slug, tree, toast, refresh, close, jumpTo, jumpSeq, op
   // (refused once, this organization's engine is not asked again while the panel is open: a remote
   // organization may run an older engine than this desktop)
   const [refused, setRefused] = useState<string | null>(null)
+  /** the user's own mails taken back from here: hidden on the click, shown again if the engine refuses */
+  const [takenBack, setTakenBack] = useState<ReadonlySet<string>>(() => new Set())
   const pagedPeer = sel && refused !== slug && nodes.get(sel)?.kind !== 'project' ? sel : null
   const chatPages = useMailboxHistory(slug, rawBox, 'chat', !!pagedPeer, readBump, undefined, pagedPeer ?? undefined)
   const chatRefused = !!pagedPeer && !chatPages.ready && chatPages.errorStatus != null
@@ -349,9 +351,12 @@ export function DmPanel({ slug, tree, toast, refresh, close, jumpTo, jumpSeq, op
     const extra = looked.filter(l => l.slug === slug).map(l => l.mail)
     for (const m of [...extra, ...(own?.delivered ?? []), ...inbox.box.delivered]) if (!pending.has(m.id)) delivered.set(m.id, m)
     const sent = new Map<string, InboxPayload['sent'][number]>()
-    for (const m of [...(own?.sent ?? []), ...outbox.box.sent]) sent.set(m.id, m)
+    // a mail taken back is not in the chat, as it is not on the desk (USER 2026-11-25 m88681ac17bfd)
+    const back = new Set([...(own?.sent ?? []), ...outbox.box.sent]
+      .filter(m => (m as { retracted?: boolean }).retracted === true).map(m => m.id))
+    for (const m of [...(own?.sent ?? []), ...outbox.box.sent]) if (!back.has(m.id) && !takenBack.has(m.id)) sent.set(m.id, m)
     return { pending: [...pending.values()], delivered: [...delivered.values()], sent: [...sent.values()] }
-  }, [inbox.box, outbox.box, chatPages.box, ownPages, looked, slug])
+  }, [inbox.box, outbox.box, chatPages.box, ownPages, looked, slug, takenBack])
 
   const writing = useWriting(nodes)
   const chats = useMemo(() => dmChats({
@@ -620,6 +625,16 @@ export function DmPanel({ slug, tree, toast, refresh, close, jumpTo, jumpSeq, op
                       })
                       .catch((e: Error) => toast([`could not delete mail: ${e.message}`]))
                   }}
+                  onRetract={(m, nid) => {
+                    // the desk's × (PendingMailRow): its call, no confirmation, the engine's reason on a refusal
+                    setTakenBack(old => new Set(old).add(m.id))
+                    retractMail(slug, nid, m.id)
+                      .then(() => { setReadBump(n => n + 1); refresh?.() })
+                      .catch((e: Error) => {
+                        setTakenBack(old => { const next = new Set(old); next.delete(m.id); return next })
+                        toast([`error: ${e.message}`])
+                      })
+                  }}
                   onChanged={() => { setReadBump(n => n + 1); refresh?.() }} />
               : <div className="dm-none">
                   <ChatBubbleIcon fontSize="inherit" />
@@ -806,7 +821,7 @@ function DmStanding({ chat, onFocusAgent }: { chat: DmChat; onFocusAgent?: (id: 
 }
 
 function DmConversation({ slug, tree, chat, nodes, toast, refs, onFocusAgent, flash, onFlash, writing, ownPages, hasMore, loadingMore, loadingOlder, historyMark,
-  onLoadMore, historyError, onRetryHistory, onClose, onCloseHover, onApprove, onAgentSettings, onViewClassic, readNow, onDelete, onChanged }: {
+  onLoadMore, historyError, onRetryHistory, onClose, onCloseHover, onApprove, onAgentSettings, onViewClassic, readNow, onDelete, onRetract, onChanged }: {
   slug: string; tree: TreePayload; chat: DmChat; nodes: Map<string, DmNode>
   toast: ToastFn; refs: RefRoutes
   onFocusAgent?: (id: string) => void
@@ -831,6 +846,8 @@ function DmConversation({ slug, tree, chat, nodes, toast, refs, onFocusAgent, fl
   onViewClassic?: (mailId: string) => void
   readNow: (mails: MailEntry[]) => Promise<unknown>
   onDelete: (m: MailEntry) => void
+  /** take the user's own unread mail back from agent `nid` (the desk's retract) */
+  onRetract: (m: { id: string }, nid: string) => void
   onChanged: () => void
 }) {
   const peer = chat.peer
@@ -1382,6 +1399,18 @@ function DmConversation({ slug, tree, chat, nodes, toast, refs, onFocusAgent, fl
     if (e.out && (m as MailEntry).delivered !== true) return undefined
     return () => { requestTranscriptMail(slug, agent, m.id!, m.at ?? undefined); onFocusAgent(agent) }
   }
+  /** the desk's × on the user's own mail (USER 2026-11-25 m88681ac17bfd "have an x for unread mail like in
+   *  the desk which takes it back, but thats it"): exactly while the desk would offer it (PendingMailRow:
+   *  not yet delivered and not being handed to a turn), to an agent, from an engine that says */
+  const retractOf = (e: DmEntry, m: MailRow): (() => void) | undefined => {
+    if (!e.out || e.job || e.megaphone || !m.id) return undefined
+    const mail = m as MailEntry
+    if (mail.delivered !== false || mail.delivering === true || mail.retracted === true) return undefined
+    const agent = e.via ?? (chat.kind === 'agent' ? peer : (m as { to?: string }).to ?? '')
+    const there = nodes.get(agent)
+    if (!there || there.kind === 'project') return undefined
+    return () => onRetract({ id: m.id! }, there.id)
+  }
   const rows: ReactNode[] = []
   let day = ''
   let prev: DmEntry | null = null
@@ -1411,6 +1440,7 @@ function DmConversation({ slug, tree, chat, nodes, toast, refs, onFocusAgent, fl
         onReply={canReplyTo(e, m) ? () => addReply(m) : undefined} highlighted={hl === e.key}
         onRead={e.unread ? () => { readNow([m as MailEntry]).catch((err: Error) => toast([`could not mark read: ${err.message}`])) } : undefined}
         onDelete={!e.out && m.id ? () => onDelete(m as MailEntry) : undefined}
+        onRetract={retractOf(e, m)}
         onAckJob={!e.out ? (reply, opts) => acknowledgeJob({
           row: m as MailEntry, reply, attachments: opts?.attachments, notice: opts?.notice,
           sendReply: (row, replyText, o) => sendLinkedReply(slug, row.from, replyText,
@@ -1566,7 +1596,7 @@ interface DmLocal {
 }
 
 function DmBubble({ entry, m, first, slug, refs, toast, flash, replying, system, sender, fileHref, mdBase,
-  locateMail, inbox, onTranscript, onClassic, onReply, onRead, onDelete, onAckJob, highlighted, local, transfer }: {
+  locateMail, inbox, onTranscript, onClassic, onReply, onRead, onDelete, onRetract, onAckJob, highlighted, local, transfer }: {
   entry: DmEntry; m: MailRow; first: boolean; slug: string; refs: RefRoutes; toast: ToastFn
   /** the transfer carrying this message's files, while it is unfinished */
   transfer?: MailTransfer
@@ -1591,6 +1621,8 @@ function DmBubble({ entry, m, first, slug, refs, toast, flash, replying, system,
   onReply?: () => void
   onRead?: () => void
   onDelete?: () => void
+  /** take this unread message back (the desk's ×); absent once it is read or on its way */
+  onRetract?: () => void
   onAckJob?: (reply?: string, opts?: { attachments?: string[]; notice?: boolean; objectTarget?: ReplyTarget }) => Promise<unknown>
 }) {
   const menu = useContextMenu(toast)
@@ -1635,6 +1667,7 @@ function DmBubble({ entry, m, first, slug, refs, toast, flash, replying, system,
       ...(onReply ? [{ label: 'Reply', onSelect: onReply }] : []),
       ...(onRead ? [{ label: 'Mark as read', onSelect: onRead }] : []),
       ...(onDelete ? [{ label: 'Delete', onSelect: onDelete }] : []),
+      ...(onRetract ? [{ label: 'Retract (undelivered)', onSelect: onRetract }] : []),
       ...(inbox ? [{ label: `View in @${inbox.agent}\u2019s inbox`, onSelect: inbox.open }] : []),
       ...(onTranscript ? [{ label: 'View in transcript', onSelect: onTranscript }] : []),
       ...(senderEntry ? [senderEntry] : []),
@@ -1699,6 +1732,9 @@ function DmBubble({ entry, m, first, slug, refs, toast, flash, replying, system,
               : <span className="dm-tick t-queued" role="img" title="Sending" aria-label="Sending"><ScheduleIcon fontSize="inherit" /></span>)
             : receipt && <span className={'dm-tick ' + (receipt.read ? 't-read' : 't-sent')} role="img"
               title={receipt.label} aria-label={receipt.label}><CheckIcon fontSize="inherit" /></span>}
+            {/* the desk's ×, with its tooltip */}
+            {onRetract && <button type="button" className="chip-x dm-retract" title="retract (undelivered)"
+              aria-label="Retract (undelivered)" onClick={onRetract}><CloseIcon fontSize="inherit" /></button>}
           </div>
         </div>
         <div className="dm-actions">
