@@ -42,7 +42,7 @@ import { ConfirmModal } from './modals'
 import { AgentCompactConfirm } from './agentcompact'
 import { effectiveReports, fmtCredits, hireTierChoices, legacyMark, tierLabel, USER } from './shared'
 import { slotCount } from './slots'
-import { canChatWith, openAgentChat, openChatFrom, openChatTitle } from '../mailboxpref'
+import { canChatWith, openChatFrom, openChatTitle } from '../mailboxpref'
 import { eventListenersOn } from './listeners'
 import type { CanvasNode, HireProviders, OpFn } from './shared'
 
@@ -156,19 +156,18 @@ export interface AgentMenuState extends HireProviders {
   chat?: { needsGrant: boolean } | null
 }
 
-/** OPEN CHAT, right after Open, in EVERY agent and project menu (USER 2026-11-25 14:33:44Z m0a8fdb69edb9
- *  "make it a universal entry in every agent's context menu"; 14:33:50Z m6da526799148 "everywhere
- *  throughout the app"): any live target (`s.chat`, from mailboxpref `chatTargetFor`). Choosing it switches
- *  a classic mailbox to the chats, grants a missing user audience through the inbox's New chat path, then
- *  opens the chat; the tooltip names exactly those changes (openChatTitle). A builder given no `s.chat`
- *  falls back to the 4e1df11 rule (canChatWith). `withOpen` keeps it beside Open when the renderer moves
- *  Open second (contextmenu.tsx MenuEntries). */
-function placeOpenChat(entries: MenuEntry[], node: CanvasNode, s: AgentMenuState): void {
+/** OPEN > CHAT, in EVERY agent and project menu (USER 2026-11-25 14:33:44Z m0a8fdb69edb9 "make it a
+ *  universal entry in every agent's context menu"; 14:33:50Z m6da526799148 "everywhere throughout the
+ *  app"; moved into Open 21:32:43Z m05fbc02357a7 "open chat should be in the open submenu everywhere in an
+ *  agent's co text menu"): one entry, labelled "Chat" ("Open" is not repeated inside Open), for any live
+ *  target (`s.chat`, from mailboxpref `chatTargetFor`). Choosing it switches a classic mailbox to the
+ *  chats, grants a missing user audience through the inbox's New chat path, then opens the chat; the
+ *  tooltip names exactly those changes (openChatTitle). A builder given no `s.chat` falls back to the
+ *  4e1df11 rule (canChatWith). */
+function chatEntry(node: CanvasNode, s: AgentMenuState): MenuEntry | null {
   const chat = s.chat !== undefined ? s.chat : canChatWith(node) ? { needsGrant: false } : null
-  if (!chat) return
-  const openAt = entries.findIndex(e => e !== 'sep' && e.label === 'Open' && !!e.children)
-  entries.splice(openAt >= 0 ? openAt + 1 : entries.length, 0, { label: 'Open chat',
-    title: openChatTitle(node.id, chat.needsGrant), withOpen: true, onSelect: () => { openChatFrom('', node.id) } })
+  if (!chat) return null
+  return { label: 'Chat', title: openChatTitle(node.id, chat.needsGrant), onSelect: () => { openChatFrom('', node.id) } }
 }
 
 /**
@@ -206,10 +205,10 @@ export function agentMenuEntries(node: CanvasNode, h: AgentMenuHandlers,
       + 'agent, pinning it, or opening a window — closing puts everything back',
     onSelect: () => temporary(),
   })
-  // the user's chat with it, when it has an audience with the user (a plain click on its links opens
-  // the same chat: USER 2026-11-24 md9120179f714). "Open" is not repeated inside Open.
-  if (canChatWith(node)) openEntries.push({ label: 'Chat', title: `your chat with ${node.id}, in Chats`,
-    onSelect: () => { openAgentChat('', node.id) } })
+  // the user's chat with it (chatEntry; a plain click on its links opens the same chat when it has an
+  // audience: USER 2026-11-24 md9120179f714)
+  const chat = chatEntry(node, s)
+  if (chat) openEntries.push(chat)
   openEntries.push(
     { label: 'Mail', onSelect: () => h.onInbox() },
   )
@@ -406,8 +405,6 @@ export function agentMenuEntries(node: CanvasNode, h: AgentMenuHandlers,
   }
   entries.push(...portableEntries(node, h, live && !node.isBearerOf && !node.bearer_state, descendants.length > 0 || (node.children ?? []).some((c) => c.state === 'live')))
   if (lifecycle.length) entries.push('sep', ...lifecycle)
-  // OPEN CHAT, once every splice is done (placeOpenChat). Open > Chat stays where it was.
-  placeOpenChat(entries, node, s)
   return entries
 }
 
@@ -461,7 +458,9 @@ export function projectMenuEntries(node: CanvasNode, h: AgentMenuHandlers,
   if (pin && !s.pinned) desk.push({ label: 'Desk as a pinned window', onSelect: () => pin() })
   if (s.pinned && showPin) desk.push({ label: 'Desk as a pinned window', title: 'show the pinned desk window', onSelect: () => showPin() })
   if (popout) desk.push({ label: 'Desk in a separate window', title: `${node.id}'s desk in a window of its own`, onSelect: () => popout() })
-  const open: MenuEntry[] = [...desk, ...(desk.length ? ['sep' as const] : []),
+  // Chat before the mailbox, where the agent's Open has it (chatEntry, USER 2026-11-25 m05fbc02357a7)
+  const chat = chatEntry(node, s)
+  const open: MenuEntry[] = [...desk, ...(desk.length ? ['sep' as const] : []), ...(chat ? [chat] : []),
     { label: 'Project mailbox', onSelect: () => h.onInbox() }]
   if (h.onTeam) open.push({ label: 'Team', onSelect: h.onTeam })
   if (h.onScratchFolder && (live || node.state === 'archived')) {
@@ -566,7 +565,6 @@ export function projectMenuEntries(node: CanvasNode, h: AgentMenuHandlers,
   } else {
     entries.push(...portableEntries(node, h, live, (node.children ?? []).some((c) => c.state === 'live')))
   }
-  placeOpenChat(entries, node, s)
   return entries
 }
 
