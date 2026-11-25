@@ -1492,9 +1492,9 @@ pub async fn block(engine: &Engine, client: &tokio_postgres::Client, org: &Value
     let names = engine.net.names.pin();
     let versions = engine.net.versions.pin();
     let first_enabled = hubs.iter().position(|h| h["enabled"].as_bool().unwrap_or(true));
-    // the address each hub is polled at (what `blocks` is keyed by); a rig's hosted hub can differ from the saved one
+    // the address each hub is polled at keys its version, name, roster and blocks
     let parts = engine.net.parts.load_full();
-    let live = parts.iter().find(|p| p.org_id == org_id);
+    let live = parts.iter().find(|p| p.org_id == org_id).map(|p| p.hubs.as_slice());
     let out: Vec<Value> = hubs
         .iter()
         .enumerate()
@@ -1503,16 +1503,17 @@ pub async fn block(engine: &Engine, client: &tokio_postgres::Client, org: &Value
             let addr = discovery::known_address(h["address"].as_str().unwrap_or(""),state[&id]["address"].as_str());
             let st = status.get(&(org_id, id.clone())).cloned().unwrap_or_default();
             let registered = state[&id]["registered_at"].is_string() && state[&id]["address"].as_str() == Some(addr.as_str());
+            let polled = polled_address(live, &id, &addr).to_string();
             let roster: Vec<Value> = rosters
-                .get(&addr)
+                .get(&polled)
                 .map(|r| r.iter().filter(|x| x["slug"].as_str() != Some(own.as_str())).cloned().collect())
                 .unwrap_or_default();
             let mine = Some(i) == first_enabled;
             let mut v = json!({
                 "id": id, "address": h["address"], "enabled": h["enabled"].as_bool().unwrap_or(true),
-                "name": h["name"].as_str().map(str::to_string).or_else(|| names.get(&addr).cloned()),
+                "name": h["name"].as_str().map(str::to_string).or_else(|| names.get(&polled).cloned()),
                 // the version the hub reports; none from a v1 hub
-                "version": versions.get(&addr).cloned(),
+                "version": versions.get(&polled).cloned(),
                 "connected": inbox_enabled && st.connected,
                 // the implicit local hub stays out of sight until it has answered once
                 "hidden": id == LOCAL_HUB_ID && !(st.connected || registered),
@@ -1521,8 +1522,7 @@ pub async fn block(engine: &Engine, client: &tokio_postgres::Client, org: &Value
                 "roster": roster,
             });
             // whom the org blocks there and who blocks it there (Mail hub 2.6.0)
-            let polled = live.and_then(|p| p.hubs.iter().find(|(hid, _)| *hid == id)).map_or(&addr, |(_, a)| a);
-            if let Some((b, by)) = engine.net.blocks.pin().get(&(polled.clone(), own.clone())) {
+            if let Some((b, by)) = engine.net.blocks.pin().get(&(polled, own.clone())) {
                 v["blocks"] = json!(b);
                 v["blocked_by"] = json!(by);
             }
@@ -1540,8 +1540,7 @@ pub async fn block(engine: &Engine, client: &tokio_postgres::Client, org: &Value
 /// blocks): the one the hub is polled at, which keys that state, else the
 /// saved one. A rig's local hub can be saved before its hosted address is known.
 fn polled_address<'a>(live: Option<&'a [(String, String)]>, id: &str, saved: &'a str) -> &'a str {
-    let _ = (live, id);
-    saved
+    live.and_then(|hubs| hubs.iter().find(|(hid, _)| hid == id)).map_or(saved, |(_, a)| a.as_str())
 }
 
 /// `GET /api/orgs/{slug}/net`: the identity, secret included (the settings

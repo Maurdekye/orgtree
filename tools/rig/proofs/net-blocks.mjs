@@ -73,6 +73,8 @@ export default async function (rig) {
   }, { what: "the org tree's hub row to carry the block", timeout: 30000 }).catch(() => null)
   p.check("the mailservers tab's hub row carries the same word (net.hubs[].blocked_by)", !!hubRow,
     hubRows.map(h => ({ id: h.id, address: h.address, connected: h.connected, hidden: h.hidden, version: h.version, blocks: h.blocks, blocked_by: h.blocked_by })))
+  // the row reads every per-hub field at the polled address: with the local hub saved before the hosted address was known, it showed version null
+  p.check("the hub row shows the hub's own version (read at the polled address)", !!hubRow && hubRow.version === health.version, { row: hubRow?.version, healthz: health.version, address: hubRow?.address })
   const userNotice = await rig.waitFor(() => rig.one(`SELECT body FROM ot.mail WHERE org_id = (SELECT id FROM ot.orgs WHERE slug = '${q(A)}' AND state = 'active')
       AND recipient_kind = 'user' AND sender = '@system' AND body LIKE '%${q(pat.slug)}%' ORDER BY id DESC LIMIT 1`), { what: 'the user to be told of the block', timeout: 30000 }).catch(() => null)
   p.check('the user is told that Pat blocked the org', !!userNotice, userNotice)
