@@ -37,9 +37,10 @@ export function MentionLanding({ org, kind, id, refs }: {
   useLayoutEffect(() => {
     setFound(false)
     if (!landing) return
-    served = Math.max(served, landing.seq)
     let target: HTMLElement | null = null
     const frame = requestAnimationFrame(() => {
+      // served only once it lands: a reader closed before this frame leaves the request for the next one
+      served = Math.max(served, landing.seq)
       const root = anchor.current?.closest('.mailer-read')
       const excerpt = landing.mention.blurb.replace(/^…|…$/g, '').replace(/\s+/g, ' ').trim()
       target = [...root?.querySelectorAll<HTMLElement>('p, li, blockquote') ?? []]
