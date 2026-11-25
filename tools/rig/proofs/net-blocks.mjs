@@ -34,7 +34,7 @@ export default async function (rig) {
 
   await rig.waitFor(async () => (await rig.api('GET', '/api/desktop/hub')).status?.healthy || null, { what: 'the hosted hub to answer', timeout: 120000 })
   const health = await (await fetch(`${hub}/healthz`)).json()
-  p.check('the hosted hub is 2.6.0 with the blocking feature', (health.features ?? []).includes('blocking'), { version: health.version, features: health.features })
+  p.check('the hosted hub lists the blocking feature (the 2.6.0 line; its version may still say 2.5.1 before release)', (health.features ?? []).includes('blocking'), { version: health.version, features: health.features })
   await rig.api('POST', `/api/orgs/${A}/settings`, { net_autoconnect: true })
   await rig.waitFor(async () => ((await rig.api('GET', `/api/orgs/${A}`)).net?.hubs ?? []).some(h => h.connected) || null,
     { what: 'the org to connect to the hosted hub', timeout: 90000 })

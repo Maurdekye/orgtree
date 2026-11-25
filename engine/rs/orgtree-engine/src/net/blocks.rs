@@ -105,7 +105,7 @@ pub(super) async fn heard(engine: &Arc<Engine>, addr: &str, members: &[(Part, St
         let changed = before.as_ref().is_none_or(|(m, b)| *m != mine || *b != by);
         if changed {
             if let Some(o) = engine.orgs.by_id(p.org_id) {
-                changes::notify(engine, &o, vec![Change::OrgInbox]);
+                changes::notify(engine, &o, vec![Change::Net, Change::OrgInbox]);
             }
         }
         // the first word since start is no news: only a change is told
@@ -246,7 +246,7 @@ pub(super) async fn reconcile(engine: &Arc<Engine>, parts: &[Part]) {
                         let list = r.json::<Value>().await.map(|v| strings(&v["blocked"])).unwrap_or_default();
                         engine.net.blocks.pin().update(key.clone(), |(_, by)| (list.clone(), by.clone()));
                         if let Some(o) = engine.orgs.by_id(p.org_id) {
-                            changes::notify(engine, &o, vec![Change::OrgInbox]);
+                            changes::notify(engine, &o, vec![Change::Net, Change::OrgInbox]);
                         }
                     }
                     // a refusal would come again: not asked again this run
