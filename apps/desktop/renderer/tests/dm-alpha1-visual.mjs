@@ -349,7 +349,8 @@ if (flag === '--expect') {
 
   // ---- 15: both entries of the bubble's menu
   assert.ok(v.menu.items.some(i => /^View in @worker.s inbox$/.test(i)), `the bubble's menu has the inbox entry (${v.menu.items.join(' | ')})`)
-  assert.equal(v.menu.items[v.menu.items.findIndex(i => /^View in @worker/.test(i)) + 1], 'View in transcript', 'and View in transcript next to it')
+  // the View in group's order (USER 2026-11-25 md7da554ce837; mailidentity VIEW_IN_ORDER): transcript, then the other View in
+  assert.equal(v.menu.items[v.menu.items.findIndex(i => /^View in @worker/.test(i)) - 1], 'View in transcript', 'and View in transcript next to it')
   checked.push('15 transcript entry')
 
   // ---- 12, 13: the sweep
