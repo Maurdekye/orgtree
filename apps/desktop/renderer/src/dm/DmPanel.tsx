@@ -885,7 +885,8 @@ function DmConversation({ slug, tree, chat, nodes, toast, refs, onFocusAgent, fl
   // src/components/Conversation.tsx: `pinned`, `far`, `jumpHold`, `toBottom`,
   // `userMoves`, the layout effect on the messages and the ResizeObserver on
   // the timeline and its content). Pinned within 80 px of the end; the jump
-  // button from 300 px; whatever makes the content taller while pinned (a
+  // button whenever it is not (@coordinator-opus m66f9dc335c98 on the user's
+  // "visible while not stuck"; Hubchat waits for 300 px); whatever makes the content taller while pinned (a
   // message, the typing row, a picture that loads late) keeps the end in view.
   // ⚠ The effect runs on the chat's messages (`all`), never on how many rows
   // are drawn: a long chat draws a fixed window of DM_PAGE rows, so a new
@@ -915,7 +916,7 @@ function DmConversation({ slug, tree, chat, nodes, toast, refs, onFocusAgent, fl
         // when everything after it fits, that is the bottom: stay with the newest
         const gap = el.scrollHeight - el.scrollTop - el.clientHeight
         pinned.current = gap < 80
-        setFar(gap > 300)
+        setFar(gap >= 80)
         return
       }
     }
@@ -1026,7 +1027,7 @@ function DmConversation({ slug, tree, chat, nodes, toast, refs, onFocusAgent, fl
     if (!el) return
     const gap = el.scrollHeight - el.scrollTop - el.clientHeight
     pinned.current = gap < 80 && !jumpHold.current
-    setFar(gap > 300)
+    setFar(gap >= 80)
     nearTop(true)
     // back at the newest message, a long scroll-back is let go again (Hubchat's trim)
     if (pinned.current && shown > DM_TRIM_AT && !anchor.current && !seek) setShown(DM_TRIM_KEEP)
