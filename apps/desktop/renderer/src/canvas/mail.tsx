@@ -2254,11 +2254,11 @@ export function OrgInboxModal({ inbox, net, map, slug, toast, close, jumpTo,
   jumpSeq, refs, onFocusAgent, party }: OrgInboxModalProps) {
   // reworked (user spec 2026-08-05): no blurb, mailservers on their own TAB,
   // holders as bare chips with a drag-to-grant tip
-  const [tab, setTab] = useState<'mail' | 'transfers' | 'servers'>('mail')
-  // TRANSFERS IS ITS OWN TAB (USER 2026-11-25 m7202711b8122), beside mail and
-  // mailservers, offered while the mailbox has any transfers or it is open
+  const [tab, setTab] = useState<'mail' | 'servers'>('mail')
+  // TRANSFERS IS ITS OWN TAB beside inbox and sent (USER 2026-11-25
+  // m7202711b8122, placed 09:34Z m1a3bfa49d5b8 "make it a tab next to inbox
+  // and sent"), offered while the mailbox has any transfers or it is open
   const [transfers, setTransfers] = useState<TransferSummary>({ total: 0, active: 0 })
-  const transfersTab = transfers.total > 0 || tab === 'transfers'
   // a jump to an OUTBOUND mail (an agent's @ext:/@org: send) opens on sent
   const [folder, setFolder] = useState(() =>
     jumpTo && (inbox?.entries ?? []).some((e) => e.id === jumpTo
@@ -2434,21 +2434,14 @@ export function OrgInboxModal({ inbox, net, map, slug, toast, close, jumpTo,
     <PinFrame kind="org-inbox" title="The org mailbox" panel="settings wide"
       close={close}>
         <h3><PublicIcon fontSize="inherit" /> The org mailbox</h3>
-        {(hubsVisible || transfersTab) && (
+        {hubsVisible && (
           <div className="adv-tabs">
             <button className={'adv-tab' + (tab === 'mail' ? ' on' : '')}
               onClick={() => setTab('mail')}>mail</button>
-            {transfersTab && <button className={'adv-tab' + (tab === 'transfers' ? ' on' : '')}
-              onClick={() => setTab('transfers')}>transfers{transfers.active > 0
-                ? <>{' '}<span className="tab-count">{transfers.active}</span></> : ''}</button>}
-            {hubsVisible && <button className={'adv-tab' + (tab === 'servers' ? ' on' : '')}
-              onClick={() => setTab('servers')}>mailservers</button>}
+            <button className={'adv-tab' + (tab === 'servers' ? ' on' : '')}
+              onClick={() => setTab('servers')}>mailservers</button>
           </div>
         )}
-        {/* mounted on every tab: it keeps polling and feeds the tab's badge */}
-        <div className="mail-transfers-pane" hidden={tab !== 'transfers'}>
-          <TransferPanel slug={slug} tab={{ visible: tab === 'transfers' }} onSummary={setTransfers} />
-        </div>
         {tab === 'mail' ? (<>
           <div className="org-audience-holders">
             <AudienceHolderRows ids={holders} nodes={map}
@@ -2476,7 +2469,13 @@ export function OrgInboxModal({ inbox, net, map, slug, toast, close, jumpTo,
               attribution differs */}
           <div className="mailwrap">
             <MailFolders folder={folder} setFolder={setFolder}
-              unread={inn.filter((r) => r._wait0).length} />
+              unread={inn.filter((r) => r._wait0).length}
+              folders={transfers.total > 0 || folder === 'transfers' ? ['inbox', 'sent', 'transfers'] : undefined}
+              counts={{ transfers: transfers.active }} />
+            {/* mounted on every folder: it keeps polling and feeds the badge */}
+            <div className="mail-transfers-pane" hidden={folder !== 'transfers'}>
+              <TransferPanel slug={slug} tab={{ visible: folder === 'transfers' }} onSummary={setTransfers} />
+            </div>
             {/* ⚠ THE MAILBOX IS NEVER SILENTLY SHORT. The list below shows
                 the tree's preview until the full log arrives, so a slow
                 fetch reads as "the newest few, still loading" rather than
@@ -2497,7 +2496,7 @@ export function OrgInboxModal({ inbox, net, map, slug, toast, close, jumpTo,
                 {logLen - entries.length === 1 ? '' : 's'}…
               </div>
             )}
-            <div className="mailpane">
+            <div className="mailpane" hidden={folder === 'transfers'}>
               {folder === 'inbox'
                 ? <MailList org={slug} pending={inn.filter((r) => r._wait0)}
                     collapsible
@@ -2555,9 +2554,9 @@ export function OrgInboxModal({ inbox, net, map, slug, toast, close, jumpTo,
                     }} />}
             </div>
           </div>
-        </>) : tab === 'servers' ? (
+        </>) : (
           <NetSection net={net} slug={slug} />
-        ) : null}
+        )}
     </PinFrame>
   )
 }

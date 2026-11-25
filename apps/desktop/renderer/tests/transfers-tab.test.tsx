@@ -3,10 +3,10 @@
 // mailbox it appears in a separate tab"; docket
 // mailboxes-transfers-becomes-its-own-tab-in-every).
 //
-// Surfaces (every TransferPanel mount): the org mailbox (top tabs beside
-// mail / mailservers) and InboxView (folder tabs beside inbox / sent), which
-// is the agent mailbox window, the agent desk's mail tab and the project
-// desk's mail.
+// Placement (USER 09:34Z m1a3bfa49d5b8 "make it a tab next to inbox and
+// sent"): inbox · sent · transfers, in every mailbox with that row. Surfaces
+// (every TransferPanel mount): the org mailbox and InboxView, which is the
+// agent mailbox window, the agent desk's mail tab and the project desk's mail.
 //
 // Run:  cd apps/desktop/renderer && node tests/run.mjs transfers-tab
 
@@ -39,7 +39,7 @@ const org = () => <OrgInboxModal slug="fixture" map={new Map()} close={()=>{}} t
   inbox={{entries:[],total:0,unread:0,visible:true,holders:[]}}/>
 const desk = () => <InboxView slug="fixture" nid="agent-fixture"/>
 const SURFACES: [string, () => JSX.Element, string][] = [
-  ['org mailbox', org, '.adv-tabs .adv-tab'],
+  ['org mailbox', org, '.mail-folders button'],
   ['agent / project mailbox (InboxView)', desk, '.mail-folders button'],
 ]
 
@@ -62,13 +62,12 @@ for (const [name, surface, tabSel] of SURFACES) {
     assert.ok(shown(history ?? null), 'the "recent history" toggle moved with it')
     assert.ok(tabNamed(v.el, tabSel, /Cancel transfer/) === null && shown(tabNamed(v.el, '.transfer-actions button', /Cancel transfer/)),
       'its actions moved with it')
-    if (name === 'org mailbox') {
-      assert.equal([...v.el.querySelectorAll('.org-audience-holders')].filter(shown).length, 0, 'the mail view is hidden')
-    } else {
-      assert.equal([...v.el.querySelectorAll('.mailpane')].filter(shown).length, 0, 'the mail lists are hidden')
-    }
+    assert.equal([...v.el.querySelectorAll('.mailpane')].filter(shown).length, 0, 'the mail lists are hidden')
+    assert.equal(tabNamed(v.el, '.adv-tabs .adv-tab', /transfers/), null, 'never in the mail / mailservers row')
+    const row = [...tab!.parentElement!.querySelectorAll('button')].map(b => b.textContent?.replace(/\d+$/, '').trim())
+    assert.deepEqual(row.slice(0, 3), ['inbox', 'sent', 'transfers'], 'inbox · sent · transfers')
     // and back
-    const mailTab = tabNamed(v.el, tabSel, name === 'org mailbox' ? /^mail$/ : /^inbox/)!
+    const mailTab = tabNamed(v.el, tabSel, /^inbox/)!
     await inAct(() => mailTab.click()); await flush()
     assert.equal([...v.el.querySelectorAll('.transfer-card')].filter(shown).length, 0, 'back on mail, no transfers')
   })
