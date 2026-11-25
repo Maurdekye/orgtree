@@ -38,11 +38,13 @@ export async function checkContactList(surface: ContactSurface, t: TestContext) 
       assert.equal(!!chip.querySelector('.net-mark'), true)
       assert.equal(chip.querySelector('.net-name')?.getAttribute('data-net-name') ?? null, peer.org_name ?? null)
       const after = [...row.childNodes].slice([...row.childNodes].indexOf(chip) + 1).map(n => n.textContent).join('')
-      assert.equal(after, surface === 'mailservers' ? ' net' : '')
+      // lockdown list UX (USER 2026-11-25 21:49:37Z m8ee22829e340): both surfaces are the shared ConnectionList; no
+      // transport words or "reachable via" hover beside the chip, only the list's block × where the hub can block
+      assert.equal(after, row.querySelector('button.conn-x') ? '×' : '')
       const dot = row.firstElementChild as HTMLElement
       assert.deepEqual([dot.classList.contains('presence-dot'), dot.classList.contains(peer.online ? 'online' : 'offline'), dot.title],
         [true, true, peer.online ? 'Online' : 'Offline'])
-      if (surface === 'mailservers') assert.match(row.title, /reachable via: net/)
+      assert.doesNotMatch(row.title ?? '', /reachable via/)
       bubbled = 0
       await inAct(() => chip.click())
       assert.equal(bubbled, 0, 'the contact action stops parent click propagation')
