@@ -786,6 +786,10 @@ pub async fn summary<C: tokio_postgres::GenericClient + Sync>(c: &C, org_id: i64
     Ok(json!({ "setting": p.user.as_str(), "on": on, "coverage": coverage, "set_aside": p.set_aside, "set_aside_unread": unread }))
 }
 
+/// RED STUBS (E4)
+#[logged]
+pub async fn outbound<C: tokio_postgres::GenericClient + Sync>(_c: &C, _org_id: i64, _peer: &str, _kind: &str) -> Result<Option<String>> { Ok(None) }
+
 #[nolog]
 fn notify(engine: &Arc<Engine>, org_id: i64) {
     if let Some(o) = engine.orgs.by_id(org_id) {

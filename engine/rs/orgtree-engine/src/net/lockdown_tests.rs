@@ -324,3 +324,34 @@ async fn the_tree_carries_the_lockdown_summary() {
     assert_eq!(super::lockdown::summary(&w.c, w.org).await.unwrap(), json!({"setting": "org", "on": true, "coverage": "pending", "set_aside": true, "set_aside_unread": 1}),
         "no hub has acknowledged it yet");
 }
+
+#[tokio::test]
+#[ignore = "requires an isolated orginbox_queue_fixture database"]
+#[nolog]
+async fn the_orgs_own_send_to_an_unlisted_address_warns_and_a_question_is_refused() {
+    // plan Q4 (USER 13:37Z "all rest rec": the org may still write to unlisted addresses, with a warning);
+    // Fable I8: an unlisted address's answer would be refused, so a question can never be answered
+    let w = world().await;
+    assert_eq!(super::lockdown::outbound(&w.c, w.org, "@net:eve.000000", "message").await.unwrap(), None, "no lockdown: nothing to say");
+    super::lockdown::change(&w.e, w.org, Who::Agent("front"), Edit { on: Some(true), allow: Some(vec![entry("h1", "ann.1a2b3c")]), ..Edit::default() }).await.unwrap();
+    assert_eq!(super::lockdown::outbound(&w.c, w.org, "@net:ann.1a2b3c", "question").await.unwrap(), None, "listed: as before");
+    let warn = super::lockdown::outbound(&w.c, w.org, "@net:eve.000000", "message").await.unwrap().expect("a warning");
+    assert!(warn.contains("isn't on this org's lockdown list") && warn.contains("its replies will be refused"), "{warn}");
+    let why = format!("{:#}", super::lockdown::outbound(&w.c, w.org, "eve.000000", "question").await.unwrap_err());
+    assert!(why.contains("can't answer a question") && why.contains("orgtree_lockdown action=add"), "{why}");
+}
+
+/// Set-aside letters stay out of thread routing, the acting link's handover summary, contact recency and node
+/// exports (review B4; Astra 12). Source checks: these paths have no fixture of their own.
+#[test]
+fn set_aside_letters_stay_out_of_threads_summaries_recency_and_exports() {
+    let flat = |s: &str| s.split_whitespace().collect::<Vec<_>>().join(" ");
+    let jobs = flat(include_str!("../domain/orginbox_jobs.rs"));
+    assert!(jobs.contains("FROM ot.org_inbox WHERE org_id=$1 AND uid=$2 AND dir='in' AND peer=$3 AND set_aside_at IS NULL"), "D14 thread owner");
+    let inbox = flat(include_str!("../domain/orginbox.rs"));
+    assert!(inbox.contains("dir='in' AND set_aside_at IS NULL AND delivered_to ? $2"), "acting handover summary");
+    let recent = flat(include_str!("recent.rs"));
+    assert!(recent.contains("WHERE i.org_id = o.id AND i.peer = '@net:' || p.slug AND i.set_aside_at IS NULL"), "contact recency");
+    let export = flat(include_str!("../portable/export.rs"));
+    assert!(export.contains("AND NOT EXISTS (SELECT 1 FROM ot.org_inbox i WHERE i.org_id = m.org_id AND i.dir = 'in' AND i.set_aside_at IS NOT NULL"), "exports");
+}
