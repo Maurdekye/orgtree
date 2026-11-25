@@ -85,7 +85,7 @@ import { ListAge } from '../canvas/listage'
 import { SenderChip } from '../canvas/senderchip'
 import { HubContactChip, isHubAddress, requestTranscriptMail } from '../canvas/agentmentions'
 import { isCurrentOrgAddress } from '../canvas/netmentions'
-import { agentCopyEntry, copyToClipboard, useContextMenu, useContextMenuOpen } from '../canvas/contextmenu'
+import { agentCopyEntry, contextMenuBelongsTo, copyToClipboard, useContextMenu, useContextMenuOpen } from '../canvas/contextmenu'
 import type { MenuEntry } from '../canvas/contextmenu'
 import { mailMenuEntries } from '../canvas/mailidentity'
 import { mailRowCopyText } from '../canvas/copytext'
@@ -1772,6 +1772,23 @@ function DmNewChat({ tree, nodes, refs, open, closing, close, onClosed, onPick }
   // Escape is the sweep's while it is out (the frame's own Escape is under it on the stack)
   useEsc(close, !closing)
   const el = useRef<HTMLDivElement>(null)
+  // a press outside closes it, as the canvas Agents List tray does (OrgCanvas closeOnOutsidePointer; USER
+  // 2026-11-25 15:29:12Z md5374b20b620 "clicking off of the new chat agents list should collapse it as well as
+  // clicking the x button"). Its own row menu portals to the body and stays inside. Capture only observes:
+  // the press still reaches what it landed on.
+  useEffect(() => {
+    if (closing) return
+    const doc = el.current?.ownerDocument ?? document
+    const outside = (event: PointerEvent) => {
+      const root = el.current
+      if (!root) return
+      if (event.target instanceof Node && root.contains(event.target)) return
+      if (contextMenuBelongsTo(event.target, root)) return
+      close()
+    }
+    doc.addEventListener('pointerdown', outside, true)
+    return () => doc.removeEventListener('pointerdown', outside, true)
+  }, [closing, close])
   useEffect(() => { if (!closing) el.current?.querySelector<HTMLInputElement>('.tray-filter')?.focus() }, [closing])
   // it leaves when its slide back ends; where nothing slides (reduced motion), at once
   useLayoutEffect(() => {
