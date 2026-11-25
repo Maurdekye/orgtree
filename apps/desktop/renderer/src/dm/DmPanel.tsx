@@ -962,6 +962,10 @@ function DmConversation({ slug, tree, chat, nodes, toast, refs, onFocusAgent, fl
    *  seen to go true and false: React may draw a request and its answer in one
    *  render, and a chain that waited to see `true` stopped there (measured). */
   const asked = useRef<string | null>(null)
+  /** an older page asked for by this chat is on its way: only then "loading older messages…" shows. The
+   *  mailbox's `loading` is also true for its regular read of the newest mail, and that row at the top made the
+   *  browser's scroll anchoring scroll the chat under an open menu (measured, alpha.1 kit 22a) */
+  const [askingOlder, setAskingOlder] = useState(false)
   const state = useRef({ start, hasMore, loadingMore, historyError, count: all.length, mark: historyMark, ownPages })
   state.current = { start, hasMore, loadingMore, historyError, count: all.length, mark: historyMark, ownPages }
   const onLoadMoreRef = useRef(onLoadMore)
@@ -990,6 +994,7 @@ function DmConversation({ slug, tree, chat, nodes, toast, refs, onFocusAgent, fl
     if (!page) { setShown(n => n + DM_PAGE); return }
     before.current = now.count
     asked.current = now.mark
+    setAskingOlder(true)
     onLoadMoreRef.current()
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
@@ -1022,9 +1027,10 @@ function DmConversation({ slug, tree, chat, nodes, toast, refs, onFocusAgent, fl
   // a page has arrived (or its read failed): count it, and go on while the top is near
   useEffect(() => {
     if (asked.current === null || loadingMore) return
-    if (historyError) { asked.current = null; return }
+    if (historyError) { asked.current = null; setAskingOlder(false); return }
     if (asked.current === historyMark) return
     asked.current = null
+    setAskingOlder(false)
     idle.current = state.current.count > before.current ? 0 : idle.current + 1
     nearTop(false)
   }, [loadingMore, historyMark, historyError, nearTop])
@@ -1460,7 +1466,7 @@ function DmConversation({ slug, tree, chat, nodes, toast, refs, onFocusAgent, fl
         onWheel={(e) => { userMoves(); if (e.deltaY < 0 && (scroller.current?.scrollTop ?? 1) <= 0) older(true) }}>
         <div className="dm-timeline-inner">
           {/* no button: older messages load as the top comes near (`older`) */}
-          {loadingMore && <div className="dm-older" role="status">loading older messages…</div>}
+          {loadingMore && askingOlder && <div className="dm-older" role="status">loading older messages…</div>}
           {historyError && <div role="alert" className="dm-history-error">Could not load older mail. <button onClick={onRetryHistory}>Retry</button></div>}
           {!all.length && <div className="dm-start">
             <DmAvatar chat={chat} />
