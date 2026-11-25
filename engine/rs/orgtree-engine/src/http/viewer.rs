@@ -111,6 +111,7 @@ pub const DENIED_FOR_VIEWER: &[&str] = &[
     "/api/orgs/{slug}/transfers/{id}",
     "/api/orgs/{slug}/net",
     "/api/orgs/{slug}/net/recent",
+    "/api/orgs/{slug}/net/blocks",
     "/api/orgs/{slug}/org_inbox/read",
     "/api/orgs/{slug}/audiences",
     "/api/orgs/{slug}/reply-source",
