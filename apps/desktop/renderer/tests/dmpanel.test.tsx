@@ -2111,7 +2111,7 @@ test('Hubchat\'s jump button: there whenever the chat is not stuck (80 px up), a
   const { readFileSync } = await import('node:fs')
   const { default: path } = await import('node:path')
   const css = readFileSync(path.join(__SRC_DIR__, 'dm', 'dm.css'), 'utf8')
-  assert.match(css, /\.dm-jump \{ position: absolute; right: 22px; bottom: 16px; width: 40px; height: 40px; border-radius: 50%; border: 1px solid var\(--line\); background: var\(--panel\); color: var\(--ink\);/)
+  assert.match(css, /\.dm-conv \.dm-jump \{ position: absolute; right: 22px; bottom: 16px; width: 40px; height: 40px; border-radius: 50%; border: 1px solid var\(--line\); background: var\(--panel\); color: var\(--ink\);/)
 })
 
 test('Hubchat\'s jump button stays round in a settings-sized window: its rule outweighs `.settings button`', async () => {

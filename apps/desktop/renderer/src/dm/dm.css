@@ -188,10 +188,11 @@
 
 .dm-timeline-wrap { flex: 1; min-height: 0; position: relative; display: flex; flex-direction: column; }
 .dm-timeline { flex: 1; min-height: 0; overflow-y: auto; padding: 6px 22px 16px; }
-/* Hubchat's jump button (its desktop.css `.jump`): there while the newest message is more than 300 px away */
-.dm-jump { position: absolute; right: 22px; bottom: 16px; width: 40px; height: 40px; border-radius: 50%; border: 1px solid var(--line); background: var(--panel); color: var(--ink);
+/* Hubchat's jump button (its desktop.css `.jump`): there while the chat is not stuck to its newest message.
+   `.dm-conv` gives it the weight to outweigh `.settings button` (styles.css), which squared its corners. */
+.dm-conv .dm-jump { position: absolute; right: 22px; bottom: 16px; width: 40px; height: 40px; border-radius: 50%; border: 1px solid var(--line); background: var(--panel); color: var(--ink);
   display: flex; align-items: center; justify-content: center; box-shadow: var(--shadow); z-index: 4; padding: 0; font-size: 20px; cursor: pointer; }
-.dm-jump:hover { border-color: var(--button-accent); }
+.dm-conv .dm-jump:hover { border-color: var(--button-accent); }
 .dm-timeline-inner { max-width: 880px; margin: 0 auto; display: flex; flex-direction: column; }
 /* older messages load by themselves as the top comes near: this only says so while a page is on its way */
 .dm-panel .dm-older { align-self: center; margin: 8px 0; font-size: 12px; color: var(--dim); }

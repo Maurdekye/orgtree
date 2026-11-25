@@ -509,7 +509,8 @@ module.exports = async (page) => {
     const r = b?.getBoundingClientRect()
     return { gap: Math.round(el.scrollHeight - el.scrollTop - el.clientHeight), button: !!b,
       box: r ? { right: Math.round(t.right - r.right), bottom: Math.round(t.bottom - r.bottom), w: Math.round(r.width), h: Math.round(r.height),
-        hit: !!b.contains(document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2)) } : null,
+        hit: !!b.contains(document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2)),
+        style: (({ borderTopLeftRadius: tl, borderBottomRightRadius: br, paddingLeft: pl, fontSize: fs }) => ({ tl, br, pl, fs }))(getComputedStyle(b)) } : null,
       label: b?.getAttribute('aria-label') ?? null, last: [...el.querySelectorAll('[data-dm-entry]')].pop()?.dataset.dmEntry ?? null }
   })
   const scrollGap = (gap) => page.eval((g) => { const el = document.querySelector('.dm-timeline'); el.scrollTop = el.scrollHeight - el.clientHeight - g }, gap)
