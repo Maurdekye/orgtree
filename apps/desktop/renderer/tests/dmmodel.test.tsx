@@ -554,11 +554,15 @@ test('alpha.1 point 5: an agent is "typing" while the engine says it writes to t
   assert.equal(DM_WRITING_CAP_MS, 120000, 'the engine\u2019s own cap for one call')
 })
 
-test('alpha.1 point 17: the mark of the user\u2019s own message is a clock until the agent has taken it, then one check; no mark when the engine does not say', () => {
-  assert.deepEqual(dmReceipt({ delivered: true }, 'worker'), { delivered: true, label: 'Delivered: worker has it' })
-  assert.deepEqual(dmReceipt({ delivered: false }, 'worker'), { delivered: false, label: 'Waiting: worker has not taken it yet' })
-  assert.deepEqual(dmReceipt({ delivered: false, dnd_held: true }, 'worker'), { delivered: false, label: 'Waiting: worker is on Do Not Disturb' })
-  assert.equal(dmReceipt({ delivered: false, delivering: true }, 'worker')?.label, 'Waiting: handed to worker\u2019s running turn, not taken yet')
+// USER 2026-11-25 mcc1bee9a2771 "the delivered check never turns green once youve read it", ma76e93d834d1 "it
+// should go from grey check to green check on sent and read". For mail to an agent the engine's `delivered`
+// is the moment its CLI took the mail into its context (mail::acknowledge, acknowledge_turn, settle_claimed),
+// which is the agent reading it; state 'read' (an explicit inbox fetch) is folded into it.
+test('the mark of the user\u2019s own message: sent until the agent has read it, then read; no mark when the engine does not say', () => {
+  assert.deepEqual(dmReceipt({ delivered: true }, 'worker'), { read: true, label: 'Read: worker has it' })
+  assert.deepEqual(dmReceipt({ delivered: false }, 'worker'), { read: false, label: 'Sent: worker has not read it yet' })
+  assert.deepEqual(dmReceipt({ delivered: false, dnd_held: true }, 'worker'), { read: false, label: 'Sent: worker is on Do Not Disturb' })
+  assert.equal(dmReceipt({ delivered: false, delivering: true }, 'worker')?.label, 'Sent: handed to worker\u2019s running turn, not read yet')
   // an older engine's row, mail to the user, a retracted mail: nothing is known or there is nothing to say
   assert.equal(dmReceipt({}, 'worker'), null)
   assert.equal(dmReceipt({ delivering: true }, 'worker'), null, 'an older engine: never a clock that could not turn')

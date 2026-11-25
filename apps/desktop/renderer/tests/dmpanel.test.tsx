@@ -1523,7 +1523,9 @@ test('alpha.1 point 5: while an agent writes to the user its row says "typing…
   assert.equal(document.querySelector('.dm-typing-row, .dm-row-typing, .dm-typing-dots'), null)
 })
 
-test('alpha.1 point 17: the user\u2019s own message shows a clock while it waits and one check once the agent has taken it, live; an agent\u2019s message and an older engine\u2019s row show no mark', async (t) => {
+// USER 2026-11-25 mcc1bee9a2771 + ma76e93d834d1: grey check when sent, green check when read, live. One check
+// throughout (USER 2026-11-24 m0a5d2a5b266e); read is Hubchat's read colour (base.css .tick.t-read, var(--ok)).
+test('the user\u2019s own message shows a grey check while the agent has not read it and Hubchat\u2019s green read mark once it has, live; an agent\u2019s message and an older engine\u2019s row show no mark', async (t) => {
   const world: World = {
     audiences: [grant('worker')],
     delivered: [mail('in1', 'worker', '2026-11-20T10:00:00Z')],
@@ -1538,10 +1540,19 @@ test('alpha.1 point 17: the user\u2019s own message shows a clock while it waits
   await s.openChat('worker')
   const tick = (id: string) => s.all<HTMLElement>('.dm-msg').find(m => m.dataset.dmEntry === id)?.querySelector<HTMLElement>('.dm-meta .dm-tick') ?? null
   const state = (id: string) => { const el = tick(id); return el ? [el.className, el.getAttribute('aria-label'), el.getAttribute('role')] : null }
-  assert.deepEqual(state('wait'), ['dm-tick t-queued', 'Waiting: worker has not taken it yet', 'img'], 'a clock while it waits')
-  assert.deepEqual(state('held'), ['dm-tick t-queued', 'Waiting: worker is on Do Not Disturb', 'img'])
-  assert.deepEqual(state('done'), ['dm-tick t-delivered', 'Delivered: worker has it', 'img'], 'ONE check once the agent has it')
+  assert.deepEqual(state('wait'), ['dm-tick t-sent', 'Sent: worker has not read it yet', 'img'], 'a grey check while it is not read')
+  assert.deepEqual(state('held'), ['dm-tick t-sent', 'Sent: worker is on Do Not Disturb', 'img'])
+  assert.deepEqual(state('done'), ['dm-tick t-read', 'Read: worker has it', 'img'], 'the read mark once the agent has it')
   assert.equal(tick('done')!.querySelectorAll('svg').length, 1, 'one mark, never two')
+  assert.equal(tick('done')!.querySelector('svg')?.getAttribute('data-testid'), 'CheckIcon', 'read: the same one check, green (USER 2026-11-24 m0a5d2a5b266e "simple 1-checkmark read receipts")')
+  assert.equal(tick('wait')!.querySelector('svg')?.getAttribute('data-testid'), 'CheckIcon', 'sent: one check, never a clock')
+  {
+    const { readFileSync } = await import('node:fs')
+    const { default: path } = await import('node:path')
+    const css = readFileSync(path.join(__SRC_DIR__, 'dm', 'dm.css'), 'utf8')
+    assert.match(css, /\.dm-tick\.t-read \{ color: var\(--ok\); \}/, 'read is green (Hubchat base.css .tick.t-read)')
+    assert.doesNotMatch(css, /\.dm-tick\.t-sent \{[^}]*color/, 'sent keeps the time\'s grey')
+  }
   assert.equal(tick('done')!.previousElementSibling?.tagName, 'TIME', 'after the time, as in Hubchat')
   assert.equal(state('old'), null, 'an older engine\u2019s row: no mark, never a clock that cannot turn')
   assert.equal(state('in1'), null, 'the agent\u2019s own message has none')
@@ -1549,11 +1560,11 @@ test('alpha.1 point 17: the user\u2019s own message shows a clock while it waits
   // the agent takes the waiting mail: the engine publishes the user's mail again, and the mark turns
   // without the chat being opened again
   ;(world.sent as Record<string, unknown>[]).find(m => m.id === 'wait')!.delivered = true
-  for (let i = 0; i < 80 && state('wait')?.[0] !== 'dm-tick t-delivered'; i++) {
+  for (let i = 0; i < 80 && state('wait')?.[0] !== 'dm-tick t-read'; i++) {
     await inAct(async () => { await new Promise(resolve => setTimeout(resolve, 100)); await flush(4) })
   }
-  assert.deepEqual(state('wait'), ['dm-tick t-delivered', 'Delivered: worker has it', 'img'], 'the clock turned into the check, live')
-  assert.deepEqual(state('held')?.[0], 'dm-tick t-queued', 'and only that one')
+  assert.deepEqual(state('wait'), ['dm-tick t-read', 'Read: worker has it', 'img'], 'the grey check turned green, live')
+  assert.deepEqual(state('held')?.[0], 'dm-tick t-sent', 'and only that one')
 })
 
 test('alpha.1 point 15: a bubble\u2019s menu has "View in transcript" for the agent\u2019s mail and for the user\u2019s delivered mail only; it asks that agent\u2019s desk for the row', async (t) => {
@@ -1600,7 +1611,7 @@ test('alpha.1 point 15: a bubble\u2019s menu has "View in transcript" for the ag
   await closeMenu()
   // it appears live when the mail is delivered
   ;(world.sent as Record<string, unknown>[]).find(m => m.id === 'wait')!.delivered = true
-  for (let i = 0; i < 80 && !s.all<HTMLElement>('.dm-msg').find(m => m.dataset.dmEntry === 'wait')?.querySelector('.dm-tick.t-delivered'); i++) {
+  for (let i = 0; i < 80 && !s.all<HTMLElement>('.dm-msg').find(m => m.dataset.dmEntry === 'wait')?.querySelector('.dm-tick.t-read'); i++) {
     await inAct(async () => { await new Promise(resolve => setTimeout(resolve, 100)); await flush(4) })
   }
   menu = await menuOf('wait')
