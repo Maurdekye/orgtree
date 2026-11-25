@@ -585,6 +585,11 @@ if (flag === '--expect') {
     const del = result.engineCalls.filter(c => c.method === 'DELETE')
     assert.deepEqual(del.map(c => c.path), ['/api/orgs/mine/nodes/quoter/mail/u4'], 'the desk’s own call, once')
     assert.deepEqual(tb.toasts.filter(t => /error/.test(t)), [], 'no error')
+    // the bundle is a production build (no data-testid on icons): name each by its MUI path
+    const iconByPath = new Map(['NotificationsOutlined', 'NotificationsOffOutlined', 'NotificationsActiveOutlined', 'NotificationsActive'].map(n =>
+      [readFileSync(path.join(dependencies, '@mui/icons-material', n + '.mjs'), 'utf8').match(/d: "([^"]+)"/)[1], n + 'Icon']))
+    const named = st => { st.icons = st.icons.map(d => iconByPath.get(d) ?? `unknown path ${String(d).slice(0, 24)}`); return st }
+    for (const t of Object.values(v.notice)) { named(t.off); named(t.on) }
     for (const [theme, { off, on }] of Object.entries(v.notice)) {
       assert.equal(off.armed, false); assert.equal(on.armed, true, `${theme}: POSITIVE CONTROL: armed`)
       assert.deepEqual(off.icons, ['NotificationsOutlinedIcon'], `${theme}: off is the plain bell`)

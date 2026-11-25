@@ -785,9 +785,10 @@ module.exports = async (page) => {
   // ---- 28. the notice toggle: a slashed bell when armed, and the box's dashes sparser, nothing moving
   //      (USER 2026-11-25 m8fa7fe204469, m2e0562ae73e8)
   const noticeState = () => page.eval(() => {
-    const toggle = document.querySelector('.dm-compose .cc-notice-toggle'), box = document.querySelector('.dm-compose .mail-reply')
+    const toggle = document.querySelector('.dm-compose .cc-notice-toggle'), box = document.querySelector('.dm-compose .cc-composer, .dm-compose .mail-reply')
     const r = box?.getBoundingClientRect(), cs = box ? getComputedStyle(box) : null, before = box ? getComputedStyle(box, '::before') : null
-    return { icons: toggle ? [...toggle.querySelectorAll('[data-testid]')].map(i => i.getAttribute('data-testid')) : [],
+    /* a production bundle has no icon data-testid: the kit names each icon by its svg path (dm-alpha1-visual.mjs) */
+    return { icons: toggle ? [...toggle.querySelectorAll('svg path')].map(i => i.getAttribute('d')) : [],
       armed: !!box?.classList.contains('notice-armed'), rect: r ? { x: r.x, y: r.y, w: r.width, h: r.height } : null,
       borderWidth: cs?.borderTopWidth ?? null, borderColor: cs?.borderTopColor ?? null, borderStyle: cs?.borderTopStyle ?? null,
       dashes: before ? { content: before.content, bg: before.backgroundColor, mask: (before.maskImage || before.webkitMaskImage || '').slice(0, 400) } : null }
