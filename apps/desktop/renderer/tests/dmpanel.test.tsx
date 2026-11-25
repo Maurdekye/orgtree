@@ -2113,3 +2113,18 @@ test('Hubchat\'s jump button: there whenever the chat is not stuck (80 px up), a
   const css = readFileSync(path.join(__SRC_DIR__, 'dm', 'dm.css'), 'utf8')
   assert.match(css, /\.dm-jump \{ position: absolute; right: 22px; bottom: 16px; width: 40px; height: 40px; border-radius: 50%; border: 1px solid var\(--line\); background: var\(--panel\); color: var\(--ink\);/)
 })
+
+test('Hubchat\'s jump button stays round in a settings-sized window: its rule outweighs `.settings button`', async () => {
+  // the chats panel is a `.settings` window, whose button rule (styles.css, weight 0-1-1) set the button's corners
+  // to 6px, its padding to 7px 15px and its glyph to 14px (measured by the 4.7.0 integrator, 2026-11-25)
+  const { readFileSync } = await import('node:fs')
+  const { default: path } = await import('node:path')
+  const styles = readFileSync(path.join(__SRC_DIR__, 'styles.css'), 'utf8')
+  assert.match(styles, /\.settings button:where\([^)]*\)\)? \{ font-size: 14px; padding: 7px 15px; border-radius: 6px; \}/, 'POSITIVE CONTROL: the settings rule it must outweigh')
+  const css = readFileSync(path.join(__SRC_DIR__, 'dm', 'dm.css'), 'utf8')
+  const at = css.search(/(^|\n)\.dm-conv \.dm-jump \{/)
+  assert.ok(at >= 0, 'the button\'s rule is `.dm-conv .dm-jump` (weight 0-2-0)')
+  const body = css.slice(css.indexOf('{', at) + 1, css.indexOf('}', at))
+  for (const d of ['border-radius: 50%', 'padding: 0', 'font-size: 20px', 'width: 40px', 'height: 40px']) assert.ok(body.includes(d + ';'), `it sets ${d}`)
+  assert.doesNotMatch(css, /(^|\n)\.dm-jump[ :{]/, 'no weaker `.dm-jump` rule is left')
+})
