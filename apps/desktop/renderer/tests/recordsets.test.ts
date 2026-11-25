@@ -6,6 +6,7 @@ import { RecordOverlay, agentRuntimeFields } from '../src/recordoverlay'
 import { projectTree, treeOrgGroups } from '../src/recordprojection'
 import type { FeedRecord, RecordTable } from '../src/recordfeed'
 import type { AgentRuntime } from '../src/recordoverlay'
+import { dmNodes, dmWriting } from '../src/dm/model'
 
 const row = (id: string, body: unknown, set = 'shared'): FeedRecord => ({ entity: 'agent', id, body, set })
 const held = (state: RecordStore, id: string) => state.records.get('agent')?.get(id)
@@ -174,6 +175,21 @@ test('ordered overlay controls restart ask visibility and context; favourite cat
   const shown = overlay.receive(runtime(2, { '1': { ask_linger_visible: true, context_window: 200 } }))
   assert.deepEqual(projectTree(records, { runtime: shown.values }).roots[0].ask, { status: 'answered' })
   assert.deepEqual(projectTree(records, { favourites: {} }).models, { own: 'persisted' })
+})
+
+test('an agent writing to the user reaches the chats: writing_to_user passes the overlay into the tree', () => {
+  // 4.7.0-alpha.5 (USER 2026-11-25 15:10:27Z m558cf68fe9c1): the actor publishes
+  // writing_to_user in its runtime view, but the overlay's allowlist dropped it,
+  // so the projected node kept the snapshot's idle false and no dots showed.
+  const records = table([...groups({ settings: { slug: 'org' } }), agent('7', 'coordinator', null, { writing_to_user: false })])
+  const writing = new RecordOverlay(identity).receive(runtime(1, { '7': { busy: true, writing_to_user: true } }, true), true)
+  assert.equal(writing.values.get('7')?.writing_to_user, true)
+  const tree = projectTree(records, { runtime: writing.values })
+  assert.equal(tree.roots[0].writing_to_user, true)
+  assert.deepEqual([...dmWriting(dmNodes(tree), new Map(), 1000).peers], ['coordinator'])
+  // the call is written: the next value clears it
+  const written = writing.receive(runtime(2, { '7': { busy: true, writing_to_user: false } }))
+  assert.deepEqual([...dmWriting(dmNodes(projectTree(records, { runtime: written.values })), new Map(), 1000).peers], [])
 })
 
 test('projection keeps missing ancestors unknown, detects off-axis cycles and refuses impossible retired totals', () => {
