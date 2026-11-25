@@ -12,6 +12,7 @@ import { useMailboxHistory } from './usemailhistory'
 import { useOpenCommit } from './opentiming'
 import { publishAgentPanelEvent } from './recordevents'
 import { useRecordInbox } from './recordpanelhooks'
+import { TransferPanel, type TransferSummary } from './canvas/transfers'
 import type { DesktopNotice } from './notifications'
 import { notificationInboxTarget, notificationMentionTarget, useNativeNotifications } from './notifications'
 import { startPendingMirror, usePendingAttention, waitingNow } from './pending-attention'
@@ -3171,7 +3172,17 @@ export function InboxPanel({ slug, tree, toast, refresh, close, jumpTo, jumpSeq,
   onOpenDoc?: (docId: string) => void
   onOpenMail?: (ref: TypedRef) => void
 }) {
-  const [folder, setFolder] = useState('inbox')
+  const [folder, setMailFolder] = useState('inbox')
+  // TRANSFERS IS ITS OWN TAB beside inbox and sent (USER 2026-11-25
+  // m7202711b8122, m1a3bfa49d5b8), offered while the user has transfers. It is
+  // not a mail folder: the mail hooks keep reading `folder` underneath, and
+  // any folder pick (a jump to a mail too) leaves the tab.
+  const [onTransfers, setOnTransfers] = useState(false)
+  const [transfers, setTransfers] = useState<TransferSummary>({ total: 0, active: 0 })
+  const setFolder = useCallback((f: string) => {
+    if (f === 'transfers') { setOnTransfers(true); return }
+    setOnTransfers(false); setMailFolder(f)
+  }, [])
   const [mailTagState,setMailTagState]=useState<{slug:string;tags:string[]}>(()=>({slug,tags:readInboxMailTags(slug)}))
   let mailTag=mailTagState.tags
   if(mailTagState.slug!==slug){mailTag=readInboxMailTags(slug);setMailTagState({slug,tags:mailTag})}
@@ -3398,12 +3409,16 @@ export function InboxPanel({ slug, tree, toast, refresh, close, jumpTo, jumpSeq,
             onRemove={(id) => act('revoke', id)} audienceTarget={USER}
             onFocusAgent={onFocusAgent} />
         )}
-        <MailFolders folder={folder} setFolder={setFolder}
-          folders={['inbox', 'sent']}
+        <MailFolders folder={onTransfers ? 'transfers' : folder} setFolder={setFolder}
+          folders={transfers.total > 0 || onTransfers ? ['inbox', 'sent', 'transfers'] : ['inbox', 'sent']}
+          counts={{ transfers: transfers.active }}
           unread={(rawBox?.pending??[]).filter(m=>!readLocally(slug,m.id)).length + askPending.length} />
-        {folder==='inbox'&&mailTag.length>0&&taggedMail.loading&&<div role="status" className="dim">loading matching mail...</div>}
-        {folder==='inbox'&&mailTag.length>0&&taggedMail.error&&<div role="alert">Could not load matching mail. <button onClick={taggedMail.retry}>Retry</button></div>}
-        <div className="mailpane">
+        {!onTransfers&&folder==='inbox'&&mailTag.length>0&&taggedMail.loading&&<div role="status" className="dim">loading matching mail...</div>}
+        {!onTransfers&&folder==='inbox'&&mailTag.length>0&&taggedMail.error&&<div role="alert">Could not load matching mail. <button onClick={taggedMail.retry}>Retry</button></div>}
+        <div className="mail-transfers-pane" hidden={!onTransfers}>
+          <TransferPanel slug={slug} agent="user" tab={{ visible: onTransfers }} onSummary={setTransfers} />
+        </div>
+        <div className="mailpane" hidden={onTransfers}>
           {(folder==='sent'||(folder==='inbox'&&!mailTag.length))&&history.error&&<div role="alert">Could not load older mail. <button onClick={history.retry}>Retry</button></div>}
           {box == null
             ? <div className="dim">loading…</div>
