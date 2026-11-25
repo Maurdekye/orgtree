@@ -139,6 +139,12 @@ are a second view over the same reads and calls.
   `TransferPanel tab=` inside `.mail-transfers-pane`. In tab mode the panel's own section is the scroll area
   (no card, no 240 px `.transfer-list` cap) and history pages load within 240 px of its end (MailList's rule),
   also as rows arrive; no Load more anywhere. [verified: `tests/transfers-lazy.test.tsx`]
+- LINK MENU FOCUS / OPEN CHAT (USER 2026-11-25 m9b2f753b0fa5): `AgentMenuHandlers.onCloseFloating` runs before
+  `onOpenDesk` in Focus (agent and project menus). The registry's builder (OrgCanvas `trayRowMenu`) wires it to
+  modalpin `closeFloatingPanels(slug)`; listeners: App (`closeCentredPanels`, the view shortcut's list) and
+  OrgCanvas (`closeCanvasFloating`: `useModalInstances().closeCentred()` per kind, lineage, org-inbox, desk
+  glance, retired list). Floating = centred (`closeIfCentred`). "Open chat" is spliced right after Open when
+  `canChatWith`. [verified: `tests/linkmenufocus.test.tsx`]
 
 ## Retired counts are non-interactive (2026-11-19, 4.6.4)
 
