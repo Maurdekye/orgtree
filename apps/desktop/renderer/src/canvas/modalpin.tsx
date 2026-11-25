@@ -557,12 +557,40 @@ export const pinnedModalBehind = (kind: string, org: string | null = null): bool
   if (!me) return false
   return peers.some((p) => p.order > me.order)
 }
+/** THE WINDOW IN FRONT OF THE CENTRED ONES (4.7.0-alpha.7, found by integ-sol-d; coordinator ruling on USER
+ *  m9e3fb5560658: every View in chat / Open chat / View in classic inbox / View in @agent's inbox jump brings its
+ *  target to the front, above the window it was chosen from, which stays open). Centred windows are `.overlay`s at
+ *  one z-index (30), so the later one in the document was on top whatever the user had just asked for. The front
+ *  one is the window raised last (raisePinnedModal, which every open and jump goes through) or, failing that, the
+ *  centred window mounted last. Every OTHER centred window steps back: just under a centred front window, or
+ *  under the pin layer (16) when the front one is pinned, so the pinned window shows over it. With no front
+ *  window nothing changes: no inline z-index, the document order as before. */
+export const CENTRED_BEHIND_Z = 29
+export const CENTRED_UNDER_PINS_Z = 15
+type CentredFront = { key: string; kind: string; org: string | null; seq: number }
+let centredFront: CentredFront | null = null
+let centredSeq = 0
+const centredSubs = new Set<() => void>()
+const centredChanged = () => { for (const fn of [...centredSubs]) fn() }
+const bringCentredFront = (kind: string, org: string | null): void => {
+  centredFront = { key: modalPinKey(kind, org), kind, org, seq: ++centredSeq }
+  centredChanged()
+}
+const leaveCentredFront = (key: string): void => {
+  if (centredFront?.key !== key) return
+  centredFront = null
+  centredChanged()
+}
+const useCentredFront = (): CentredFront | null => useSyncExternalStore(
+  (fn) => { centredSubs.add(fn); return () => { centredSubs.delete(fn) } }, () => centredFront, () => centredFront)
 /** Activate the owning native window when detached; otherwise raise the pin
- * in BOTH stores, including the transient plane the live z comes from. */
+ * in BOTH stores, including the transient plane the live z comes from, and put
+ * it in front of every centred window. */
 export const raisePinnedModal = (kind: string, org: string | null = null): void => {
   if (revealDetachedPanel(kind, org)) return
   raiseModal(kind, org)
   raisePinSurface(pinSurfaceKey(org ?? '', kind, true))
+  bringCentredFront(kind, org)
 }
 /** Open actions activate a live window before changing local open/tab state.
  * A saved pin alone is not a mounted panel. Identity constraints are used by
@@ -896,7 +924,22 @@ function PinFrameInner({ kind, title, titleBar, deskTitle = false, titleInModal 
   // Escape is the CENTRED surface's exit only (see onEsc). The hook is always
   // called — hooks are not conditional — and is handed a no-op when pinned.
   const esc = onEsc ?? close
-  useEsc(useCallback(() => esc(), [esc]), !pinned && !detached)
+  // the front window (see CENTRED_BEHIND_Z): a centred window that mounts is in front; any window leaving clears
+  // its claim. A centred window behind another steps back, and the window in front takes Escape first.
+  const front = useCentredFront()
+  const frontKey = modalPinKey(kind, orgScope)
+  const centred = !inPlace && !pinned && !detached
+  useEffect(() => {
+    if (centred) bringCentredFront(kind, orgScope)
+    return () => leaveCentredFront(frontKey)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [centred, frontKey])
+  const behindZ = centred && front && front.key !== frontKey
+    ? (isModalPinned(front.kind, front.org) ? CENTRED_UNDER_PINS_Z : CENTRED_BEHIND_Z) : null
+  // the rank changes only when THIS window comes to the front: one stepping back keeps its place in the Escape stack
+  const escRank = useRef(0)
+  if (front?.key === frontKey) escRank.current = front.seq
+  useEsc(useCallback(() => esc(), [esc]), !pinned && !detached, undefined, escRank.current)
 
   // the in-flight gesture's rect lives in component state (one render per
   // pointer move); the store is written ONCE, at pointer-up
@@ -1171,7 +1214,7 @@ function PinFrameInner({ kind, title, titleBar, deskTitle = false, titleInModal 
       // In the main window a pin joins the desks' stacking band. Another window has no such band: there the
       // overlay keeps its own layer, above that window's content, as it had before it was pinned.
       style={pinned && bounds ? { ...(offCanvas ? {} : { zIndex: layout.z }), inset:'auto', left:bounds.x, top:bounds.y,
-        width:bounds.w, height:bounds.h, overflow:'clip' } : undefined}
+        width:bounds.w, height:bounds.h, overflow:'clip' } : behindZ !== null ? { zIndex: behindZ } : undefined}
       onClick={inPlace || pinned || detached || !backdropClose ? undefined
         : (e) => {
           e.stopPropagation()

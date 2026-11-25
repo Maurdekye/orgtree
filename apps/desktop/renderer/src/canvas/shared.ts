@@ -3804,7 +3804,8 @@ const escapeStacks = new WeakMap<Document, { current: () => void }[]>()
  *  React position belongs to, and a stack in the wrong document is a stack the
  *  surface under the menu never shares — Escape would then close that surface
  *  through the open menu rather than closing the menu (see contextmenu.tsx). */
-export function useEsc(close: () => void, enabled = true, within?: Document | null) {
+/** `rank`: a change re-registers the handler on top of the stack (a window brought to the front takes Escape first) */
+export function useEsc(close: () => void, enabled = true, within?: Document | null, rank = 0) {
   const surfaceDocument = useSurfaceDocument()
   const ownerDocument = within ?? surfaceDocument
   const latest = useRef(close); latest.current = close
@@ -3822,7 +3823,7 @@ export function useEsc(close: () => void, enabled = true, within?: Document | nu
     const w = ownerDocument.defaultView ?? window
     w.addEventListener('keydown', onKey, true)
     return () => { const i = stack.indexOf(entry); if (i >= 0) stack.splice(i, 1); w.removeEventListener('keydown', onKey, true) }
-  }, [ownerDocument, enabled])
+  }, [ownerDocument, enabled, rank])
 }
 
 /** G5 — the panel heartbeat.
