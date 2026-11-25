@@ -471,7 +471,8 @@ async fn a_reply_to_mail_a_retired_weak_link_received_waits_for_the_holders() {
 async fn only_a_retired_owner_waits_a_deleted_or_unrecoverable_one_falls_to_the_holders() {
     // item 5, per state; the old holder lost its link to a new primary first
     for (state, sql, want) in [
-        ("retired", RETIRED, "front"),
+        // A (USER mff1aa564451b): front's grant was revoked by late's; retired without its grant, it is cut off
+        ("retired", RETIRED, "late"),
         ("deleted", "UPDATE ot.agents SET state='deleted' WHERE id=$1", "late"),
         ("unrecoverable", "UPDATE ot.agents SET state='unrecoverable' WHERE id=$1", "late"),
     ] {
@@ -702,8 +703,8 @@ async fn a_removed_primary_is_replaced_by_promoting_a_weak_link() {
     w.set(HALTED, w.scout).await;
     w.c.execute("UPDATE ot.agents SET frozen='{\"cause\":\"limit\"}'::jsonb WHERE org_id=$1 AND name='late'", &[&w.org]).await.unwrap();
     let (_, _, got) = w.from_desk("news", vec![]).await;
-    assert_eq!(got, json!(["scout"]));
-    assert_eq!(w.rows("@extern").await, vec!["scout"]);
+    assert_eq!(w.rows("@extern").await, vec!["scout"], "the earliest-granted is promoted");
+    assert_eq!(got, json!(["boss"]), "it can't run and no stand-in can: today's top-level fallback takes the copy, as for any holder");
     // no weak links: today's auto-grant
     let w = world(false).await;
     w.c.execute(revoke_primary, &[&w.org]).await.unwrap();

@@ -487,11 +487,11 @@ async fn t28_a_follow_up_is_recorded_like_the_job_and_a_reply_to_it_follows_the_
     // a reply quoting the direct follow-up still reaches the holder while the job is open ...
     let (_, r2) = w.arrive("nj4", "@net:bob.1", "about direct", json!([quote_of(&f2, "nj3")])).await;
     assert_eq!(r2.copies.iter().map(|c| c.1.as_str()).collect::<Vec<_>>(), vec!["worker"]);
-    // ... and after the ACK it is a new job, not a copy to the old worker
+    // ... and after the ACK, H (USER 2026-11-25 mff1aa564451b): to the worker while it is live under the project
     w.c.execute("UPDATE ot.mail SET extra = jsonb_set(extra,'{claimed,acked_at}', to_jsonb(now())) WHERE uid=$1", &[&job]).await.unwrap();
     let (_, r3) = w.arrive("nj5", "@net:bob.1", "after the ack", json!([quote_of(&f2, "nj3")])).await;
-    assert!(r3.copies.is_empty(), "no copy to the old worker");
-    assert_eq!(r3.jobs.len(), 1, "a new job");
+    assert_eq!(r3.copies.iter().map(|c| c.1.as_str()).collect::<Vec<_>>(), vec!["worker"], "H: the worker that finished it");
+    assert!(r3.jobs.is_empty(), "no new job while it is live under the project");
 }
 
 #[tokio::test]
@@ -631,12 +631,11 @@ async fn t31_a_nested_descendant_that_claimed_the_job_replies_and_gets_the_threa
     let (_, f1) = w.arrive("nn2", "@net:bob.1", "follow-up 1", json!([quote_of(&first, "nn")])).await;
     assert!(f1.jobs.is_empty());
     assert_eq!(f1.copies.iter().map(|c| c.1.as_str()).collect::<Vec<_>>(), vec!["A"], "D14: straight to the claimant");
-    // ... and after A ACKs, a further follow-up is a new job in P
+    // ... and after A ACKs, H (USER 2026-11-25 mff1aa564451b): still to A while it is live under P
     w.c.execute("UPDATE ot.mail SET extra = jsonb_set(extra,'{claimed,acked_at}', to_jsonb(now())) WHERE uid=$1", &[&job]).await.unwrap();
     let (_, f2) = w.arrive("nn3", "@net:bob.1", "follow-up 2", json!([quote_of(&first, "nn")])).await;
-    assert!(f2.copies.is_empty(), "no copy to A once it has ACKed");
-    assert_eq!(f2.jobs.len(), 1, "a new job in P");
-    assert_eq!(f2.jobs[0].project, p_id);
+    assert_eq!(f2.copies.iter().map(|c| c.1.as_str()).collect::<Vec<_>>(), vec!["A"], "H: A finished it and is under P");
+    assert!(f2.jobs.is_empty(), "no new job in P");
     // 6. control: B, in Q but not the claimant, has no reply right
     assert!(!matches!(jobs::reply_right(&w.e, w.org, b, &mk(b, "B")).await.unwrap(), jobs::Reply::Allowed(_)), "B is not the claimant");
     let refused = send_extern(&w.e, w.org, &mk(b, "B")).await.expect_err("B's outside reply is refused");
