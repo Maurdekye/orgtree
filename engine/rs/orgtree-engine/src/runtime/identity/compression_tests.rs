@@ -133,6 +133,8 @@ fn legacy_profiles_change_only_approved_mentions_and_claude_loading() {
         let text = text.replace(", orgtree_block", "");
         // USER 2026-11-19 mf0951505ba87: orgtree_unstick is called orgtree_thaw; the name is the only change.
         let text = text.replace("orgtree_thaw", "orgtree_unstick");
+        // USER 2026-11-25 m3ec9998b8a00 "yes, build into orgtree": the MAIL-ONLY REPLIES line, nothing else.
+        let text = text.replace(MAIL_REPLIES, "");
         assert_eq!(json!(text.len()), expected[&key]["bytes"], "{key}: byte length");
         assert_eq!(json!(format!("{:x}", Sha256::digest(text.as_bytes()))),
             expected[&key]["sha256"], "{key}: unchanged legacy text outside approved mentions/loading/apps");

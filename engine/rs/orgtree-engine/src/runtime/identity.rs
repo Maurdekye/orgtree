@@ -376,6 +376,7 @@ fn identity_parts_for_os(i: &Identity, windows: bool) -> (String, String) {
     } else if group("messaging") {
         s.push_str("To ask another agent, send orgtree_message kind=question and end your turn; their reply arrives as mail. ");
     }
+    if group("messaging") { s.push_str(MAIL_REPLIES); }
     if group("docket") {
         if trim {
             s.push_str(TRIM_DOCKET);
@@ -629,6 +630,19 @@ mod group_tests {
         assert!(minimal.len() < default.len() / 2);
         let charter = "Preserve this literal text: orgtree_work and orgtree_ask.";
         assert!(render(&scope, Lane::Claude, false, Some(charter)).contains(charter));
+    }
+
+    /// USER 2026-11-25 m3ec9998b8a00 "yes, build into orgtree": MAIL-ONLY REPLIES is one inline line,
+    /// once, wherever the seat can send mail; a seat without messaging has no mail to answer by.
+    #[test]
+    fn mail_only_replies_is_one_line_on_every_seat_that_sends_mail() {
+        assert!(MAIL_REPLIES.contains("Replied by mail.") && MAIL_REPLIES.contains("(\"Sent directly\") is answered in turn text"));
+        for lane in [Lane::Claude, Lane::Codex, Lane::Antigravity, Lane::Muse, Lane::OpenCode] {
+            let default = render(&json!({}), lane, false, None);
+            assert_eq!(default.matches("MAIL-ONLY REPLIES").count(), 1, "{lane:?}");
+            let silent = render(&json!({"tools":{"orgtree":{"messaging": false}}}), lane, false, None);
+            assert!(!silent.contains("MAIL-ONLY REPLIES"), "{lane:?}");
+        }
     }
 
     #[test]
@@ -1440,6 +1454,10 @@ const TRIM_ASK_USER: &str = "Ask the user with orgtree_ask, then end your turn. 
 
 const TRIM_PRESENT: &str = "DOCUMENTS ARE PRESENTED, FILES ARE SENT (user rule 2026-10-09): use orgtree_present for documents to read, even if asked to 'send'; orgtree_send_file for wanted files. A path is never a delivery. Use [name](<path>) for local file paths; angle brackets are required (orgtree-reaching-the-user). ";
 
+/// USER 2026-11-25 15:04:37Z m9c760bca40dd (the rule) and 15:07:27Z m3ec9998b8a00 "yes, build into orgtree";
+/// the desk line is envelope.rs "↳ Sent directly" (m05cea69c12e9). Same text on every profile with messaging.
+const MAIL_REPLIES: &str = "MAIL-ONLY REPLIES (user rule 2026-11-25): when a turn mainly answers mail (from agents, the user's chats panel or outside @net/@org), the answer goes in the mail, not repeated in turn text; end with a closing of a few words, e.g. \"Replied by mail.\" Mail the user wrote on your desk (\"Sent directly\") is answered in turn text. ";
+
 const TRIM_DOCKET: &str = "THE DOCKET (user rulings 2026-09-05 on): the user's durable record of substantive work instead of transcripts; keep it accurate. List first; continue an existing item or create one per new piece ('dock' means create). Scope must stand alone: problem, solution, then requirements/rulings (objective_append), never only mail/progress. At milestones update both done_so_far and working_on_next. Before assignments/exact-SHA reviews, add the agent as participant/reviewer. Mentioning an agent in the objective or mail grants no docket access. Statuses: blocked requires blocked_reason; review is by AGENTS; dropped is terminal non-success, never through review; unfinished work is never done. Updating claims ownership; on another's item pass owner=current holder. ";
 
 const TRIM_DOCKET_USER: &str = "For item questions, use a linked question. Raise attention ONLY for going beyond the spec, choosing an edge case, filling a definition gap or being blocked on the user; explain it in attention_reason and clear your flag when answered. ";
@@ -1635,12 +1653,16 @@ mod trim_tests {
     // User 2026-10-20: exactly the hierarchical shared-memory pointer.
     const HIERARCHICAL_MEMORY_POINTER_GROWTH: usize = 240;
 
+    // USER 2026-11-25 m3ec9998b8a00: exactly the MAIL-ONLY REPLIES line.
+    const MAIL_REPLIES_GROWTH: usize = 326;
+
     /// The approved budget: well under Antigravity's 24 KB per file, measured on the
     /// largest engine-written profile (top-level, every group, org-mailbox holder).
     #[test]
     fn trimmed_engine_text_fits_the_budget_on_every_lane() {
         assert_eq!(CONCURRENCY_PRIMITIVES_POINTER.len(), CONCURRENCY_POINTER_GROWTH);
         assert_eq!(HIERARCHICAL_MEMORY_POINTER.len(), HIERARCHICAL_MEMORY_POINTER_GROWTH);
+        assert_eq!(MAIL_REPLIES.len(), MAIL_REPLIES_GROWTH);
         assert_eq!(QUEUED_RESTART.len(), QUEUED_RESTART_GROWTH);
         assert_eq!(TRIM_QUEUED_RESTART.len(), 320);
         assert!(TRIM_ACCOUNTS.contains("FABLE PIP:") && TRIM_ACCOUNTS.matches("(1 + f)/2").count() == 1);
@@ -1655,7 +1677,7 @@ mod trim_tests {
                 // EXTERNAL tags, the unconditional concurrency pointer and
                 // OpenCode's hook-mail contract each retain their bounded allowance.
                 let hook_mail = if lane == Lane::OpenCode { OPENCODE_HOOK_MAIL } else { 0 };
-                assert!(trimmed.len() < 10_000 + MENTIONS.len() + 4 + EXTERNAL_TAGS + APP_WIDE_AUTHORITY_GROWTH + CONCURRENCY_POINTER_GROWTH + QUEUED_RESTART_GROWTH + FABLE_PIP_GROWTH + HIERARCHICAL_MEMORY_POINTER_GROWTH + hook_mail, "{lane:?} top={top}: {} bytes", trimmed.len());
+                assert!(trimmed.len() < 10_000 + MENTIONS.len() + 4 + EXTERNAL_TAGS + APP_WIDE_AUTHORITY_GROWTH + CONCURRENCY_POINTER_GROWTH + QUEUED_RESTART_GROWTH + FABLE_PIP_GROWTH + HIERARCHICAL_MEMORY_POINTER_GROWTH + MAIL_REPLIES_GROWTH + hook_mail, "{lane:?} top={top}: {} bytes", trimmed.len());
                 assert!(trimmed.len() * 2 < full.len(), "{lane:?} top={top}: {} vs {}", trimmed.len(), full.len());
             }
         }
