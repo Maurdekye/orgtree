@@ -140,6 +140,8 @@ function Probe({ at }: { at: string }) {
       <UserMailbox slug="mine" tree={t} toast={lines => { window.__dm.toasts.push(...lines) }}
         close={() => { window.__dm.closed++ }} jumpTo={jump?.id ?? null} jumpSeq={jump?.seq ?? null}
         openChat={chat} onFocusAgent={id => { window.__dm.focused.push(id) }}
+        // the shell opens a ticket from the chats too, so a question's ticket is the clickable, resolved link the user sees
+        onOpenItem={() => {}}
         // the shell's own route for a mail of the user's box: the inbox, at that mail
         onOpenMail={r => { window.__dm.opened.push(r.id); if (r.box === 'user') window.__dm.jump(r.id) }} />
       {desk && (() => {

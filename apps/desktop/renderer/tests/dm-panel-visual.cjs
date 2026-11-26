@@ -178,7 +178,7 @@ module.exports = async (page) => {
     return { ...out, icons: head.querySelectorAll('.tier, .project-mark, .dm-av-system, .dm-av-other').length,
       state: label ? label.textContent : null, dim: getComputedStyle(head.querySelector('.tray-status-time')).color }
   })
-  v.ticket = await page.eval(() => {
+  const measureTicket = () => page.eval(() => {
     const px = n => Math.round(n * 10) / 10
     const head = document.querySelector('.dm-ask .ask-q-head'), chip = head?.querySelector('.ref-chip')
     if (!head || !chip) return null
@@ -186,8 +186,26 @@ module.exports = async (page) => {
     const c = chip.getBoundingClientRect(), q = question.getBoundingClientRect(), cs = getComputedStyle(chip)
     return { height: px(c.height), line: parseFloat(cs.lineHeight) || parseFloat(cs.fontSize) * 1.5, cut: chip.scrollWidth > chip.clientWidth,
       nowrap: cs.whiteSpace, ellipsis: cs.textOverflow, gap: px(q.top - c.bottom), inside: c.right <= head.parentElement.getBoundingClientRect().right + 0.5,
-      title: chip.getAttribute('title') }
+      title: chip.getAttribute('title'), display: cs.display, ready: chip.classList.contains('ref-ready'), top: px(c.top - head.getBoundingClientRect().top) }
   })
+  v.ticket = await measureTicket()
+  // the same row with "wrap object mentions" on (USER 2026-11-26 m0a7f4a3d3d1c: the name broke over stacked lines, cut off at the top)
+  await page.eval(() => document.documentElement.classList.add('wrap-object-mentions'))
+  v.ticketWrap = await measureTicket()
+  await shot('04w-the-ticket-row-with-wrapping-mentions-on')
+  await page.eval(() => document.documentElement.classList.remove('wrap-object-mentions'))
+  // Other's answer box stays inside the card, its right edge on the option rows' (USER 2026-11-26 via @coordinator-opus m6d5286d152b0)
+  await page.eval(() => { const tab = document.querySelector('.dm-ask .ask-message[data-ask-tab="0"]')
+    ;[...tab.querySelectorAll('button.ask-row')].find(b => (b.textContent || '').trim() === 'Other').click() })
+  await page.waitFor('.dm-ask .ask-message[data-ask-tab="0"] textarea.ask-other')
+  v.other = await page.eval(() => {
+    const tab = document.querySelector('.dm-ask .ask-message[data-ask-tab="0"]'), box = tab.querySelector('textarea.ask-other')
+    const row = tab.querySelector('button.ask-row'), text = row.querySelector('.ask-row-body')
+    const b = box.getBoundingClientRect(), r = row.getBoundingClientRect(), c = tab.getBoundingClientRect(), t = text.getBoundingClientRect()
+    const px = n => Math.round(n * 10) / 10
+    return { boxLeft: px(b.left), boxRight: px(b.right), rowRight: px(r.right), cardRight: px(c.right), cardPad: px(c.right - r.right), textLeft: px(t.left), rowLeft: px(r.left) }
+  })
+  await shot('04o-other-answer-box-inside-the-card')
   await shot('04-top-level-chat-cannot-close-request-one-bubble-per-tab')
   // each control is brought into the pane before its click, as a reader scrolls to it
   await page.click({ selector: '.dm-ask .ask-message[data-ask-tab="0"] .ask-row-pick', index: 0, scroll: true })

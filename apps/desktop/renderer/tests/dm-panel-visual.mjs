@@ -160,6 +160,13 @@ const server = createServer(async (req, res) => {
   // one mail by its id, as the engine answers a reference to a mail outside the loaded window
   if (p.startsWith('/mail/user/')) { const found = everyMail().find(m => m.id === decodeURIComponent(p.slice('/mail/user/'.length))) ?? null; return send({ found: !!found, mail: found }) }
   if (p === '/inbox') return send({ pending: world.pending, delivered: world.delivered, sent: world.sent, next_cursor: null })
+  // the question's ticket resolves with its title, as on the user's screen (USER 2026-11-26 m0a7f4a3d3d1c: a long name was cut off)
+  if (p === '/work-item-references') {
+    const names = (url.searchParams.get('names') ?? '').split(',').filter(Boolean)
+    const known = { 'agent-team-project-export-import-and-duplication-zip-of-full-context-ui-and-agent-tools':
+      'Agent, team and project export, import and duplication: a zip of the full context, with its UI and agent tools' }
+    return send({ references: names.filter(n => known[n]).map(n => ({ slug: n, title: known[n], status: 'in_progress', rev: 1 })) })
+  }
   return send({})
 })
 await new Promise(resolve => server.listen(0, '127.0.0.1', resolve))
@@ -300,6 +307,18 @@ if (flag === '--expect') {
   assert.ok(v.ticket.height <= v.ticket.line + 6, `the ticket is one line (${v.ticket.height}px against a ${v.ticket.line}px line)`)
   assert.equal(v.ticket.cut, true, 'POSITIVE CONTROL: its name is longer than the card'); assert.equal(v.ticket.ellipsis, 'ellipsis'); assert.equal(v.ticket.nowrap, 'nowrap')
   assert.ok(v.ticket.gap >= 4, `and the question starts under it, not in it (${v.ticket.gap}px below)`); assert.equal(v.ticket.inside, true)
+  assert.equal(v.ticket.display, 'block', 'the row\'s own block, which ends in the ellipsis')
+  for (const [mode, m] of [['wrap off', v.ticket], ['wrap on', v.ticketWrap]]) {
+    assert.ok(m, `POSITIVE CONTROL: the ticket chip (${mode})`); assert.equal(m.ready, true, `POSITIVE CONTROL: a resolved ticket (${mode})`)
+    assert.equal(m.display, 'block', `${mode}: a block`); assert.equal(m.nowrap, 'nowrap', `${mode}: one line`); assert.equal(m.ellipsis, 'ellipsis')
+    assert.ok(m.height <= m.line + 6 && m.height >= m.line - 2, `${mode}: one whole line tall (${m.height}px against ${m.line}px), not stacked or squashed`)
+    assert.ok(m.top >= -0.5, `${mode}: nothing above the row (${m.top}px)`); assert.equal(m.inside, true, `${mode}: inside the card`)
+    assert.ok(m.gap >= 4, `${mode}: the question starts under it (${m.gap}px)`)
+  }
+  assert.ok(v.other, 'POSITIVE CONTROL: Other opened its answer box')
+  assert.ok(Math.abs(v.other.boxRight - v.other.rowRight) <= 1, `Other's box ends where the option rows end (${v.other.boxRight} vs ${v.other.rowRight})`)
+  assert.ok(v.other.boxRight <= v.other.cardRight + 0.5, `and inside the card (${v.other.boxRight} vs ${v.other.cardRight})`)
+  assert.ok(v.other.boxLeft > v.other.rowLeft + 10, `still indented under the option text (${v.other.boxLeft} vs row ${v.other.rowLeft})`)
   checked.push('header badge', 'ticket chip')
 
   // ---- the send mark: a reply names its mail and says nothing; a new message says dm
