@@ -1116,11 +1116,72 @@ const BUNDLED: &[(&str, &str)] = &[
     ("liaison.md", include_str!("../../../../docs/charters/liaison.md")),
     ("redteam.md", include_str!("../../../../docs/charters/redteam.md")),
 ];
+/// SHA-256 (`templates::text_digest`, line endings normalised) of every text a bundled charter shipped with
+/// BEFORE its current one. A copy in ~/.orgtree/charters that still matches one was never edited and is
+/// refreshed to the current text; anything else is the user's (coordinator 2026-11-26 m885921c766c9, the
+/// templates' SHIPPED_EARLIER rule). When a bundled charter changes, add its previous digest here (the pin test
+/// names it).
+const CHARTERS_SHIPPED_EARLIER: &[(&str, &[&str])] = &[
+    // d5756dc, 3b46382, dc34e7f: before the 10-second delegation rule (USER 2026-11-26 m22d773a3eeb2)
+    ("coordinator.md", &[
+        "a67ec6beaec84ecda243f5270d720a970660b04e620d0dac92f37207ba2a4324",
+        "22260b24e9c0a06cef01954b3178645a85eff8d5b9294cba5ef12faa391fdf97",
+        "52a7eb9f898f6cf714b0a6b057e999dc38e18fff596a8f177930e8cee15a6b79",
+    ]),
+];
 const PRESET_MAX: usize = 100_000;
 const CHARTER_LONG: usize = 12_000;
 
 fn user_charter_dir() -> PathBuf {
     crate::rig::home_dir().unwrap_or_else(|| PathBuf::from(".")).join(".orgtree").join("charters")
+}
+
+/// Refresh every unedited bundled charter in ~/.orgtree/charters to its current text: at engine start, at
+/// every listing and at populate, as templates are. A missing or edited file is left as it is.
+#[logged]
+pub(crate) fn refresh_charters() -> Vec<String> {
+    refresh_unedited_in(&user_charter_dir(), BUNDLED, CHARTERS_SHIPPED_EARLIER)
+}
+
+#[nolog] // Takes the bundled charter texts.
+fn refresh_unedited_in(dir: &FsPath, bundled: &[(&str, &str)], earlier: &[(&str, &[&str])]) -> Vec<String> {
+    let mut refreshed = Vec::new();
+    for (f, body) in bundled {
+        let p = dir.join(f);
+        let Ok(have) = std::fs::read(&p) else { continue };
+        let digest = crate::domain::templates::text_digest(&have);
+        if !earlier.iter().any(|(e, ds)| e == f && ds.contains(&digest.as_str())) {
+            continue;
+        }
+        // a failed refresh keeps the old file, as for templates
+        match std::fs::write(&p, body) {
+            Ok(()) => {
+                tracing::info!(charter = %f, "an unedited bundled charter was refreshed to the current text");
+                refreshed.push(f.to_string());
+            }
+            Err(e) => tracing::warn!(charter = %f, error = %e, "an unedited bundled charter could not be refreshed"),
+        }
+    }
+    refreshed
+}
+
+/// Populate: refresh the unedited copies, then write every bundled charter the folder lacks.
+#[nolog] // Takes the bundled charter texts.
+fn populate_into(dir: &FsPath, bundled: &[(&str, &str)], earlier: &[(&str, &[&str])])
+    -> Result<(Vec<String>, Vec<String>), String> {
+    std::fs::create_dir_all(dir).map_err(|x| x.to_string())?;
+    refresh_unedited_in(dir, bundled, earlier);
+    let mut created = Vec::new();
+    let mut existing = Vec::new();
+    for (f, c) in bundled {
+        let p = dir.join(f);
+        if p.exists() {
+            existing.push(f.to_string());
+        } else if std::fs::write(&p, c).is_ok() {
+            created.push(f.to_string());
+        }
+    }
+    Ok((created, existing))
 }
 
 /// A charter preset's text by name: the user's copy first, then the bundled one.
@@ -1155,6 +1216,7 @@ fn template_dirs(engine: &Engine) -> Vec<String> {
 
 #[logged]
 pub async fn charters(State(e): State<Arc<Engine>>) -> ApiResult<Json<Value>> {
+    refresh_charters();
     let mut out = Vec::new();
     let user = user_charter_dir();
     let (user_state, user_files) = charter_scan::scan(&user, true);
@@ -1196,17 +1258,7 @@ pub async fn charters(State(e): State<Arc<Engine>>) -> ApiResult<Json<Value>> {
 #[logged]
 pub async fn charters_populate() -> ApiResult<Json<Value>> {
     let dir = user_charter_dir();
-    std::fs::create_dir_all(&dir).map_err(|x| ApiError::internal(x.to_string()))?;
-    let mut created = Vec::new();
-    let mut existing = Vec::new();
-    for (f, c) in BUNDLED {
-        let p = dir.join(f);
-        if p.exists() {
-            existing.push(f.to_string());
-        } else if std::fs::write(&p, c).is_ok() {
-            created.push(f.to_string());
-        }
-    }
+    let (created, existing) = populate_into(&dir, BUNDLED, CHARTERS_SHIPPED_EARLIER).map_err(ApiError::internal)?;
     Ok(Json(json!({ "dir": dir.to_string_lossy(), "created": created, "existing": existing })))
 }
 

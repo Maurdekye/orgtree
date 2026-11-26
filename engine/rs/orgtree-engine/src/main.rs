@@ -332,6 +332,8 @@ async fn run_with_cluster(
         if let Err(e) = domain::templates::seed() {
             tracing::warn!(error = %e, "the templates folder could not be seeded");
         }
+        // unedited bundled charters follow the app, as the templates do (coordinator 2026-11-26 m885921c766c9)
+        http::settings::refresh_charters();
     });
     // app file replacements a stop interrupted put their originals back (4.5.0 review C12);
     // only an earlier run's, so panels may be served meanwhile (C12 F1)
