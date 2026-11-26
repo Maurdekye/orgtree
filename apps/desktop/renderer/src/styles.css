@@ -3197,10 +3197,18 @@ html.mobile .askcard button.ask-fold { min-width: 28px; min-height: 28px; }
    chats'. */
 .ask-q-head { display: flex; align-items: center; flex-wrap: nowrap; gap: 6px; min-width: 0; margin: 2px 0 6px; }
 .ask-q-head > .answered-chip { margin-right: 0; flex: none; }
+/* ⚠ AS SPECIFIC AS THE CHIP'S OWN RULES (USER 2026-11-26 m0a7f4a3d3d1c "the ticket's name gets cut off"): a ticket that
+   resolves is `.ref-chip.ref-chip.ref-ready:is(.ref-item, .ref-doc, .ref-app, .ref-panel, .ref-message)` (inline-flex) and, with "wrap object mentions" on, an inline fragment
+   that wraps with `line-height: 0`; both outranked this row, so a long title broke over lines stacked on top of each
+   other. These selectors carry the same classes plus the row, as the folded line's do, and take back the line height. */
 .ask-q-head > .ref-chip.ref-chip,
-.wrap-object-mentions .ask-q-head > .ref-chip.ref-chip {
+.ask-q-head > .ref-chip.ref-chip.ref-ready:is(.ref-item, .ref-doc, .ref-app, .ref-panel, .ref-message),
+.wrap-object-mentions .ask-q-head > .ref-chip.ref-chip,
+.wrap-object-mentions .ask-q-head > .ref-chip.ref-chip.ref-ready:is(.ref-item, .ref-doc, .ref-app, .ref-panel, .ref-message) {
   display: block; flex: 0 1 auto; min-width: 0; max-width: 100%; overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
+  overflow-wrap: normal; line-height: inherit; margin-block: 0;   /* its own row: the prose chip's -2px would lift it out */
 }
+.ask-q-head > .ref-chip > .ref-mark { margin-right: 0.3em; }
 .ask-fold-changed {
   flex: none; font-size: 10px; padding: 0 6px; border-radius: 8px; font-family: var(--mono);
   border: 1px solid var(--accent); color: var(--accent);
