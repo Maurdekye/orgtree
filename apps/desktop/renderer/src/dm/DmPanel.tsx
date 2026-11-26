@@ -1729,7 +1729,7 @@ function DmBubble({ entry, m, first, slug, refs, toast, flash, replying, system,
     <div ref={ref} data-dm-entry={entry.key} data-dm-via={entry.via}
       className={'dm-msg ' + (entry.out ? 'out' : 'in') + (first ? ' first' : '') + (entry.unread ? ' unread' : '')
         + (flash != null ? ' flash' : '') + (replying ? ' replying' : '') + (highlighted ? ' hl' : '')
-        + (local ? ' local' + (local.state === 'failed' ? ' failed' : '') : '') + (onRetract ? ' has-x' : '')}>
+        + (local ? ' local' + (local.state === 'failed' ? ' failed' : '') : '')}>
       <div className="dm-msg-row">
         <div className={'dm-bubble' + (notice ? ' notice' : '') + (m.urgent ? ' urgent' : '') + (ordinary ? '' : ' typed')
           + (mega ? ' megaphone' : '')}
@@ -1749,9 +1749,9 @@ function DmBubble({ entry, m, first, slug, refs, toast, flash, replying, system,
             }
             menu.open(e, () => entries(anchor)) }}>
           <span className="dm-sr">{entry.out ? 'You' : m.from}{notice ? ', notice' : ''}: </span>
-          {/* the desk's ×, with its tooltip: small, inside the bubble's top-right corner (USER 2026-11-26
-              m3fe10fbaf0f9), in room the bubble keeps clear of text; the time and tick line is the same with it
-              and without it (USER 2026-11-25 m0c7ae1b9c32d) */}
+          {/* the desk's ×, with its tooltip: small, absolute in the bubble's top-right corner (USER 2026-11-26
+              m3fe10fbaf0f9 and alpha.8): it changes nothing else, so the text and the time and tick line are laid
+              out the same with it and without it (USER 2026-11-25 m0c7ae1b9c32d) */}
           {onRetract && <button type="button" className="chip-x dm-retract" title="retract (undelivered)"
             aria-label="Retract (undelivered)" onClick={onRetract}><CloseIcon fontSize="inherit" /></button>}
           {/* in a project's chat: which agent wrote this, or which one it was written to */}

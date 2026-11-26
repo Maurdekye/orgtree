@@ -334,17 +334,14 @@
 .dm-tick.t-failed { color: var(--bad); }
 /* the desk's retract × on the user's own unread mail: small, inside the bubble's top-right corner, a plain
    muted × in the time's colour that brightens on hover (USER 2026-11-26 m3fe10fbaf0f9 "place it inside of the
-   chat bubble but small"). The bubble reserves room on its right so no text is under it, and the time and
-   tick line takes that room back, so the tick sits where it sits on a read message (USER 2026-11-25
-   m0c7ae1b9c32d; the bubble's own right padding is 11px). `.dm-bubble >` beats `.settings button` */
+   chat bubble but small"). Absolute on the bubble and nothing else: no padding, no class, so the text's line
+   breaks and the time and tick line are the same with it and without it (USER 2026-11-26 alpha.8 "position it
+   absolutely relative to the message's bounds and dont have it interfere with the body text"; USER 2026-11-25
+   m0c7ae1b9c32d). `.dm-bubble >` beats `.settings button` */
 .dm-bubble > button.dm-retract { position: absolute; top: 4px; right: 4px; display: inline-flex; align-items: center; justify-content: center;
   width: 16px; height: 16px; padding: 0; font-size: 11px; line-height: 1; cursor: pointer; z-index: 1;
   opacity: 1; color: color-mix(in srgb, var(--dm-out-ink) 70%, transparent); background: none; }
 .dm-bubble > button.dm-retract:hover { color: var(--dm-out-ink); background: none; }
-.dm-msg.has-x .dm-bubble { padding-right: 22px; }
-/* a card's bubble pads 8px on its right (.dm-bubble.typed): the same 11px back */
-.dm-msg.has-x .dm-bubble.typed { padding-right: 19px; }
-.dm-msg.has-x .dm-meta { margin-right: -11px; }
 .dm-failed { display: flex; align-items: center; justify-content: flex-end; gap: 8px; font-size: 12px; color: var(--bad); margin: 4px 2px 0; }
 .dm-failed .linkish { font-size: 12px; }
 /* typing (Hubchat base.css .typing-prev, .typing-row, .typing-dots): the list's preview, and a row under
