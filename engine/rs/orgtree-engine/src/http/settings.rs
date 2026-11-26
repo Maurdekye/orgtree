@@ -1461,12 +1461,11 @@ pub async fn accounts_allowed(State(e): State<Arc<Engine>>, Path(slug): Path<Str
 
 /// UNEDITED BUNDLED CHARTERS FOLLOW THE APP (coordinator 2026-11-26 m885921c766c9, after USER 2026-11-26
 /// m22d773a3eeb2 changed the shipped coordinator charter): a copy in ~/.orgtree/charters that is still
-/// byte-identical (line endings aside) to an earlier shipped text is refreshed; an edited one is never touched,
+/// byte-identical to an earlier shipped text (its LF or its CRLF build, both listed) is refreshed; an edited one is never touched,
 /// as the templates' SHIPPED_EARLIER does.
 #[cfg(test)]
 mod charter_refresh_tests {
     use super::*;
-    use crate::domain::templates::text_digest;
 
     fn scratch(tag: &str) -> PathBuf {
         let d = std::env::temp_dir().join(format!("orgtree-charters-{tag}-{}", std::process::id()));
@@ -1479,9 +1478,10 @@ mod charter_refresh_tests {
     fn an_unedited_copy_is_refreshed_an_edited_one_kept_and_a_missing_one_seeded_as_before() {
         let d = scratch("refresh");
         let bundled: &[(&str, &str)] = &[("a.md", "new A\n"), ("b.md", "new B\n"), ("c.md", "new C\n")];
-        let (old_a, old_b) = (text_digest(b"old A\nline\n"), text_digest(b"old B\n"));
-        let earlier: &[(&str, &[&str])] = &[("a.md", &[old_a.as_str()]), ("b.md", &[old_b.as_str()])];
-        std::fs::write(d.join("a.md"), "old A\r\nline\r\n").unwrap(); // a Windows-written copy of an earlier text
+        // the exact shipped bytes, both line endings listed explicitly (a Windows build ships CRLF)
+        let (old_a, old_a_crlf, old_b) = (raw_digest(b"old A\nline\n"), raw_digest(b"old A\r\nline\r\n"), raw_digest(b"old B\n"));
+        let earlier: &[(&str, &[&str])] = &[("a.md", &[old_a.as_str(), old_a_crlf.as_str()]), ("b.md", &[old_b.as_str()])];
+        std::fs::write(d.join("a.md"), "old A\r\nline\r\n").unwrap();
         std::fs::write(d.join("b.md"), "old B, then the user's edit\n").unwrap();
         let (created, existing) = populate_into(&d, bundled, earlier).unwrap();
         assert_eq!(std::fs::read_to_string(d.join("a.md")).unwrap(), "new A\n", "unedited: refreshed");
@@ -1498,6 +1498,42 @@ mod charter_refresh_tests {
         // a digest belongs to its own file name
         std::fs::write(d.join("b.md"), "old A\nline\n").unwrap();
         assert_eq!(refresh_unedited_in(&d, bundled, earlier), Vec::<String>::new());
+        // build-sol review 2: only the listed bytes; a lone carriage return is an edit, not a line ending
+        std::fs::write(d.join("a.md"), "old A\nli\rne\n").unwrap();
+        assert_eq!(refresh_unedited_in(&d, bundled, earlier), Vec::<String>::new(), "a lone CR is the user's");
+        // build-sol review 3: the guarded, bounded reader; an oversized file is never read, so never refreshed
+        let big = "x".repeat(1_000_001);
+        let big_digest = raw_digest(big.as_bytes());
+        std::fs::write(d.join("a.md"), &big).unwrap();
+        assert_eq!(refresh_unedited_in(&d, bundled, &[("a.md", &[big_digest.as_str()])]), Vec::<String>::new());
+        assert_eq!(std::fs::read(d.join("a.md")).unwrap().len(), 1_000_001, "left as it is");
+        assert_eq!(leftovers(&d), Vec::<String>::new(), "no temporary file is left behind");
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    fn leftovers(d: &FsPath) -> Vec<String> {
+        std::fs::read_dir(d).unwrap().filter_map(|e| e.ok()?.file_name().into_string().ok())
+            .filter(|n| !n.ends_with(".md")).collect()
+    }
+
+    /// build-sol review 1: the replacement never truncates the file in place. The text goes to a temporary file
+    /// beside it and is renamed over it only while the file still holds the bytes that were judged unedited; an
+    /// edit or a deletion made since keeps the user's file (or its absence), and nothing is left behind.
+    #[test]
+    fn a_replacement_keeps_an_edit_or_deletion_made_after_the_check() {
+        let d = scratch("race");
+        let p = d.join("a.md");
+        let old = raw_digest(b"old A\n");
+        std::fs::write(&p, "the user's edit, saved after the check\n").unwrap();
+        assert_eq!(replace_if_unchanged(&p, "new A\n", &old), Ok(false));
+        assert_eq!(std::fs::read_to_string(&p).unwrap(), "the user's edit, saved after the check\n");
+        std::fs::remove_file(&p).unwrap();
+        assert_eq!(replace_if_unchanged(&p, "new A\n", &old), Ok(false));
+        assert!(!p.exists(), "a deletion made since stays deleted");
+        std::fs::write(&p, "old A\n").unwrap();
+        assert_eq!(replace_if_unchanged(&p, "new A\n", &old), Ok(true), "POSITIVE CONTROL: unchanged, replaced");
+        assert_eq!(std::fs::read_to_string(&p).unwrap(), "new A\n");
+        assert_eq!(leftovers(&d), Vec::<String>::new());
         let _ = std::fs::remove_dir_all(&d);
     }
 
@@ -1518,17 +1554,27 @@ mod charter_refresh_tests {
         assert_eq!(CURRENT.len(), BUNDLED.len());
         for ((f, body), (pinned_file, pinned)) in BUNDLED.iter().zip(CURRENT) {
             assert_eq!(f, pinned_file);
-            assert_eq!(text_digest(body.as_bytes()), *pinned,
+            assert_eq!(raw_digest(body.replace("\r\n", "\n").as_bytes()), *pinned,
                 "{f} changed: add its PREVIOUS digest ({pinned}) to CHARTERS_SHIPPED_EARLIER in settings.rs, then pin the new one here");
-            assert!(!CHARTERS_SHIPPED_EARLIER.iter().any(|(e, ds)| e == f && ds.contains(pinned)),
-                "{f}: the current text must not be listed as an earlier one");
         }
-        // every coordinator.md Orgtree shipped before the 10-second rule (d5756dc, 3b46382, dc34e7f)
+        // every coordinator.md Orgtree shipped before the 10-second rule (d5756dc, 3b46382, dc34e7f), as the exact
+        // bytes of an LF and of a CRLF build (.gitattributes eol=crlf)
         let coordinator = CHARTERS_SHIPPED_EARLIER.iter().find(|(f, _)| *f == "coordinator.md").unwrap().1;
         for d in ["a67ec6beaec84ecda243f5270d720a970660b04e620d0dac92f37207ba2a4324",
+            "7b5304e7166f12a06347c19412d3b72d4d840c68a92c90f39a3ccdb1bac9fa5d",
             "22260b24e9c0a06cef01954b3178645a85eff8d5b9294cba5ef12faa391fdf97",
-            "52a7eb9f898f6cf714b0a6b057e999dc38e18fff596a8f177930e8cee15a6b79"] {
+            "9e760e28cd09b12d6690bfa55902a9b043b69b12dda3348c09e96f82bfd90e62",
+            "52a7eb9f898f6cf714b0a6b057e999dc38e18fff596a8f177930e8cee15a6b79",
+            "22ede903101461980ccdc6a70d03b0fcbcd027e7ebcfc735543e9f2bceee2ce8"] {
             assert!(coordinator.contains(&d), "{d}");
+        }
+        // the current text, in either form, is never an earlier one
+        for (f, body) in BUNDLED {
+            let lf = body.replace("\r\n", "\n");
+            for form in [lf.clone(), lf.replace('\n', "\r\n")] {
+                let digest = raw_digest(form.as_bytes());
+                assert!(!CHARTERS_SHIPPED_EARLIER.iter().any(|(e, ds)| e == f && ds.contains(&digest.as_str())), "{f}");
+            }
         }
     }
 }
