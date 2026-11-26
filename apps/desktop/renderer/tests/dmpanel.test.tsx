@@ -2966,3 +2966,25 @@ test('a reply to the user’s picture-only message quotes the picture’s file, 
   assert.match(pic.textContent ?? '', /orgtree-eye\.png/, 'the picture-only message is quoted by its file')
   assert.equal(/no longer available/.test(pic.textContent ?? ''), false, 'and is not called gone')
 })
+
+// ...AND A TARGET OLDER THAN THE LOADED HISTORY (@rig-sol-b at 802a928, coordinator mdedfdf43fe8a): the engine's by-id
+// lookup (the same one a mail link names itself by) says the message exists, so the quote names its file, or says it had
+// no text; only a lookup that answers "not found" makes it "no longer available".
+test('a quote with no text whose target is older than the loaded chat names it from the engine; only a target the engine does not find is gone', async (t) => {
+  const reply = (id: string, to: string) => mail(id, 'worker', '2026-11-20T10:05:00Z', { kind: 'question', body: 'about that one?',
+    ev: rev('worker', 'about that one?', to, USER, '2026-10-01T09:00:00Z', ''),
+    reply_to: { id: to, kind: 'mail', from: USER, at: '2026-10-01T09:00:00Z', gist: '', box: 'user' } })
+  const s = await setup(t, { audiences: [grant('worker')],
+    byId: { oldpic: { id: 'oldpic', from: USER, to: 'worker', at: '2026-10-01T09:00:00Z', kind: 'message', body: '', attachments: eye },
+      oldbare: { id: 'oldbare', from: USER, to: 'worker', at: '2026-10-01T09:00:00Z', kind: 'message', body: '' } },
+    delivered: [reply('r1', 'oldpic'), reply('r2', 'oldbare'), { ...reply('r3', 'gone2'), at: '2026-11-20T10:06:00Z' }] },
+    { active: false })
+  await s.openChat('worker')
+  await inAct(async () => { await flush(20) })
+  const quote = (id: string) => s.all<HTMLElement>('.dm-msg').find(m => m.dataset.dmEntry === id)?.querySelector<HTMLElement>('.reply-preview blockquote')?.textContent ?? ''
+  assert.equal(s.all<HTMLElement>('.dm-msg').some(m => m.dataset.dmEntry === 'oldpic'), false, 'POSITIVE CONTROL: the picture is not in the loaded chat')
+  assert.match(quote('r3'), /no longer available/, 'POSITIVE CONTROL: a target the engine does not find is gone')
+  assert.match(quote('r1'), /orgtree-eye\.png/, 'an older picture-only message is quoted by its file')
+  assert.match(quote('r2'), /^A message with no text\.$/, 'an older message with neither text nor files says so')
+  assert.equal(/no longer available/.test(quote('r1') + quote('r2')), false, 'neither is called gone')
+})
