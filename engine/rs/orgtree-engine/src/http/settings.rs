@@ -1406,3 +1406,77 @@ pub async fn accounts_allowed(State(e): State<Arc<Engine>>, Path(slug): Path<Str
     let o = org(&e, &slug)?;
     Ok(Json(json!({ "org": o.slug, "accounts": crate::org_accounts::lanes(&e, &o.slug) })))
 }
+
+/// UNEDITED BUNDLED CHARTERS FOLLOW THE APP (coordinator 2026-11-26 m885921c766c9, after USER 2026-11-26
+/// m22d773a3eeb2 changed the shipped coordinator charter): a copy in ~/.orgtree/charters that is still
+/// byte-identical (line endings aside) to an earlier shipped text is refreshed; an edited one is never touched,
+/// as the templates' SHIPPED_EARLIER does.
+#[cfg(test)]
+mod charter_refresh_tests {
+    use super::*;
+    use crate::domain::templates::text_digest;
+
+    fn scratch(tag: &str) -> PathBuf {
+        let d = std::env::temp_dir().join(format!("orgtree-charters-{tag}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&d);
+        std::fs::create_dir_all(&d).unwrap();
+        d
+    }
+
+    #[test]
+    fn an_unedited_copy_is_refreshed_an_edited_one_kept_and_a_missing_one_seeded_as_before() {
+        let d = scratch("refresh");
+        let bundled: &[(&str, &str)] = &[("a.md", "new A\n"), ("b.md", "new B\n"), ("c.md", "new C\n")];
+        let (old_a, old_b) = (text_digest(b"old A\nline\n"), text_digest(b"old B\n"));
+        let earlier: &[(&str, &[&str])] = &[("a.md", &[old_a.as_str()]), ("b.md", &[old_b.as_str()])];
+        std::fs::write(d.join("a.md"), "old A\r\nline\r\n").unwrap(); // a Windows-written copy of an earlier text
+        std::fs::write(d.join("b.md"), "old B, then the user's edit\n").unwrap();
+        let (created, existing) = populate_into(&d, bundled, earlier).unwrap();
+        assert_eq!(std::fs::read_to_string(d.join("a.md")).unwrap(), "new A\n", "unedited: refreshed");
+        assert_eq!(std::fs::read_to_string(d.join("b.md")).unwrap(), "old B, then the user's edit\n", "edited: kept");
+        assert_eq!(std::fs::read_to_string(d.join("c.md")).unwrap(), "new C\n", "missing: seeded, as populate always did");
+        assert_eq!(created, ["c.md"]);
+        assert_eq!(existing, ["a.md", "b.md"]);
+        // the refresh alone (engine start, listing) touches only existing unedited copies
+        std::fs::remove_file(d.join("c.md")).unwrap();
+        std::fs::write(d.join("a.md"), "old A\nline\n").unwrap();
+        assert_eq!(refresh_unedited_in(&d, bundled, earlier), ["a.md"]);
+        assert!(!d.join("c.md").exists(), "a deleted charter is not brought back by the refresh");
+        assert_eq!(refresh_unedited_in(&d, bundled, earlier), Vec::<String>::new(), "the current text is left alone");
+        // a digest belongs to its own file name
+        std::fs::write(d.join("b.md"), "old A\nline\n").unwrap();
+        assert_eq!(refresh_unedited_in(&d, bundled, earlier), Vec::<String>::new());
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    /// Whoever changes a bundled charter must list its previous digest in CHARTERS_SHIPPED_EARLIER, or the
+    /// installs seeded with it keep it forever. This pins the current texts so the change cannot be missed.
+    #[test]
+    fn every_bundled_charter_has_its_current_digest_pinned_and_its_earlier_ones_listed() {
+        const CURRENT: &[(&str, &str)] = &[
+            ("business.md", "0196f8883002c25a7ed9b3340021b65c16dffd90da5a89b2fadeafb3fedfdfcf"),
+            ("coordinator.md", "c94ed90efbd2653f2d562fc5d52883d944c0328217f119b3da2a420d4a88f3bd"),
+            ("curator.md", "9b1683f64bdcd1ea342d2cda1b5f9fb98f9eaf9272c257fee5b90d20dcf14b06"),
+            ("developer.md", "589e59fbf59e1b34141b14cf2b7e11e30be31facbe0ab084a0932e96304dbd32"),
+            ("implementer.md", "4d9528ada851cb38050f2de1aea840bd20a05959e177c78eeb846ba0f90331b9"),
+            ("integrator.md", "01ea3e5778b17d6fd7f8a3cc188a59ce4a60192d5b2f8aef9db51cf62dacf484"),
+            ("liaison.md", "940c35e7b5a4c3900a4faa0be24034f1272bf79735a12d8836221fd44898ea93"),
+            ("redteam.md", "2e86879b78fe92282ead3c19c8a16e1cf3d2d47030b03d140eb06ac56ba17015"),
+        ];
+        assert_eq!(CURRENT.len(), BUNDLED.len());
+        for ((f, body), (pinned_file, pinned)) in BUNDLED.iter().zip(CURRENT) {
+            assert_eq!(f, pinned_file);
+            assert_eq!(text_digest(body.as_bytes()), *pinned,
+                "{f} changed: add its PREVIOUS digest ({pinned}) to CHARTERS_SHIPPED_EARLIER in settings.rs, then pin the new one here");
+            assert!(!CHARTERS_SHIPPED_EARLIER.iter().any(|(e, ds)| e == f && ds.contains(pinned)),
+                "{f}: the current text must not be listed as an earlier one");
+        }
+        // every coordinator.md Orgtree shipped before the 10-second rule (d5756dc, 3b46382, dc34e7f)
+        let coordinator = CHARTERS_SHIPPED_EARLIER.iter().find(|(f, _)| *f == "coordinator.md").unwrap().1;
+        for d in ["a67ec6beaec84ecda243f5270d720a970660b04e620d0dac92f37207ba2a4324",
+            "22260b24e9c0a06cef01954b3178645a85eff8d5b9294cba5ef12faa391fdf97",
+            "52a7eb9f898f6cf714b0a6b057e999dc38e18fff596a8f177930e8cee15a6b79"] {
+            assert!(coordinator.contains(&d), "{d}");
+        }
+    }
+}
