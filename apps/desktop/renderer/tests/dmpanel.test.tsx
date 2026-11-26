@@ -202,6 +202,7 @@ async function setup(t: TestContext, world: World, opts: {
   window.confirm = (text?: string) => { confirms.push(String(text)); return true }
   window.localStorage.removeItem(CLASSIC_MAILBOX_KEY)
   window.localStorage.removeItem(OPEN_CHAT_ON_REPLY_KEY)
+  window.localStorage.removeItem('orgtree-dm-open:mine')
   window.sessionStorage.clear()
   resetLocalReads()
   resetComposerDrafts()
@@ -230,6 +231,7 @@ async function setup(t: TestContext, world: World, opts: {
     else delete (document as unknown as Record<string, unknown>).hasFocus
     window.localStorage.removeItem(CLASSIC_MAILBOX_KEY)
     window.localStorage.removeItem(OPEN_CHAT_ON_REPLY_KEY)
+    window.localStorage.removeItem('orgtree-dm-open:mine')
   })
   await inAct(async () => { await flush(12) })
   const all = <T extends Element>(sel: string) => [...document.querySelectorAll<T>(sel)]
@@ -1835,7 +1837,7 @@ test('alpha.1 point 24: a bubble\u2019s menu has "Sender…" with the agent\u201
   const oldFetch = globalThis.fetch
   const server = engine({ audiences: [grant('worker')], delivered: [mail('in1', 'worker', '2026-11-20T10:00:00Z')], sent: [sent('out1', 'worker', '2026-11-20T11:00:00Z')] })
   globalThis.fetch = server.fetcher
-  resetLocalReads(); resetComposerDrafts(); window.sessionStorage.clear(); window.localStorage.removeItem(CLASSIC_MAILBOX_KEY)
+  resetLocalReads(); resetComposerDrafts(); window.sessionStorage.clear(); window.localStorage.removeItem('orgtree-dm-open:mine'); window.localStorage.removeItem(CLASSIC_MAILBOX_KEY)
   const view = await mountView(<CurrentOrg.Provider value="mine"><AgentNavProvider><Provide />
     <UserMailbox slug="mine" tree={tree()} toast={() => {}} close={() => {}} jumpTo={null} jumpSeq={null} openChat={null}
       onFocusAgent={() => {}} onOpenMail={() => {}} /></AgentNavProvider></CurrentOrg.Provider>, el => el)
@@ -2693,7 +2695,7 @@ for (const withRecipient of [true, false]) {
     "View in chat from an agent's mailbox: the user's mail in its inbox names no recipient (the engine's row shape), and the mailbox's own agent is the chat (integ-sol-c bounce m42d5992dd90a)", async t => {
     setClassicMailbox(true)
     resetLocalReads()
-    window.sessionStorage.clear()
+    window.sessionStorage.clear(); window.localStorage.removeItem('orgtree-dm-open:mine')
     const older = mail(nodeBoxTarget, USER, nodeBoxSentDate)
     const row = withRecipient ? { ...older, to: 'worker' } : older
     const server = engine({
@@ -2874,9 +2876,38 @@ test('the toggle does not replay an Open chat request the chats already followed
   assert.equal(openPeer(), 'solo', 'the old request does not pull the chats back to worker')
 })
 
-test('closing the panel and opening it again still opens on the oldest unread', async (t) => {
+// CLOSING AND REOPENING KEEPS THE OPEN CHAT (USER 2026-11-26 10:49:38Z m96984bdf995c, 4.7.0-alpha.7: "closing and
+// reopening the chats panel still loses the active chat i had selected"; @coordinator-opus ruling): reopening the
+// panel, in any form or window, shows the chat that was open when it closed, kept with the panel's other remembered
+// UI state (localStorage, as the Chats/classic toggle). A remembered chat that is gone falls back to the first-open rule.
+test('closing the panel and opening it again reopens the chat that was open, not the one with the oldest unread', async (t) => {
   const s = await setup(t, twoChats(), { active: false })
+  assert.equal(openPeer(), 'worker', 'POSITIVE CONTROL: the first open picks the chat with the oldest unread')
   await s.openChat('solo')
   await s.remount()
-  assert.equal(openPeer(), 'worker', 'a fresh open keeps the first-open rule')
+  assert.equal(openPeer(), 'solo', 'reopened on the chat that was open')
+  await s.remount()
+  assert.equal(openPeer(), 'solo', 'and again')
+})
+
+test('another window (a popped-out panel, or the app after a restart) reopens the same chat: it is not kept per window', async (t) => {
+  const s = await setup(t, twoChats(), { active: false })
+  await s.openChat('solo')
+  window.sessionStorage.clear()   // another window starts with its own, empty session storage
+  await s.remount()
+  assert.equal(openPeer(), 'solo')
+})
+
+test('a remembered chat that is no longer there falls back to the first-open rule', async (t) => {
+  const s = await setup(t, twoChats(), { active: false })
+  await s.openChat('solo')
+  window.localStorage.setItem('orgtree-dm-open:mine', 'gone')   // its audience was revoked elsewhere
+  await s.remount()
+  assert.equal(openPeer(), 'worker', 'the chat with the oldest unread, as on a first open')
+})
+
+test('the open chat is kept per org in local storage, beside the Chats/classic choice', async (t) => {
+  const s = await setup(t, twoChats(), { active: false })
+  await s.openChat('solo')
+  assert.equal(window.localStorage.getItem('orgtree-dm-open:mine'), 'solo', 'kept with the panel state')
 })
