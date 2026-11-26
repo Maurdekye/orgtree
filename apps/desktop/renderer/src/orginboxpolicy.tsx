@@ -72,7 +72,7 @@ export function OrgInboxPolicy({ mode, actual, onMode, multi, onMulti, slug, loc
       Hubchat and other outside messages are kept but not read or delivered automatically.
       {' '}An agent must check the org mailbox to receive them.
     </p>}
-    {lockdown && <SetRow label="Lockdown" hint={<>Only listed outside addresses reach the org mailbox; organizations on this computer still can. Org decides lets the holders turn it on as a last resort against a flood of new accounts. While it is on, the list of addresses that may still write is below.<span id="org-lockdown-actual">{` Now ${lockdownNow(lockdown)}.`}</span></>}>
+    {lockdown && <SetRow label="Lockdown" hint={<>Only listed outside addresses reach the org mailbox; organizations on this computer still can. Org decides lets the holders turn it on as a last resort against a flood of new accounts. Turning it on yourself puts your linked phone address on the list (you can take it off). While it is on, the list of addresses that may still write is below.<span id="org-lockdown-actual">{` Now ${lockdownNow(lockdown)}.`}</span></>}>
       <select aria-label="Org mailbox lockdown" value={lockSetting} aria-describedby="org-lockdown-actual"
         onChange={e => changeLock(e.target.value as NetLockdownSummary['setting'])}>
         <option value="org">Org decides</option>
