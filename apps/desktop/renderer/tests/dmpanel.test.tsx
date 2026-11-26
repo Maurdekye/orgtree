@@ -571,6 +571,18 @@ test('Orgtree\'s own chat and a project\'s chat have no agent controls in the me
   assert.equal(document.querySelector('.dm-head .dm-gear') === null, true, 'and no gear: it is no agent')
 })
 
+test('Orgtree\'s own chat has nothing where the message box would be: no line, no empty strip; a retired agent keeps its line (USER 2026-11-26 m5ade5cb71f04)', async (t) => {
+  const s = await setup(t, { delivered: [mail('sys1', '@system', '2026-11-20T10:00:00Z'), mail('g1', 'gone', '2026-11-20T09:00:00Z')] },
+    { tree: tree({ roots: [node('lead'), node('solo'), node('gone', [], { state: 'archived' })] }), active: false })
+  await s.openChat('@system')
+  assert.ok(document.querySelector('.dm-msg[data-dm-entry="sys1"]'), 'POSITIVE CONTROL: the System chat is open on its mail')
+  assert.equal(document.querySelector('.dm-nowrite'), null, '"remove this": no line under it')
+  assert.equal(document.querySelector('.dm-compose'), null, 'and no empty box strip either: the messages run to the bottom')
+  await inAct(async () => { s.rerender({ openChat: { peer: 'gone', seq: 1 } }); await flush(12) })
+  assert.equal(document.querySelector('.dm-head')?.getAttribute('data-dm-peer'), 'gone', 'POSITIVE CONTROL: the chat of the retired agent is open')
+  assert.match(document.querySelector('.dm-nowrite')?.textContent ?? '', /gone is retired and cannot be written to/, 'a retired agent still says why')
+})
+
 test('the chat header: the name is the agent link, and the gear asks for that agent\'s settings', async (t) => {
   const s = await setup(t, { audiences: [grant('worker')] }, { active: false })
   await s.openChat('worker')
