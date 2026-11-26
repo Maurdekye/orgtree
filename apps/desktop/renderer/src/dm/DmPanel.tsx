@@ -242,9 +242,22 @@ function useWindowActive(): boolean {
   return active
 }
 
+// THE OPEN CHAT IS REMEMBERED PER ORG ON THIS COMPUTER (USER 2026-11-26 m96984bdf995c "closing and reopening the
+// chats panel still loses the active chat i had selected"; @coordinator-opus ruling): kept with the panel's other
+// remembered UI state, in localStorage like the Chats/classic choice (mailboxpref.ts), so a popped-out window and
+// the app after a restart reopen it too. A write storage refuses still holds for this window.
 const rememberKey = (slug: string) => `orgtree-dm-open:${slug}`
+const heldOpen = new Map<string, string | null>()
 const remembered = (slug: string): string | null => {
-  try { return window.sessionStorage.getItem(rememberKey(slug)) } catch { return null }
+  try { return window.localStorage.getItem(rememberKey(slug)) } catch { /* storage refused: this window's own choice */ }
+  return heldOpen.get(slug) ?? null
+}
+const remember = (slug: string, peer: string | null): void => {
+  heldOpen.set(slug, peer)
+  try {
+    if (peer) window.localStorage.setItem(rememberKey(slug), peer)
+    else window.localStorage.removeItem(rememberKey(slug))
+  } catch { /* kept in heldOpen */ }
 }
 
 export function DmPanel({ slug, tree, toast, refresh, close, jumpTo, jumpSeq, jumpPeer, openChat, resume,
@@ -316,10 +329,7 @@ export function DmPanel({ slug, tree, toast, refresh, close, jumpTo, jumpSeq, ju
   const sel = chosen.slug === slug ? chosen.peer : null
   const select = useCallback((peer: string | null) => {
     setChosen({ slug, peer })
-    try {
-      if (peer) window.sessionStorage.setItem(rememberKey(slug), peer)
-      else window.sessionStorage.removeItem(rememberKey(slug))
-    } catch { /* the chat still opens when session storage is unavailable */ }
+    remember(slug, peer)
   }, [slug])
 
   // ⚠ THE OPEN CHAT PAGES ITS OWN HISTORY, AT THE ENGINE (USER 2026-11-24
@@ -394,9 +404,11 @@ export function DmPanel({ slug, tree, toast, refresh, close, jumpTo, jumpSeq, ju
   const shownPeer = current?.peer ?? null
   useEffect(() => { setShownChat(slug, shownPeer); return () => setShownChat(slug, null) }, [slug, shownPeer])
 
-  // WHICH CHAT IT OPENS ON, once per org: the one holding the oldest thing
-  // that waits on the user (the classic mailbox opens on its oldest unread
-  // mail), else the one that was open last time, else none.
+  // WHICH CHAT IT OPENS ON, once per org: the one that was open when the panel
+  // last closed, in any window (USER 2026-11-26 m96984bdf995c); without one, or
+  // when that chat is gone, the one holding the oldest thing that waits on the
+  // user (the classic mailbox opens on its oldest unread mail), else none.
+  // A jump or an Open chat request names its own chat and wins.
   const opened = useRef<string | null>(null)
   useEffect(() => {
     if (!box || opened.current === slug) return
@@ -410,7 +422,7 @@ export function DmPanel({ slug, tree, toast, refresh, close, jumpTo, jumpSeq, ju
     const last = remembered(slug)
     const kept = last && chats.some(c => c.peer === last) ? last : null
     // back from the classic mailbox the toggle chooses nothing: the chat that was open, or none
-    const pick = resume ? kept : oldest?.peer ?? kept
+    const pick = resume ? kept : kept ?? oldest?.peer ?? null
     if (pick) select(pick)
   }, [box, slug, chats, sel, jumpTo, openChat, select, resume])
 
