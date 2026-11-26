@@ -639,7 +639,7 @@ module.exports = async (page) => {
       return { typed: b.classList.contains('typed'), head: !!b.querySelector('.event-head'), label: b.querySelector('.dm-kind')?.textContent ?? null,
         files: b.querySelectorAll('.attach-row').length, unsupported: !!b.querySelector('.event-unsupported'), quote: (b.querySelector('.reply-preview')?.textContent ?? '').replace(/\s+/g, ' ').trim() }
     }
-    return { sq1: of('sq1'), sq2: of('sq2') }
+    return { sq1: of('sq1'), sq2: of('sq2'), sr1: of('sr1'), sd1: of('sd1') }
   })
   await shot('34-question-bubbles-and-a-picture-only-quote')
   // the question that answers nothing, from its top edge: the card it was, or the bubble it is
@@ -651,5 +651,14 @@ module.exports = async (page) => {
   })
   await page.sleep(300)
   await shot('34a-a-question-that-answers-nothing-from-its-top')
+  // a request and a decision that answer nothing: the same bubble with their tags
+  await page.eval(() => {
+    const el = document.querySelector('[data-dm-entry="sr1"]')
+    let sc = el?.parentElement
+    while (sc && !(sc.scrollHeight > sc.clientHeight && /auto|scroll/.test(getComputedStyle(sc).overflowY))) sc = sc.parentElement
+    if (el && sc) sc.scrollTop += el.getBoundingClientRect().top - sc.getBoundingClientRect().top - 16
+  })
+  await page.sleep(300)
+  await shot('34b-a-request-and-a-decision-that-answer-nothing')
   return v
 }

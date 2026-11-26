@@ -69,6 +69,10 @@ const world = {
     mail('sys0', '@system', 2 * D, 'Orgtree restarted after an update.', { notice: true, kind: 'system' }),
     // QUESTION MAIL IS THE BUBBLE WITH ITS TAG (USER 2026-11-26 mb2a0028c1a6d), older than solo's other mail so
     // nothing else moves: a question that answers nothing, with a file, and one that answers the user's picture
+    mail('sr1', 'solo', 28.6 * H, 'May I archive the old exports?', { kind: 'request',
+      ev: { v: 1, variant: 'ordinary.request', actor: { kind: 'agent', id: 'solo' }, object: null, engine_authored: false, body: 'May I archive the old exports?' } }),
+    mail('sd1', 'solo', 28.3 * H, 'Decided: keep the PNG exports only.', { kind: 'decision',
+      ev: { v: 1, variant: 'ordinary.decision', actor: { kind: 'agent', id: 'solo' }, object: null, engine_authored: false, body: 'Decided: keep the PNG exports only.' } }),
     mail('sq1', 'solo', 28 * H, 'Which of the two exports should I keep?', { kind: 'question', attachments: [
       { name: 'export-a.png', path: 'outbox/export-a.png', bytes: 1532 }],
       ev: { v: 1, variant: 'ordinary.question', actor: { kind: 'agent', id: 'solo' }, object: null, engine_authored: false, body: 'Which of the two exports should I keep?' } }),
@@ -341,7 +345,12 @@ if (flag === '--expect') {
   assert.equal(q.sq1.files, 1, 'its file under it')
   assert.match(q.sq2.quote, /orgtree-eye\.png/, 'the picture-only message is quoted by its file')
   assert.equal(/no longer available/.test(q.sq2.quote), false, 'not called gone')
-  checked.push('question bubble', 'picture quote')
+  for (const [id, label] of [['sr1', 'Request'], ['sd1', 'Decision']]) {
+    assert.ok(q[id], `POSITIVE CONTROL: ${id} is in solo's chat`); assert.equal(q[id].unsupported, false)
+    assert.equal(q[id].label, label, `the ${label} tag`); assert.equal(q[id].typed, false, `the ${label} is the plain bubble`)
+    assert.equal(q[id].head, false, `with no "${label} · solo" header box`)
+  }
+  checked.push('question bubble', 'picture quote', 'request and decision bubbles')
 
   // ---- the send mark: a reply names its mail and says nothing; a new message says dm
   const messages = posts(/\/nodes\/worker\/message$/).map(c => c.body)

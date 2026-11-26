@@ -2947,6 +2947,26 @@ test('a question with no reply target is the bubble with the QUESTION tag, not t
   assert.match(q1.querySelector('.attach-row')?.textContent ?? '', /two\.txt/)
 })
 
+// ...AND SO ARE A REQUEST AND A DECISION WITH NO REPLY TARGET (USER 2026-11-26 mb633b840c662 "Yes, same (rec.)"): the
+// bubble with its REQUEST / DECISION tag, never the framed "<Kind> · <agent>" card
+for (const [kind, label] of [['request', 'Request'], ['decision', 'Decision']] as const) {
+  test(`a ${kind} with no reply target is the bubble with the ${label.toUpperCase()} tag, not the framed card`, async (t) => {
+    const ev = { v: 1, variant: `ordinary.${kind}`, actor: { kind: 'agent', id: 'worker' }, object: null, engine_authored: false, body: `the ${kind} text` }
+    const s = await setup(t, { audiences: [grant('worker')], delivered: [
+      mail('k1', 'worker', '2026-11-20T10:00:00Z', { kind, body: `the ${kind} text`, ev,
+        attachments: [{ path: 'uploads/plan.txt', name: 'plan.txt', bytes: 10 }] })] }, { active: false })
+    await s.openChat('worker')
+    const b = s.all<HTMLElement>('.dm-msg').find(m => m.dataset.dmEntry === 'k1')?.querySelector<HTMLElement>('.dm-bubble')
+    assert.ok(b, `POSITIVE CONTROL: the ${kind} is in the chat`)
+    assert.equal(/Unsupported message format/.test(b.textContent ?? ''), false, `POSITIVE CONTROL: the ${kind} is a valid typed mail`)
+    assert.equal(b.querySelector('.dm-kind')?.textContent, label, `it wears the ${label} tag`)
+    assert.equal(b.classList.contains('typed'), false, 'it is the plain bubble, not the framed card')
+    assert.equal(b.querySelector('.event-head') === null, true, `with no "${label} · worker" header box`)
+    assert.match(b.textContent ?? '', new RegExp(`the ${kind} text`), 'its text is the bubble’s text')
+    assert.equal(b.querySelectorAll('.attach-row').length, 1, 'its file is under it')
+  })
+}
+
 // A REPLY TO A PICTURE-ONLY MESSAGE quotes the picture, as every place names such a message by its file: the stored
 // quote's text is empty (the message had none), which is not a message that is gone.
 test('a reply to the user’s picture-only message quotes the picture’s file, not "no longer available"; a truly missing one still says so', async (t) => {
