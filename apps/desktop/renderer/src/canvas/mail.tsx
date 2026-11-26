@@ -1194,10 +1194,15 @@ export function MailMessageBody({ m, standalone = false, org, refs, mdBase, send
 }) {
   const profile = 'operator'
   const decoded = decodeEventRow(m, profile)
+  // A message that is only files has no text line (attachonly.ts). A plain message's card is its body alone, so
+  // nothing of it is drawn; any other card drops its empty body itself and keeps the rest (a reply's context).
+  const filesOnly = (decoded.kind === 'legacy' && attachmentOnlyBody(m.body, m.attachments))
+    || (decoded.kind === 'known' && decoded.event.variant.startsWith('ordinary.')
+      && attachmentOnlyBody((decoded.event as { body?: unknown }).body, m.attachments))
   return <>
     <MailReplyPreview row={m} org={org ?? refs?.world.org ?? ''} world={refs?.world} onOpen={refs?.onOpen} locateMail={locateMail} />
     <ReplySelectionSurface source={{org:org ?? refs?.world.org ?? '',target:{kind:'mail',org:org ?? refs?.world.org ?? '',id:m.id ?? ''},part:{part:'mail.body'},text:m.body}}>
-    {decoded.kind === 'legacy'
+    {filesOnly ? null : decoded.kind === 'legacy'
     ? <RefMdBody className={'mailer-body md' + (standalone && isMailNotice(m) ? ' event-notice' : '')} html={md(m.body, mdBase?.(m) || undefined)}
         world={refs?.world} onOpen={refs?.onOpen} />
     : <div className="mailer-body"><EventCard part={standalone ? undefined : "body"} row={m} profile={profile} context={context}
@@ -1481,7 +1486,7 @@ export function MailReplyBox({ target, slug, onSend, placeholder, sendDisabled =
     setObjectReply(null)
     setDraft(''); setAttached([]); staging.newDraft()
     const sendingBroadcast = broadcastArmed
-    const res = Promise.resolve().then(() => onSend(t || '(file attached)', paths.length ? paths : undefined, armed, sendingBroadcast,
+    const res = Promise.resolve().then(() => onSend(t, paths.length ? paths : undefined, armed, sendingBroadcast,
       sentObjectReply ? composerTarget(sentObjectReply) : undefined, sentSelections.map(({target,selection}) => ({target,selection})), sentAttached))
     if (res && typeof (res as Promise<unknown>).then === 'function') {
       const mine = ++sendSeq.current
@@ -2651,3 +2656,4 @@ function NetSection({ net, slug, lockKey }: { net?: TreePayload['net']; slug: st
   )
 }
 import { MediaCard, mediaFormat } from './media'
+import { attachmentOnlyBody } from './attachonly'

@@ -3656,7 +3656,8 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
     requestAnimationFrame(() => taRef.current?.focus({ preventScroll: true }))
   }
   const send = () => {
-    let t = text.trim()
+    // files alone go with an empty text, never a placeholder (USER 2026-11-26 m2b7a281ca223; attachonly.ts)
+    const t = text.trim()
     if ((!t && !attached.length) || !canMail) return
     // An organization on a remote engine that is not connected (remote-org.md,
     // "While not connected"): the engine would refuse this at once, so nothing
@@ -3664,7 +3665,6 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
     // and the engine's own sentence says why.
     const away = remoteRefusalNow(slug)
     if (away) { toast([away]); return }
-    if (!t) t = '(file attached)'
     const paths = attached.map((a) => a.path)
     const sentReply = reply
     const sentReplies = replyTargets

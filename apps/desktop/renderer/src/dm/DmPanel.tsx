@@ -64,6 +64,7 @@ import { CollapsibleMailer } from '../canvas/narrowlist'
 import {
   DELETE_USER_MAIL_CONFIRM, MailAttachments, MailMessageBody, MailReplyBox,
 } from '../canvas/mail'
+import { attachmentOnlyBody } from '../canvas/attachonly'
 import { NodeLink, TierChip, nodeTierOf } from '../canvas/identity'
 import { agentTooltipProps, useAgentNavRegistry } from '../canvas/agentnav'
 import { nodeMenuAction } from '../canvas/objectactions'
@@ -198,7 +199,8 @@ const brief = (text: string | null | undefined) => plainWords(text ?? '').trim()
 function mailBrief(m: MailRow): string {
   const decoded = decodeEventRow(m, PROFILE)
   const text = brief(decoded.kind === 'known' ? noticeSummary(decoded.event, m.from) : m.body)
-  if (text) return text
+  // the old placeholder of a files-only message is no text: its files say what it is (attachonly.ts)
+  if (text && !attachmentOnlyBody(m.body, m.attachments)) return text
   const files = m.attachments ?? []
   return files.length ? (files.length === 1 ? files[0]!.name ?? 'a file' : `${files.length} files`) : ''
 }

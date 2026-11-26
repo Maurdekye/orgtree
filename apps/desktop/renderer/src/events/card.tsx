@@ -27,6 +27,7 @@ import { IdleDocketCards } from './idledocket'
 import { HubContactChip, isHubAddress } from '../canvas/agentmentions'
 import { changeParts } from './change'
 import type { Bit, ChangePart } from './change'
+import { attachmentOnlyBody } from '../canvas/attachonly'
 
 const FAMILY_MARK: Record<Family, string> = {
   ordinary: 'Message', linked_reply: 'Reply', assignment: 'Assignment', review: 'Review',
@@ -221,8 +222,11 @@ export function EventCard({ row, profile, org, preview = false, actor, part, hea
   const fireFields = dogFire ? view.fields.filter(f => f.placement === 'body') : []
   // the idle-docket reminder draws its items as ticket cards (IdleDocketCards)
   const idleDocket = event.variant === 'reminder.idle_docket' ? event : null
+  // a message that is only files has no text line (attachonly.ts)
+  const filesOnly = (f: { key: string; value: unknown }) => f.key === 'body'
+    && attachmentOnlyBody(f.value, record(row) ? row.attachments : undefined)
   const body = view.fields.filter(f => f.placement === 'body' && !dogFire && !(idleDocket && f.key === 'items')
-    && !(answeredAsk && ['questions', 'text'].includes(f.key)))
+    && !(answeredAsk && ['questions', 'text'].includes(f.key)) && !filesOnly(f))
     .map(f => f.key === 'sections' && Array.isArray(f.value)
       ? { ...f, value: f.value.filter(sec => !(record(sec) && typeof sec.kind === 'string' && resolvedSectionKinds.includes(sec.kind))) } : f)
     .filter(f => !(f.key === 'sections' && Array.isArray(f.value) && f.value.length === 0))

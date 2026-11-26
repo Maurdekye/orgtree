@@ -34,6 +34,7 @@ export function humanSegmentEvent(event: Event): boolean {
 type AnySegment = Segment
 export { isSegments } from './wire'
 import { isSegments } from './wire'
+import { attachmentOnlyBody } from '../canvas/attachonly'
 export function authoredUserLabel(segments: unknown, profile: EventProfile): string | null {
   if (!isSegments(segments, profile)) return null
   let label: string | null = null
@@ -168,7 +169,8 @@ export function MailMessage({ row, profile, slug, nid, world, onOpen, actor,
       <span className="event-actor">{row.from === '@user' || row.from === 'user' ? <>User<ViaName via={row.via} /></>
         : row.from === '@system' || row.from === 'system' ? 'System'
           : actor ? actor(row.from) : row.from}</span>
-    </> : <ReceivedMailBody foldKey={keys}><div className="event-body"><div className="event-field" data-event-field="body">
+    </> : attachmentOnlyBody(row.body, row.attachments) ? null
+    : <ReceivedMailBody foldKey={keys}><div className="event-body"><div className="event-field" data-event-field="body">
       <RefMdBody className="event-prose md" html={md(row.body, base)} world={world} onOpen={onOpen} />
     </div></div></ReceivedMailBody>)
     : <EventCard row={value} profile={profile} org={slug} preview={preview} part={part}
