@@ -29,6 +29,8 @@ async function mailservers(t: test.TestContext, answer: () => Response) {
   await inAct(() => tab.click()); await flush(6)
   const list = [...view.el.querySelectorAll('.oi-net .oi-hub')].find(h => /blocked contacts/.test(h.textContent ?? ''))
   return { text: view.el.querySelector('.oi-net')?.textContent ?? '', list: list?.textContent ?? null,
+    listButtons: list ? [...list.querySelectorAll('button')].map(b => ({ cls: b.className, title: b.title, aria: b.getAttribute('aria-label'),
+      check: !!b.querySelector('svg[data-testid="CheckIcon"]'), text: b.textContent })) : null,
     signs: [...view.el.querySelectorAll('.oi-net .oi-blocked[role="img"]')].map(s => s.getAttribute('aria-label')),
     buttons: [...view.el.querySelectorAll('.oi-net button.link, .oi-net button.conn-x')].map(b => b.querySelector('svg[data-testid="BlockIcon"].oi-blocked') ? 'blocked sign' : b.textContent) }
 }
@@ -64,4 +66,8 @@ test('control: a well-formed answer shows the list and the sign', async t => {
   const r = await mailservers(t, json({ blocked: [{ address: 'alice.fixture.aa0011', set_by: 'rhea', reason: 'spam', at: '2026-11-24T21:40:00Z' }], blocked_by: [] }))
   assert.match(r.list ?? '', /blocked by @rhea — spam/)
   assert.deepEqual(r.signs, ['blocked'])
+  // USER 2026-11-26 19:24:40Z m3d87ef9439ae (via @coordinator-opus m1f6c9e07e838) "yes make that a checkmark too": the
+  // blocked contacts list unblocks with the same green checkmark button as a blocked row, no "unblock" text
+  const title = 'Unblock @net:alice.fixture.aa0011'
+  assert.deepEqual(r.listButtons, [{ cls: 'conn-x unblock', title, aria: title, check: true, text: '' }])
 })

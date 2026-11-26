@@ -41,6 +41,9 @@ module.exports=async(page)=>{
   await page.screenshot('2-block-x-hover')
   await press('alice.fixture');await page.waitFor('.oi-net .oi-blocked[aria-label="blocked"]');await paint();await park()
   r.blocked={...await state(),aliceButton:await button('alice.fixture'),listButton:await button('alice.fixture','list'),aliceX:await xLook('alice.fixture'),
+    listX:await page.eval(()=>{const h=[...document.querySelectorAll('.oi-net .oi-hub')].find(h=>/blocked contacts/.test(h.textContent));const p=h&&[...h.querySelectorAll('.oi-peer')].find(l=>l.textContent.includes('alice.fixture'))
+      const x=p?.querySelector('button.conn-x');if(!x)return null;const r=x.getBoundingClientRect(),i=x.querySelector('svg')?.getBoundingClientRect()
+      return {title:x.title,color:getComputedStyle(x).color,opacity:getComputedStyle(x).opacity,w:r.width,h:r.height,iconW:i?.width??0,iconH:i?.height??0}}),
     textUnblock:await page.eval(()=>{const hub=[...document.querySelectorAll('.oi-net > .oi-hub')][0];const l=[...hub.querySelectorAll('.conn-row')].find(x=>x.textContent.includes('alice.fixture'));return l?[...l.querySelectorAll('button.link')].map(b=>b.textContent):null})}
   await page.screenshot('3-blocked-sign-unblock-and-list')
   await page.eval(()=>window.__blocks.show('o1'));await page.waitFor('.net-state.stuck');await paint();await park()

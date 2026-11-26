@@ -87,7 +87,12 @@ check('2: a blocked contact shows the red cancel sign and an unblock button', ()
     `same size and place as the block button: ${JSON.stringify(b)} vs ${JSON.stringify(x)}`)
 })
 check('3: the blocked contacts list says "blocked by you" with unblock', () => {
-  assert.ok(v.blocked.list?.some(l => /blocked by you/.test(l)), JSON.stringify(v.blocked.list)); assert.equal(v.blocked.listButton, 'unblock')
+  assert.ok(v.blocked.list?.some(l => /blocked by you/.test(l)), JSON.stringify(v.blocked.list)); assert.equal(v.blocked.listButton, 'unblock check')
+  // USER m3d87ef9439ae "yes make that a checkmark too": the same green checkmark button as the blocked row's
+  const l = v.blocked.listX, b = v.blocked.aliceX
+  assert.equal(l?.title, `Unblock @net:${ALICE}`)
+  assert.ok(Math.abs(l.w - b.w) < 0.5 && Math.abs(l.h - b.h) < 0.5 && Math.abs(l.iconW - b.iconW) < 0.5 && l.color === b.color,
+    `same size and colour as the row checkmark: ${JSON.stringify(l)} vs ${JSON.stringify(b)}`)
 })
 check('5: a refused message shows the red cancel sign with the engine\'s words', () => {
   const words = `not delivered — you have been blocked by @net:${CY} and cannot message them`
