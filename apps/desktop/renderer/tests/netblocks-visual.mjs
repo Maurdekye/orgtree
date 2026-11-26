@@ -79,7 +79,12 @@ check('1: each row of the hub list ends in the blocked status sign as a small bu
 })
 check('2: a blocked contact shows the red cancel sign and an unblock button', () => {
   assert.equal(v.blocked.alice?.label, 'blocked'); assert.ok(red(v.blocked.alice.color), v.blocked.alice.color); assert.ok(v.blocked.alice.w > 0)
-  assert.equal(v.blocked.aliceButton, 'unblock')
+  // USER mc519405980c8: a checkmark in the block button's place unblocks; no text button
+  assert.equal(v.blocked.aliceButton, 'unblock check'); assert.deepEqual(v.blocked.textUnblock, [])
+  const b = v.blocked.aliceX, x = v.initial.aliceX
+  assert.equal(b?.title, `Unblock @net:${ALICE}`)
+  assert.ok(Math.abs(b.w - x.w) < 0.5 && Math.abs(b.h - x.h) < 0.5 && Math.abs(b.rightGap - x.rightGap) < 0.5 && Math.abs(b.iconW - x.iconW) < 0.5,
+    `same size and place as the block button: ${JSON.stringify(b)} vs ${JSON.stringify(x)}`)
 })
 check('3: the blocked contacts list says "blocked by you" with unblock', () => {
   assert.ok(v.blocked.list?.some(l => /blocked by you/.test(l)), JSON.stringify(v.blocked.list)); assert.equal(v.blocked.listButton, 'unblock')

@@ -128,12 +128,19 @@ test("Org settings › Connections: a 2.6.0 hub's rows carry the list's red bloc
   assert.equal(x.querySelector('svg')!.outerHTML.replace(/ aria-[a-z]+="[^"]*"| role="img"/g, '').replace(/<title>.*<\/title>/, ''),
     row('beta.home.bb0002').querySelector('.oi-blocked[role="img"]')!.outerHTML.replace(/ aria-[a-z]+="[^"]*"| role="img"/g, '').replace(/<title>.*<\/title>/, ''),
     'the same element as the status sign: same glyph, class and size')
-  assert.equal(row('beta.home.bb0002').querySelector('button.conn-x'), null)
-  assert.ok(row('beta.home.bb0002').querySelector('.oi-blocked[role="img"]'))
-  assert.deepEqual([...row('beta.home.bb0002').querySelectorAll('button.link')].map(b => b.textContent), ['unblock'])
+  // USER 2026-11-26 19:13:26Z mc519405980c8 (via @coordinator-opus mdb6646c5131a): "change the unblock button to a checkmark
+  // that appears in place of the block button"
+  const check = row('beta.home.bb0002').querySelector<HTMLButtonElement>('button.conn-x') ?? assert.fail('no checkmark on beta')
+  assert.ok(check.classList.contains('unblock') && !check.classList.contains('block'), check.className)
+  assert.ok(check.querySelector('svg[data-testid="CheckIcon"]'), 'a checkmark in the block button\'s place')
+  assert.equal(check.title, 'Unblock @net:beta.home.bb0002'); assert.equal(check.getAttribute('aria-label'), check.title)
+  assert.ok(row('beta.home.bb0002').querySelector('.oi-blocked[role="img"]'), 'the blocked indicator stays')
+  assert.deepEqual([...row('beta.home.bb0002').querySelectorAll('button.link')].map(b => b.textContent), [], 'no unblock text button')
   await inAct(async () => { x.click(); await flush(4) })
   assert.deepEqual(posts, [{ address: 'alpha.home.aa0001', blocked: true }])
-  assert.equal(row('alpha.home.aa0001').querySelector('button.conn-x'), null, 'blocked now')
+  assert.ok(row('alpha.home.aa0001').querySelector('button.conn-x.unblock'), 'blocked now: the checkmark in its place')
+  await inAct(async () => { row('alpha.home.aa0001').querySelector<HTMLButtonElement>('button.conn-x.unblock')!.click(); await flush(4) })
+  assert.deepEqual(posts.at(-1), { address: 'alpha.home.aa0001', blocked: false }, 'the checkmark unblocks')
 })
 
 test('online first, then the newest mail with this org; no mail last, A-Z; equal times A-Z', async t => {

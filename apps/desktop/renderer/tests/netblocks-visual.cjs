@@ -12,7 +12,7 @@ module.exports=async(page)=>{
     const lines=where==='list'?[...document.querySelectorAll('.oi-net .oi-hub')].filter(h=>/blocked contacts/.test(h.textContent)).flatMap(h=>[...h.querySelectorAll('.oi-peer')])
       :[...document.querySelectorAll('.oi-net > .oi-hub')][0]?.querySelectorAll('.conn-row')??[]
     const line=[...lines].find(l=>l.textContent.includes(name));const b=line&&[...line.querySelectorAll('button.link, button.conn-x')].pop()
-    return b?(b.querySelector('svg[data-testid="BlockIcon"].oi-blocked')?'blocked sign':b.textContent):null},[name,where])
+    return b?(b.querySelector('svg[data-testid="BlockIcon"].oi-blocked')?'blocked sign':b.querySelector('svg[data-testid="CheckIcon"]')?'unblock check':b.textContent):null},[name,where])
   const press=(name)=>page.eval(name=>{const hub=[...document.querySelectorAll('.oi-net > .oi-hub')][0]
     const line=[...hub.querySelectorAll('.conn-row')].find(l=>l.textContent.includes(name));[...line.querySelectorAll('button.link, button.conn-x')].pop().click()},name)
   const xLook=(name)=>page.eval(name=>{const hub=[...document.querySelectorAll('.oi-net > .oi-hub')][0]
@@ -40,7 +40,8 @@ module.exports=async(page)=>{
   r.hoverX=await xLook('alice.fixture')
   await page.screenshot('2-block-x-hover')
   await press('alice.fixture');await page.waitFor('.oi-net .oi-blocked[aria-label="blocked"]');await paint();await park()
-  r.blocked={...await state(),aliceButton:await button('alice.fixture'),listButton:await button('alice.fixture','list')}
+  r.blocked={...await state(),aliceButton:await button('alice.fixture'),listButton:await button('alice.fixture','list'),aliceX:await xLook('alice.fixture'),
+    textUnblock:await page.eval(()=>{const hub=[...document.querySelectorAll('.oi-net > .oi-hub')][0];const l=[...hub.querySelectorAll('.conn-row')].find(x=>x.textContent.includes('alice.fixture'));return l?[...l.querySelectorAll('button.link')].map(b=>b.textContent):null})}
   await page.screenshot('3-blocked-sign-unblock-and-list')
   await page.eval(()=>window.__blocks.show('o1'));await page.waitFor('.net-state.stuck');await paint();await park()
   r.refused=await page.eval(()=>{const s=document.querySelector('.net-state.stuck');const row=s.closest('[class*="row"]')||s.parentElement

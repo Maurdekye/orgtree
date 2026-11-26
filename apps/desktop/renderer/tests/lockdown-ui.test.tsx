@@ -183,14 +183,19 @@ test('each hub list entry has a small red × that blocks at once; a blocked one 
   assert.equal(x.querySelector('svg[data-testid="CancelIcon"]'), null)
   assert.equal(x.textContent, '')
   const cy = rowOf(hub, 'cy.fixture.cc0033')!
-  assert.equal(xOf(cy), null, 'a blocked entry has no ×')
+  // USER 2026-11-26 19:13:26Z mc519405980c8 (via @coordinator-opus mdb6646c5131a): "change the unblock button to a checkmark
+  // that appears in place of the block button"
+  const check = xOf(cy) ?? assert.fail('a blocked entry has the checkmark in the block button\'s place')
+  assert.ok(check.classList.contains('unblock') && check.querySelector('svg[data-testid="CheckIcon"]'), check.outerHTML)
+  assert.equal(check.title, 'Unblock @net:cy.fixture.cc0033')
   assert.ok(cy.querySelector('.oi-blocked[role="img"]'), 'it wears the blocked badge')
-  assert.deepEqual([...cy.querySelectorAll('button.link')].map(b => b.textContent), ['unblock'])
+  assert.deepEqual([...cy.querySelectorAll('button.link')].map(b => b.textContent), [])
   await inAct(() => x.click()); await flush(4)
   assert.deepEqual(blockPosts, [{ address: 'alice.fixture.aa0011', blocked: true }], 'no confirm step')
   const after = rowOf(view.el.querySelector('.oi-net > .oi-hub')!, 'alice.fixture.aa0011')!
   assert.ok(after.querySelector('.oi-blocked[role="img"]'))
-  assert.deepEqual([...after.querySelectorAll('button.link')].map(b => b.textContent), ['unblock'])
+  assert.deepEqual([...after.querySelectorAll('button.link')].map(b => b.textContent), [])
+  assert.ok(after.querySelector('button.conn-x.unblock svg[data-testid="CheckIcon"]'), 'the checkmark replaces the block button')
 })
 
 test('settings: Org decides is the default for outside communication and the lockdown, each showing what is in force', async t => {
