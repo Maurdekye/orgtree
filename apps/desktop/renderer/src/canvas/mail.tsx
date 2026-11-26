@@ -1180,7 +1180,7 @@ export function MailReadPane({ cur, members, org, refs, mdBase, fileHref, sender
  *  `standalone` draws a typed mail as its whole card, header included, and
  *  gives a plain notice its passive edge; without it only the body is drawn,
  *  for a host that shows the header itself. */
-export function MailMessageBody({ m, standalone = false, org, refs, mdBase, sender, locateMail, context = true }: {
+export function MailMessageBody({ m, standalone = false, org, refs, mdBase, sender, locateMail, describeMail, context = true }: {
   m: MailRow
   standalone?: boolean
   org?: string
@@ -1189,6 +1189,8 @@ export function MailMessageBody({ m, standalone = false, org, refs, mdBase, send
   sender: (id: string, m: MailRow) => ReactNode
   /** the surface shows the quoted mail itself (the chats): see MailReplyPreview */
   locateMail?: LocateMail
+  /** what a quoted mail the surface holds is about, when the quote's own text is empty (see MailReplyPreview) */
+  describeMail?: (id: string) => string
   /** false: no "Context" fold under a typed mail (the chats, whose quote card already says what is answered) */
   context?: boolean
 }) {
@@ -1200,7 +1202,7 @@ export function MailMessageBody({ m, standalone = false, org, refs, mdBase, send
     || (decoded.kind === 'known' && decoded.event.variant.startsWith('ordinary.')
       && attachmentOnlyBody((decoded.event as { body?: unknown }).body, m.attachments))
   return <>
-    <MailReplyPreview row={m} org={org ?? refs?.world.org ?? ''} world={refs?.world} onOpen={refs?.onOpen} locateMail={locateMail} />
+    <MailReplyPreview row={m} org={org ?? refs?.world.org ?? ''} world={refs?.world} onOpen={refs?.onOpen} locateMail={locateMail} describeMail={describeMail} />
     <ReplySelectionSurface source={{org:org ?? refs?.world.org ?? '',target:{kind:'mail',org:org ?? refs?.world.org ?? '',id:m.id ?? ''},part:{part:'mail.body'},text:m.body}}>
     {filesOnly ? null : decoded.kind === 'legacy'
     ? <RefMdBody className={'mailer-body md' + (standalone && isMailNotice(m) ? ' event-notice' : '')} html={md(m.body, mdBase?.(m) || undefined)}

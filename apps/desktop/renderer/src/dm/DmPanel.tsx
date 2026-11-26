@@ -1158,6 +1158,9 @@ function DmConversation({ slug, tree, chat, nodes, toast, refs, onFocusAgent, fl
     const ours = from === USER || from === 'user' || from === peer || chat.kind === 'project'
     return ours && hasMore ? () => setSeek({ id, pages: 0, elsewhere }) : null
   }
+  /** what a quoted mail this chat holds is about, for a quote whose stored text is empty (a picture-only
+   *  message): its files, as its row in the list names it */
+  const describeMail = (id: string) => { const m = holds(id)?.mail; return m ? mailBrief(m) : '' }
   useEffect(() => {
     if (!seek) return
     const hit = holds(seek.id)
@@ -1479,7 +1482,7 @@ function DmConversation({ slug, tree, chat, nodes, toast, refs, onFocusAgent, fl
       rows.push(<DmBubble key={e.key} entry={e} m={m} first={first} slug={slug} refs={refs} toast={toast}
         flash={flash?.key === e.key ? flash.seq : null}
         replying={replyIds.includes(e.key)} system={chat.kind === 'system'}
-        sender={senderChip} fileHref={fileHref} mdBase={mdBase} locateMail={locateMail}
+        sender={senderChip} fileHref={fileHref} mdBase={mdBase} locateMail={locateMail} describeMail={describeMail}
         inbox={inboxOf(e, m)} onTranscript={transcriptOf(e, m)}
         onClassic={onViewClassic && m.id ? () => onViewClassic(m.id!) : undefined} transfer={m.id ? transfers.get(m.id) : undefined}
         /* the user's own message can be answered too (USER 2026-11-24 mf2cbc358ad35 "need to be able to
@@ -1507,7 +1510,7 @@ function DmConversation({ slug, tree, chat, nodes, toast, refs, onFocusAgent, fl
     const e: DmEntry = { key: l.key, at: l.at, out: true, unread: false, mail: m }
     const first = !prev || !prev.out || !!prev.ask || Date.parse(e.at) - Date.parse(prev.at) > GROUP_GAP_MS
     rows.push(<DmBubble key={l.key} entry={e} m={m} first={first} slug={slug} refs={refs} toast={toast}
-      flash={null} replying={false} sender={senderChip} fileHref={fileHref} mdBase={mdBase} locateMail={locateMail}
+      flash={null} replying={false} sender={senderChip} fileHref={fileHref} mdBase={mdBase} locateMail={locateMail} describeMail={describeMail}
       local={{ state: l.state, error: l.error, retry: () => retryLocal(l.key), discard: () => discardLocal(l.key) }} />)
     prev = e
   }
@@ -1645,13 +1648,14 @@ interface DmLocal {
 }
 
 function DmBubble({ entry, m, first, slug, refs, toast, flash, replying, system, sender, fileHref, mdBase,
-  locateMail, inbox, onTranscript, onClassic, onReply, onRead, onDelete, onRetract, onAckJob, highlighted, local, transfer }: {
+  locateMail, describeMail, inbox, onTranscript, onClassic, onReply, onRead, onDelete, onRetract, onAckJob, highlighted, local, transfer }: {
   entry: DmEntry; m: MailRow; first: boolean; slug: string; refs: RefRoutes; toast: ToastFn
   /** the transfer carrying this message's files, while it is unfinished */
   transfer?: MailTransfer
   /** the user's own message the engine has not stored yet (DmLocal): its state and its two answers */
   local?: { state: 'sending' | 'failed' | 'sent'; error?: string; retry: () => void; discard: () => void }
   locateMail: LocateMail
+  describeMail?: (id: string) => string
   /** the agent whose mailbox holds this message too, and the way to it there */
   inbox?: { agent: string; open: () => void }
   /** this message's row in the agent's transcript; absent while it has none (the user's mail not yet delivered) */
@@ -1679,8 +1683,10 @@ function DmBubble({ entry, m, first, slug, refs, toast, flash, replying, system,
   const decoded = decodeEventRow(m, PROFILE)
   const view = decoded.kind === 'known' ? projectEvent(decoded.event, m.from) : null
   // a typed mail that is more than a message draws its whole card, title
-  // included; a message, a notice and a reply are their text
-  const ordinary = !view || ['ordinary.message', 'ordinary.notice', 'reply.mail'].includes(view.event.variant)
+  // included; a message, a notice and a reply are their text, and so is a
+  // question, with its tag above (USER 2026-11-26 mb2a0028c1a6d "Bubble + tag":
+  // with or without a reply target, never the framed "Question · <agent>" card)
+  const ordinary = !view || ['ordinary.message', 'ordinary.notice', 'ordinary.question', 'reply.mail'].includes(view.event.variant)
   const notice = isMailNotice(m)
   const label = KIND_LABEL[m.kind] ?? null
   const mega = entry.megaphone
@@ -1771,7 +1777,7 @@ function DmBubble({ entry, m, first, slug, refs, toast, flash, replying, system,
           {m.urgent && m.urgent_reason && <div className="urgent-why">{m.urgent_reason}</div>}
           {/* the quote card says what is answered, and finds it in this chat: no "Context" fold (USER 2026-11-24 m78cc5cf2c677) */}
           <MailMessageBody m={m} standalone={!ordinary} org={slug} refs={refs} mdBase={mdBase} sender={sender}
-            locateMail={locateMail} context={false} />
+            locateMail={locateMail} describeMail={describeMail} context={false} />
           <MailAttachments m={m} fileHref={fileHref} transfer={transfer} />
           {onAckJob && needsAck(queued) && <JobAckPane job={queued} onAck={onAckJob} target={m.from} slug={slug} toast={toast} />}
           {job && <div className={'dm-job dm-job-' + job.state} title={jobTitle}>

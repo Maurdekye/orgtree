@@ -144,10 +144,13 @@ function buildMailReplyMenu(
 export type LocateMail = (id: string, from: string, elsewhere?: () => void) => (() => void) | null
 
 /** One reply renderer for pending desk mail, settled mail and mailbox panes. */
-export function MailReplyPreview({ row, org, world, onOpen, replyAvailable, onLocateReply, locateMail }: {
+export function MailReplyPreview({ row, org, world, onOpen, replyAvailable, onLocateReply, locateMail, describeMail }: {
   row: ReplyRow; org: string; world?: RefWorld | null; onOpen?: (ref: ResolvedRef) => void
   replyAvailable?: (reply: ReplyContext) => boolean; onLocateReply?: (reply: ReplyContext) => void
   locateMail?: LocateMail
+  /** what a quoted mail the surface holds is about (its files, for a picture-only message): a quote whose
+   *  stored text is empty says that instead of calling the message gone */
+  describeMail?: (id: string) => string
 }) {
   const toast = useCopyFeedback()
   const nodeNav = useAgentNavRegistry()
@@ -157,7 +160,7 @@ export function MailReplyPreview({ row, org, world, onOpen, replyAvailable, onLo
     return <ReplyPreviewDisclosure count={replies.length}>{visible => <>
       {replies.slice(0, visible).map((reply, i) =>
         <MailReplyPreview key={i} row={{ reply_to: reply }} org={org} world={world} onOpen={onOpen}
-          replyAvailable={replyAvailable} onLocateReply={onLocateReply} locateMail={locateMail} />)}
+          replyAvailable={replyAvailable} onLocateReply={onLocateReply} locateMail={locateMail} describeMail={describeMail} />)}
     </>}</ReplyPreviewDisclosure>
   }
   const chat = replyContext(row.reply_to)
@@ -213,7 +216,7 @@ export function MailReplyPreview({ row, org, world, onOpen, replyAvailable, onLo
     {/* found on this surface, the quote itself is the way there: a chip that cannot open says nothing */}
     {target && !reply.linked && (!here || target.outcome === 'ready') && <RefChip r={target} onOpen={here ? () => here() : onOpen} />}
   </>}>
-    <blockquote>{reply.gist || 'Reply to a message that is no longer available.'}</blockquote>
+    <blockquote>{reply.gist || (quotedMail && describeMail?.(quotedMail)) || 'Reply to a message that is no longer available.'}</blockquote>
   </ReplyPreviewFrame>
 }
 
