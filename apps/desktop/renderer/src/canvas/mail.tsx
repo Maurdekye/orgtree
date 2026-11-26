@@ -2310,6 +2310,15 @@ export function OrgInboxModal({ inbox, net, map, slug, toast, close, jumpTo,
     [slug])
   const [loadErr, setLoadErr] = useState<string | null>(null)
   const [reload, setReload] = useState(0)
+  // ⚠ LIVE: THE SUMMARY IS THE SIGNAL. The user's and agents' mailboxes read
+  // the live record feed; the org mailbox's live part is this summary (newest
+  // rows with their delivery marks, total, unread), which the feed (or, without
+  // it, the ws-driven tree refresh) keeps current. The log used to be fetched
+  // only when the panel opened, so an arrival or a send showed after a reopen
+  // (USER 2026-11-26 15:05:32Z m553423f79f7e). Read it again whenever the
+  // summary MOVES; a new tree object with the same summary reads nothing.
+  const liveKey = JSON.stringify([inbox?.total ?? null, inbox?.unread ?? null,
+    (inbox?.entries ?? []).map((e) => [e.id, e.state ?? null, e.tries ?? null])])
   useEffect(() => {
     let dead = false          // a close mid-flight must not set state
     setLoadErr(null)
@@ -2317,7 +2326,7 @@ export function OrgInboxModal({ inbox, net, map, slug, toast, close, jumpTo,
       .then((r) => { if (!dead) setFull({ rows: r.entries, total: r.total }) })
       .catch((e: Error) => { if (!dead) setLoadErr(e.message || 'failed') })
     return () => { dead = true }
-  }, [slug, reload])
+  }, [slug, reload, liveKey])
   const entries = full?.rows ?? inbox?.entries ?? []
   // ⚠ LOG LENGTH, never `entries.length`. `entries` is a TAIL of the log
   // whose length now CHANGES mid-session — the preview first, the fetched
