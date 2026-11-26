@@ -268,6 +268,10 @@ mod session_measurement_tests;
 #[cfg(test)]
 mod activity_read_tests;
 
+/// A seat's effort in state_inspect and the chart (USER 2026-11-26 m99820c62f071).
+#[cfg(test)]
+mod effort_tests;
+
 #[logged]
 fn inspection_scope(id: i64, rows: &HashMap<i64, (Option<i64>, Value)>, ceiling: &Value,
     cache: &mut HashMap<i64, (Value, usize)>) -> Result<Value> {
