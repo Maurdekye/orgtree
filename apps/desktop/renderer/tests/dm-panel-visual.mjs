@@ -408,7 +408,7 @@ if (flag === '--expect') {
   assert.equal(v.via.runner.via, '(and via desk)', 'its own grant comes first')
   assert.deepEqual(v.via.firstHover, [], 'the first close affects nobody else')
   assert.equal(v.via.afterFirst.confirms, 0, 'and asks nothing'); assert.equal(v.via.afterFirst.head.peer, 'runner')
-  assert.deepEqual(v.via.secondHover.slice().sort(), ['desk', 'runner'], 'the project and runner, which reaches the user only through it; clerk acquired its own audience')
+  assert.deepEqual(v.via.secondHover, ['runner'], 'runner only, which reaches the user only through the project; never the project row (USER m13310210ae7e); clerk acquired its own audience')
   assert.equal(v.via.afterSecond.confirms, 0, 'the app\'s own dialog asked, not the system\'s')
   assert.equal(v.via.dialog.title, "Revoke project desk's audience with you?")
   assert.equal(v.via.dialog.body, '1 agent reaches you only through it and loses its audience too: runner.')

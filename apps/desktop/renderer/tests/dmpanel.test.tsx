@@ -942,7 +942,8 @@ test('hovering a project\'s close marks every agent that would lose the audience
   const s = await setup(t, deskWorld(), { tree: deskTree(), active: false })
   const close = s.row('desk')!.querySelector<HTMLButtonElement>('.dm-row-close')
   await hover(close, true)
-  assert.deepEqual(losing().sort(), ['clerk', 'desk'], 'the project and clerk; runner keeps its own grant')
+  // USER 2026-11-26 m13310210ae7e: the project itself gets no losing mark, only the agents who would lose their line
+  assert.deepEqual(losing(), ['clerk'], 'clerk only: not the project itself, and runner keeps its own grant')
   await hover(close, false)
   assert.deepEqual(losing(), [], 'the mark goes with the pointer')
   await s.click(close, 'the project\'s close')
@@ -966,6 +967,9 @@ test('declining the confirmation revokes nothing', async (t) => {
 
 test('a project whose close takes the audience from nobody else asks nothing', async (t) => {
   const s = await setup(t, crewWorld(), { tree: crewTree(), active: false })
+  await hover(s.row('crew')!.querySelector('.dm-row-close'), true)
+  assert.deepEqual(losing(), [], 'hovering its close marks no row: nobody loses a line, and the project itself is never marked')
+  await hover(s.row('crew')!.querySelector('.dm-row-close'), false)
   await s.click(s.row('crew')!.querySelector('.dm-row-close'), 'the close of crew')
   assert.equal(asked(), null, 'its members are top-level and keep their direct line')
   assert.deepEqual(posts(s.server.calls, /\/audiences$/).map(c => c.body), [{ action: 'revoke', node: 'crew' }])
@@ -978,7 +982,7 @@ test('the close of an agent that reaches the user only through a project is that
   assert.equal(close?.disabled, false)
   assert.match(close?.getAttribute('title') ?? '', /clerk reaches you only through project desk/)
   await hover(close, true)
-  assert.deepEqual(losing().sort(), ['clerk', 'desk'], 'the same mark as on the project\'s own close')
+  assert.deepEqual(losing(), ['clerk'], 'the same mark as on the project\'s own close: clerk, never the project row')
   await s.click(close, 'the close in clerk\'s chat')
   assert.equal(asked()?.querySelector('h3')?.textContent, "Revoke project desk's audience with you?", 'and the same question')
   await s.click(answer('Revoke'), 'Revoke')
