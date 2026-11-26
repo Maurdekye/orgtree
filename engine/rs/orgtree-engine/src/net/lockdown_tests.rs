@@ -355,3 +355,54 @@ fn set_aside_letters_stay_out_of_threads_summaries_recency_and_exports() {
     let export = flat(include_str!("../portable/export.rs"));
     assert!(export.contains("AND NOT EXISTS (SELECT 1 FROM ot.org_inbox i WHERE i.org_id = m.org_id AND i.dir = 'in' AND i.set_aside_at IS NOT NULL"), "exports");
 }
+
+// Point 15 (USER mac84f7b80e4a via @coordinator-opus m1cdaf5312bfc): when the USER turns the lockdown on, the
+// addresses of the current app-wide Connect your phone note go on the list as ordinary, removable entries. An
+// agent's enable adds nothing; a removal holds while it stays locked; the user's next enable adds it again.
+const PHONE_NOTE: &str = "intro\n<!-- added by Connect your phone; Unlink removes it -->\n@net:alex.123456 is the user's account and carries their authority.\n<!-- end of the Connect your phone note -->\n@net:other.654321 is only mentioned\n";
+
+#[test]
+fn the_phone_note_names_the_linked_addresses() {
+    assert_eq!(super::lockdown::phone_addresses(PHONE_NOTE), vec!["alex.123456".to_string()]);
+    assert!(super::lockdown::phone_addresses("no note here, @net:other.654321 is the user's account and carries their authority.").is_empty());
+    assert!(super::lockdown::phone_addresses("").is_empty(), "after Unlink: nothing");
+}
+
+#[nolog]
+fn listed(s: &Value) -> Vec<(String, String)> {
+    s["allow"].as_array().unwrap().iter().map(|a| (a["hub"].as_str().unwrap().to_string(), a["address"].as_str().unwrap().to_string())).collect()
+}
+
+#[tokio::test]
+#[ignore = "requires an isolated orginbox_queue_fixture database"]
+#[nolog]
+async fn the_users_enable_lists_the_linked_phone_address() {
+    let w = world().await;
+    w.e.app_instructions.publish(crate::app_instructions::Doc { text: PHONE_NOTE.into(), seq: 1, ..Default::default() });
+    w.e.net.rosters.pin().insert("http://127.0.0.1:9".into(), Arc::new(vec![json!({"slug": "alex.123456"})]));
+    let phone = ("h1".to_string(), "alex.123456".to_string());
+    // an agent's enable adds nothing
+    let s = super::lockdown::change(&w.e, w.org, Who::Agent("front"), Edit { on: Some(true), ..Edit::default() }).await.unwrap();
+    assert_eq!((s["on"].clone(), listed(&s)), (json!(true), vec![]), "{s}");
+    super::lockdown::change(&w.e, w.org, Who::Agent("front"), Edit { on: Some(false), ..Edit::default() }).await.unwrap();
+    // the user's enable lists it, on the hub whose roster has it
+    let s = super::lockdown::change(&w.e, w.org, Who::User, Edit { on: Some(true), ..Edit::default() }).await.unwrap();
+    assert_eq!(listed(&s), vec![phone.clone()], "{s}");
+    assert_eq!(s["phone_added"], json!(["@net:alex.123456"]));
+    let told: i64 = w.c.query_one("SELECT count(*) FROM ot.mail WHERE org_id=$1 AND recipient_kind='user' AND extra ? 'lockdown' AND body LIKE '%@net:alex.123456%'", &[&w.org]).await.unwrap().get(0);
+    assert_eq!(told, 1, "the notice names it");
+    // an ordinary entry: removable, and the removal holds while it stays locked (a setting change while on adds nothing)
+    let s = super::lockdown::change(&w.e, w.org, Who::User, Edit { remove: vec![entry("h1", "alex.123456")], ..Edit::default() }).await.unwrap();
+    assert_eq!(listed(&s), vec![]);
+    let s = super::lockdown::change(&w.e, w.org, Who::User, Edit { user_mode: Some(UserMode::On), ..Edit::default() }).await.unwrap();
+    assert_eq!((s["on"].clone(), listed(&s)), (json!(true), vec![]), "still locked: the removal holds");
+    // the user's next enable brings it back
+    super::lockdown::change(&w.e, w.org, Who::User, Edit { user_mode: Some(UserMode::Off), ..Edit::default() }).await.unwrap();
+    let s = super::lockdown::change(&w.e, w.org, Who::User, Edit { user_mode: Some(UserMode::On), ..Edit::default() }).await.unwrap();
+    assert_eq!(listed(&s), vec![phone.clone()]);
+    // after Unlink (no note) an enable adds nothing
+    super::lockdown::change(&w.e, w.org, Who::User, Edit { remove: vec![entry("h1", "alex.123456")], user_mode: Some(UserMode::Off), ..Edit::default() }).await.unwrap();
+    w.e.app_instructions.publish(crate::app_instructions::Doc { text: String::new(), seq: 2, ..Default::default() });
+    let s = super::lockdown::change(&w.e, w.org, Who::User, Edit { user_mode: Some(UserMode::On), ..Edit::default() }).await.unwrap();
+    assert_eq!((listed(&s), s.get("phone_added").cloned()), (vec![], None));
+}

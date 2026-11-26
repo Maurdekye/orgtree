@@ -87,6 +87,12 @@ pub fn agent_may_change(user: UserMode) -> bool {
     user == UserMode::Org
 }
 
+/// The bare addresses of the app-wide Connect your phone note (red stub).
+#[nolog]
+pub fn phone_addresses(_text: &str) -> Vec<String> {
+    Vec::new()
+}
+
 /// Who makes a change.
 #[derive(Clone, Copy, Debug)]
 pub enum Who<'a> {
