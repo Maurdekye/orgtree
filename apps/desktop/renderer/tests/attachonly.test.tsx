@@ -121,3 +121,35 @@ test('§3 the reading pane: a picture with words keeps the words', async (t) => 
     ev: ev('look'), attachments: pic } as unknown as MailRow)
   assert.match(el.textContent ?? '', /look/)
 })
+
+// §4 THE DESK'S SEND BUTTON TAKES FILES ALONE (@coordinator-opus mf66b1d13d549 on this item): enabled whenever the
+// box holds a file, even with no text, and it does what Enter does. The mail reply box (chats panel, mailboxes)
+// already did: dmparity §8 sends a dropped picture with its button.
+
+test('§4 the desk: the send button is enabled by a staged file alone and sends it as Enter does', async (t: TestContext) => {
+  localStorage.clear(); resetConvos()
+  installFetch(new FakeServer())
+  const inner = g.fetch
+  const posts: { text?: string; attachments?: string[] }[] = []
+  g.fetch = (async (url: RequestInfo | URL, init?: RequestInit) => {
+    if (/\/nodes\/writer\/message$/.test(String(url)) && (init?.method ?? 'GET').toUpperCase() === 'POST') {
+      posts.push(JSON.parse(String(init!.body)))
+      return new Response(JSON.stringify({ accepted: true, id: 'm-new' }), { status: 200, headers: { 'Content-Type': 'application/json' } })
+    }
+    return inner(url, init)
+  }) as typeof fetch
+  // NEGATIVE CONTROL first: nothing in the box, nothing to send
+  const empty = await mountView(desk(), el => el)
+  await inAct(async () => { await flush(3) })
+  assert.equal((empty.el.querySelector('button.cc-send') as HTMLButtonElement | null)?.disabled, true, 'an empty box cannot send')
+  await empty.unmount()
+  storeAttachments(draftKey('org', 'writer', 2), pic)
+  const view = await mountView(desk(), el => el)
+  t.after(async () => { await view.unmount(); resetConvos(); localStorage.clear() })
+  await inAct(async () => { await flush(3) })
+  const button = view.el.querySelector('button.cc-send') as HTMLButtonElement | null
+  assert.ok(button, 'the send button')
+  assert.equal(button!.disabled, false, 'a staged picture alone enables it')
+  await inAct(async () => { button!.click(); await flush(6) })
+  assert.deepEqual(posts.map(p => [p.text, p.attachments]), [['', ['uploads/image.png']]], 'it sends the picture with an empty text')
+})

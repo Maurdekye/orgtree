@@ -301,6 +301,8 @@ test('§8 a picture sent with no text carries no "(file attached)": not in the s
   await inAct(async () => { zone!.dispatchEvent(drop); await flush(12) })
   assert.match(document.querySelector('.dm-compose')?.textContent ?? '', /image\.png/, 'the picture is attached')
   assert.equal(s.draft(), '', 'with no text')
+  assert.equal((document.querySelector('.dm-compose .mail-reply-send') as HTMLButtonElement | null)?.disabled, false,
+    'the send button takes the picture alone')
   await s.send()
   const post = s.server.posts.find(p => /\/nodes\/lead\/message$/.test(p.path))
   assert.ok(post, 'it is sent')
