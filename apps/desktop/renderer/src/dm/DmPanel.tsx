@@ -1685,8 +1685,10 @@ function DmBubble({ entry, m, first, slug, refs, toast, flash, replying, system,
   // a typed mail that is more than a message draws its whole card, title
   // included; a message, a notice and a reply are their text, and so is a
   // question, with its tag above (USER 2026-11-26 mb2a0028c1a6d "Bubble + tag":
-  // with or without a reply target, never the framed "Question · <agent>" card)
-  const ordinary = !view || ['ordinary.message', 'ordinary.notice', 'ordinary.question', 'reply.mail'].includes(view.event.variant)
+  // with or without a reply target, never the framed "Question · <agent>" card); a request and a decision
+  // likewise, with their REQUEST / DECISION tag (USER 2026-11-26 mb633b840c662 "Yes, same (rec.)")
+  const ordinary = !view || ['ordinary.message', 'ordinary.notice', 'ordinary.question', 'ordinary.request', 'ordinary.decision',
+    'reply.mail'].includes(view.event.variant)
   const notice = isMailNotice(m)
   const label = KIND_LABEL[m.kind] ?? null
   const mega = entry.megaphone
