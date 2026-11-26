@@ -121,6 +121,7 @@ test("Org settings › Connections: a 2.6.0 hub's rows carry the list's red bloc
   const row = (slug: string) => rows(view.el).find(r => addressOf(r) === '@net:' + slug)!
   const x = row('alpha.home.aa0001').querySelector<HTMLButtonElement>('button.conn-x') ?? assert.fail('no × on alpha')
   assert.equal(x.title, 'Block @net:alpha.home.aa0001: no messages either way')
+  assert.ok(x.querySelector('svg[data-testid="CancelIcon"]'), 'the red Cancel icon (USER mdd0522f95fb0)')
   assert.equal(row('beta.home.bb0002').querySelector('button.conn-x'), null)
   assert.ok(row('beta.home.bb0002').querySelector('.oi-blocked'))
   assert.deepEqual([...row('beta.home.bb0002').querySelectorAll('button.link')].map(b => b.textContent), ['unblock'])
