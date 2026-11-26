@@ -56,9 +56,9 @@ const SHIPPED_EARLIER: &[(&str, &[&str])] = &[
 ];
 
 /// The digest `SHIPPED_EARLIER` holds: SHA-256 of the text without its carriage returns, so the file a Windows
-/// build wrote and the one a checkout holds are the same text. Charter presets use it too (settings.rs).
+/// build wrote and the one a checkout holds are the same text.
 #[nolog]
-pub(crate) fn text_digest(text: &[u8]) -> String {
+fn text_digest(text: &[u8]) -> String {
     use sha2::Digest;
     let lf: Vec<u8> = text.iter().copied().filter(|b| *b != b'\r').collect();
     hex::encode(sha2::Sha256::digest(&lf))

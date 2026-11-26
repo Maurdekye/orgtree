@@ -1116,19 +1116,29 @@ const BUNDLED: &[(&str, &str)] = &[
     ("liaison.md", include_str!("../../../../docs/charters/liaison.md")),
     ("redteam.md", include_str!("../../../../docs/charters/redteam.md")),
 ];
-/// SHA-256 (`templates::text_digest`, line endings normalised) of every text a bundled charter shipped with
-/// BEFORE its current one. A copy in ~/.orgtree/charters that still matches one was never edited and is
-/// refreshed to the current text; anything else is the user's (coordinator 2026-11-26 m885921c766c9, the
-/// templates' SHIPPED_EARLIER rule). When a bundled charter changes, add its previous digest here (the pin test
-/// names it).
+/// SHA-256 of the EXACT bytes (`raw_digest`, nothing normalised) of every text a bundled charter shipped with
+/// BEFORE its current one, as an LF build and as a CRLF build wrote it (both listed). A copy in
+/// ~/.orgtree/charters that still matches one was never edited and is refreshed to the current text; anything
+/// else is the user's (coordinator 2026-11-26 m885921c766c9, the templates' SHIPPED_EARLIER rule). When a
+/// bundled charter changes, add both forms of its previous digest here (the pin test names it).
 const CHARTERS_SHIPPED_EARLIER: &[(&str, &[&str])] = &[
-    // d5756dc, 3b46382, dc34e7f: before the 10-second delegation rule (USER 2026-11-26 m22d773a3eeb2)
+    // d5756dc, 3b46382, dc34e7f (LF, then CRLF): before the 10-second delegation rule (USER 2026-11-26 m22d773a3eeb2)
     ("coordinator.md", &[
         "a67ec6beaec84ecda243f5270d720a970660b04e620d0dac92f37207ba2a4324",
+        "7b5304e7166f12a06347c19412d3b72d4d840c68a92c90f39a3ccdb1bac9fa5d",
         "22260b24e9c0a06cef01954b3178645a85eff8d5b9294cba5ef12faa391fdf97",
+        "9e760e28cd09b12d6690bfa55902a9b043b69b12dda3348c09e96f82bfd90e62",
         "52a7eb9f898f6cf714b0a6b057e999dc38e18fff596a8f177930e8cee15a6b79",
+        "22ede903101461980ccdc6a70d03b0fcbcd027e7ebcfc735543e9f2bceee2ce8",
     ]),
 ];
+
+/// SHA-256 of exactly these bytes.
+#[nolog]
+fn raw_digest(bytes: &[u8]) -> String {
+    use sha2::Digest;
+    hex::encode(sha2::Sha256::digest(bytes))
+}
 const PRESET_MAX: usize = 100_000;
 const CHARTER_LONG: usize = 12_000;
 
@@ -1148,21 +1158,48 @@ fn refresh_unedited_in(dir: &FsPath, bundled: &[(&str, &str)], earlier: &[(&str,
     let mut refreshed = Vec::new();
     for (f, body) in bundled {
         let p = dir.join(f);
-        let Ok(have) = std::fs::read(&p) else { continue };
-        let digest = crate::domain::templates::text_digest(&have);
+        // the listing's guarded, bounded reader: a missing, special, oversized or unreadable file is skipped
+        let Some(have) = charter_scan::read(&p) else { continue };
+        let digest = raw_digest(have.as_bytes());
         if !earlier.iter().any(|(e, ds)| e == f && ds.contains(&digest.as_str())) {
             continue;
         }
-        // a failed refresh keeps the old file, as for templates
-        match std::fs::write(&p, body) {
-            Ok(()) => {
+        match replace_if_unchanged(&p, body, &digest) {
+            Ok(true) => {
                 tracing::info!(charter = %f, "an unedited bundled charter was refreshed to the current text");
                 refreshed.push(f.to_string());
             }
+            Ok(false) => {}
             Err(e) => tracing::warn!(charter = %f, error = %e, "an unedited bundled charter could not be refreshed"),
         }
     }
     refreshed
+}
+
+/// Replace `path` with `body` only while it still holds the bytes whose digest is `judged`. The text is written
+/// to a new temporary file beside it first and renamed over it, so the old copy is never truncated in place and
+/// a failed write leaves it whole. A file edited or deleted since the check is kept (or stays absent); the window
+/// that remains is the instant between the re-read and the rename. `Ok(false)` when nothing was replaced.
+#[nolog] // Takes a charter text.
+fn replace_if_unchanged(path: &FsPath, body: &str, judged: &str) -> Result<bool, String> {
+    use std::io::Write;
+    let name = path.file_name().and_then(|n| n.to_str()).ok_or("no file name")?;
+    let tmp = path.with_file_name(format!(".{name}.refresh-{}.tmp", std::process::id()));
+    let written = std::fs::OpenOptions::new().write(true).create_new(true).open(&tmp)
+        .and_then(|mut t| { t.write_all(body.as_bytes())?; t.sync_all() });
+    if let Err(e) = written {
+        let _ = std::fs::remove_file(&tmp);
+        return Err(e.to_string());
+    }
+    let unchanged = charter_scan::read(path).is_some_and(|now| raw_digest(now.as_bytes()) == judged);
+    if !unchanged {
+        let _ = std::fs::remove_file(&tmp);
+        return Ok(false);
+    }
+    std::fs::rename(&tmp, path).map(|()| true).map_err(|e| {
+        let _ = std::fs::remove_file(&tmp);
+        e.to_string()
+    })
 }
 
 /// Populate: refresh the unedited copies, then write every bundled charter the folder lacks.
@@ -1177,8 +1214,15 @@ fn populate_into(dir: &FsPath, bundled: &[(&str, &str)], earlier: &[(&str, &[&st
         let p = dir.join(f);
         if p.exists() {
             existing.push(f.to_string());
-        } else if std::fs::write(&p, c).is_ok() {
-            created.push(f.to_string());
+            continue;
+        }
+        // create_new: a file that appeared since the check is the user's and is not overwritten
+        let seeded = std::fs::OpenOptions::new().write(true).create_new(true).open(&p)
+            .and_then(|mut n| std::io::Write::write_all(&mut n, c.as_bytes()));
+        match seeded {
+            Ok(()) => created.push(f.to_string()),
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => existing.push(f.to_string()),
+            Err(_) => {}
         }
     }
     Ok((created, existing))
