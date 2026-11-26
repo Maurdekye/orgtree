@@ -37,6 +37,9 @@
 }
 /* the block button's icon is the blocked sign at the row's own size, like the status badge beside the chip */
 .conn-row > button.conn-x.block { font-size: inherit; }
+/* on a blocked row the checkmark that unblocks sits in the block button's place, same box, quiet/hover rule, size */
+.conn-row > button.conn-x.unblock { font-size: inherit; color: var(--ok); }
+.conn-row > button.conn-x.unblock:hover { background: color-mix(in srgb, var(--ok) 16%, transparent); }
 .conn-row:hover > button.conn-x, .conn-row > button.conn-x:focus-visible { opacity: 1; }
 .conn-row > button.conn-x:hover { background: color-mix(in srgb, var(--bad) 16%, transparent); opacity: 1; }
 .presence-dot {

@@ -41,7 +41,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode }
 import type { NetHub, NetPeer } from '../types'
 import { HubContactChip } from './agentmentions'
 import { NET_PRESENCE_WORD, PRESENCE_RANK, netPresence, peerPresence, useNetMentionState, type NetPresence } from './netmentions'
-import { BlockIcon } from '../icons'
+import { BlockIcon, CheckIcon } from '../icons'
 import './connectionlist.css'
 
 /** Rows shown before the list scrolls. */
@@ -114,12 +114,13 @@ export function BlockedSign({ label, title }: { label?: string; title?: string }
 /** What a caller adds to each row: its status (default: the presence dot), a
  *  control after the chip, and the small red control at the end (null: none):
  *  `block` draws the blocked sign (BlockedSign; USER mdd0522f95fb0, corrected on
- *  alpha.8 m2d6e12a94c56), anything else (taking an address off the lockdown
- *  list) the plain ×. */
+ *  alpha.8 m2d6e12a94c56), `unblock` a checkmark in the same place (USER
+ *  mc519405980c8), anything else (taking an address off the lockdown list) the
+ *  plain ×. */
 export interface RowControls {
   status?: (p: NetPeer) => ReactNode
   trail?: (p: NetPeer) => ReactNode
-  x?: (p: NetPeer) => { title: string; onClick: () => void; block?: boolean } | null
+  x?: (p: NetPeer) => { title: string; onClick: () => void; block?: boolean; unblock?: boolean } | null
 }
 
 /** One hub's connections: rows, sorted, scrolling past VISIBLE_ROWS, with
@@ -184,8 +185,9 @@ export function ConnectionList({ rows, recent, label, status, trail, x }: { rows
         {trail?.(p)}
         {(() => {
           const act = x?.(p)
-          return act && <button type="button" className={'conn-x' + (act.block ? ' block' : '')} title={act.title} aria-label={act.title}
-            onClick={act.onClick}>{act.block ? <BlockedSign /> : '×'}</button>
+          return act && <button type="button" className={'conn-x' + (act.block ? ' block' : act.unblock ? ' unblock' : '')}
+            title={act.title} aria-label={act.title} onClick={act.onClick}>
+            {act.block ? <BlockedSign /> : act.unblock ? <CheckIcon fontSize="inherit" aria-hidden="true" /> : '×'}</button>
         })()}
       </div>)}
     {last < order.length && <div className="conn-gap" aria-hidden="true" style={{ height: (order.length - last) * rowPx }} />}

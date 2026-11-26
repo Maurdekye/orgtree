@@ -5,7 +5,7 @@
 // m706c3054c21d "add the same button next to the entries in the lists under mailservers in the org connections tab,
 // integrate it into the ux and style of the general list component"). This module gives such a list, for one org,
 // the badge a row wears (blocked, or the contact's lockdown lock) and its controls: the blocked sign as a button that blocks at once
-// (blocking is reversible, so it asks nothing), or `unblock` on a row the org blocks.
+// (blocking is reversible, so it asks nothing), or the checkmark that unblocks on a row the org blocks.
 import { useEffect, useState, type ReactNode } from 'react'
 import { getNetBlocks, setNetBlock } from '../api'
 import { LockIcon } from '../icons'
@@ -58,15 +58,17 @@ export function contactStatus(h: Pick<NetHub, 'locked'> | undefined, p: NetPeer,
   return <PresenceDot state={rowPresence(p)} />
 }
 
-/** A hub list's row controls for one org: its status, the × that blocks (only on a hub that can block), and
- *  `unblock` on a row the org blocks. */
+/** A hub list's row controls for one org: its status and, at the row's end, the button that blocks (only on a hub
+ *  that can block) or, on a row the org blocks, the checkmark that unblocks. */
 export function hubListControls(h: NetHub, b: OrgBlocks): RowControls {
   const can = h.blocks !== undefined
   return {
     status: (p) => contactStatus(h, p, b),
-    x: (p) => can && !b.mine.has(p.slug)
-      ? { title: `Block @net:${p.slug}: no messages either way`, onClick: () => b.change(p.slug, true), block: true } : null,
-    trail: (p) => b.mine.has(p.slug)
-      ? <button type="button" className="link" onClick={() => b.change(p.slug, false)}>unblock</button> : null,
+    // a row the org blocks has a checkmark that unblocks in the block button's place, no text button (USER
+    // 2026-11-26 19:13:26Z mc519405980c8 "change the unblock button to a checkmark that appears in place of the block
+    // button"); unblocking needs no block support on the hub's side here, as before
+    x: (p) => b.mine.has(p.slug)
+      ? { title: `Unblock @net:${p.slug}`, onClick: () => b.change(p.slug, false), unblock: true }
+      : can ? { title: `Block @net:${p.slug}: no messages either way`, onClick: () => b.change(p.slug, true), block: true } : null,
   }
 }
