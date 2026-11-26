@@ -2852,6 +2852,8 @@ USER m22d773a3eeb2 "update the coordinator charter: anything that might take ove
 to a subordinate, including queries and searched", m7d0f3514a611 "the one shipped with orgtree". The bundled
 coordinator preset (rule 5, used by the four devteam templates) and the Heavy dev shop coordinator's personal notes
 say so; live seats keep their saved charters. @coordinator-opus m885921c766c9 (option B): charter presets get the
-templates' SHIPPED_EARLIER rule. A copy in ~/.orgtree/charters still identical (line endings aside) to an earlier
-shipped text (`CHARTERS_SHIPPED_EARLIER`, http/settings.rs) is replaced by the current text at engine start, at every
-listing and at populate; an edited copy is never touched, and a deleted one comes back only by populate.
+templates' SHIPPED_EARLIER rule. A copy in ~/.orgtree/charters byte-identical to an earlier shipped text, as an LF
+or a CRLF build wrote it (`CHARTERS_SHIPPED_EARLIER` lists both digests, http/settings.rs), is replaced by the current text at engine start, at every
+listing and at populate; an edited copy is never touched, and a deleted one comes back only by populate. The refresh reads through the listing's guarded, bounded reader and
+writes a temporary file renamed over the copy only if the copy still holds the judged bytes, so a failed write or an
+edit or deletion made meanwhile keeps the user's file (build-sol review meb74bf07605e).
