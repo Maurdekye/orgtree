@@ -15,7 +15,7 @@ Each bundled template places one coordinator directly under the user and three d
 
 | Role | Responsibility from its charter |
 | --- | --- |
-| Coordinator | Clarify and record the user's request, assign one accountable agent per piece, coordinate dependencies and follow work through to completion. Answer simple questions directly; delegate substantive investigation, execution and review. Read a report's actual files and transcript before asking it to repeat its status. |
+| Coordinator | Clarify and record the user's request, assign one accountable agent per piece, coordinate dependencies and follow work through to completion. Answer simple questions directly; delegate substantive investigation, execution and review, and anything that might take over 10 seconds, queries and searches included, so the coordinator stays responsive. Read a report's actual files and transcript before asking it to repeat its status. |
 | Implementer | Own the deliverable end to end: design, assemble adopted contributions, build, verify and deliver within the assigned authority. Verify peer input before adopting it; authors retain credit, while the implementer takes responsibility for adopted work. |
 | Redteam | Reproduce and diagnose defects, attack the intended fix and provide measured findings or measured-clean results. Its charter restricts writes to tests; the implementer owns product fixes. |
 | Curator | Read current sources, answer with re-checkable evidence, and maintain documentation and durable records. Its charter restricts changes to documents and records. |

@@ -2845,3 +2845,13 @@ a weak link while the mailbox has a holder; only real replies (with a reference)
 passes weak links to its own reports; a weak holder reads its own mail only. @coordinator-opus (mf75e8ed87480): a
 replaced primary is not demoted to weak; agents only. Stored as the separate grantor `@extern-weak`, never as a flag on
 `@extern`. Mechanics: [mail-and-hub](../agents/mail-and-hub.md#org-mailbox-weak-links-470).
+
+### Shipped coordinator texts delegate slow work; unedited charter copies follow the app (USER 2026-11-26, 4.7.0)
+
+USER m22d773a3eeb2 "update the coordinator charter: anything that might take over 10 seconds to do should be delegated
+to a subordinate, including queries and searched", m7d0f3514a611 "the one shipped with orgtree". The bundled
+coordinator preset (rule 5, used by the four devteam templates) and the Heavy dev shop coordinator's personal notes
+say so; live seats keep their saved charters. @coordinator-opus m885921c766c9 (option B): charter presets get the
+templates' SHIPPED_EARLIER rule. A copy in ~/.orgtree/charters still identical (line endings aside) to an earlier
+shipped text (`CHARTERS_SHIPPED_EARLIER`, http/settings.rs) is replaced by the current text at engine start, at every
+listing and at populate; an edited copy is never touched, and a deleted one comes back only by populate.
