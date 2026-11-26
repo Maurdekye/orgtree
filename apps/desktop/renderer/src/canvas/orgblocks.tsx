@@ -4,13 +4,13 @@
 // list for each hub, and add a small red cancel button by each entry to manually block them"; 21:50:37Z
 // m706c3054c21d "add the same button next to the entries in the lists under mailservers in the org connections tab,
 // integrate it into the ux and style of the general list component"). This module gives such a list, for one org,
-// the badge a row wears (blocked, or the contact's lockdown lock) and its controls: the red × that blocks at once
+// the badge a row wears (blocked, or the contact's lockdown lock) and its controls: the blocked sign as a button that blocks at once
 // (blocking is reversible, so it asks nothing), or `unblock` on a row the org blocks.
 import { useEffect, useState, type ReactNode } from 'react'
 import { getNetBlocks, setNetBlock } from '../api'
-import { BlockIcon, LockIcon } from '../icons'
+import { LockIcon } from '../icons'
 import type { NetBlocks, NetHub, NetPeer } from '../types'
-import { PresenceDot, rowPresence, type RowControls } from './connectionlist'
+import { BlockedSign, PresenceDot, rowPresence, type RowControls } from './connectionlist'
 
 /** An engine before blocking (or any odd answer) has no lists: read as none. */
 export const blockLists = (b: unknown): NetBlocks => {
@@ -47,8 +47,8 @@ export function useOrgBlocks(slug: string, key: string, onError?: (message: stri
 export function contactStatus(h: Pick<NetHub, 'locked'> | undefined, p: NetPeer, b: Pick<OrgBlocks, 'mine' | 'by'>): ReactNode {
   if (b.mine.has(p.slug) || b.by.has(p.slug)) {
     const mine = b.mine.has(p.slug)
-    return <BlockIcon className="oi-blocked" fontSize="inherit" role="img" aria-label={mine ? 'blocked' : 'has blocked this org'}
-      titleAccess={mine ? 'Blocked: no messages either way' : 'Has blocked this org: no messages either way'} />
+    return <BlockedSign label={mine ? 'blocked' : 'has blocked this org'}
+      title={mine ? 'Blocked: no messages either way' : 'Has blocked this org: no messages either way'} />
   }
   const lock = h?.locked?.[p.slug]
   if (lock === 'closed') return <LockIcon className="oi-locked" fontSize="inherit" role="img" aria-label="in lockdown, can't be messaged"

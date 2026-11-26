@@ -35,6 +35,8 @@
   border: none; border-radius: 50%; background: transparent; cursor: pointer;
   color: var(--bad); opacity: 0.7; font-size: 14px; line-height: 1;
 }
+/* the block button's icon is the blocked sign at the row's own size, like the status badge beside the chip */
+.conn-row > button.conn-x.block { font-size: inherit; }
 .conn-row:hover > button.conn-x, .conn-row > button.conn-x:focus-visible { opacity: 1; }
 .conn-row > button.conn-x:hover { background: color-mix(in srgb, var(--bad) 16%, transparent); opacity: 1; }
 .presence-dot {

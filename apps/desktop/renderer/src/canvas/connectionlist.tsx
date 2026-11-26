@@ -41,7 +41,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode }
 import type { NetHub, NetPeer } from '../types'
 import { HubContactChip } from './agentmentions'
 import { NET_PRESENCE_WORD, PRESENCE_RANK, netPresence, peerPresence, useNetMentionState, type NetPresence } from './netmentions'
-import { CancelIcon } from '../icons'
+import { BlockIcon } from '../icons'
 import './connectionlist.css'
 
 /** Rows shown before the list scrolls. */
@@ -101,10 +101,20 @@ export function PresenceDot({ state }: { state: NetPresence }) {
   return <span className={'presence-dot ' + state} role="img" aria-label={word} title={word} />
 }
 
+/** The blocked sign: the red Material Block ring a blocked contact's status shows. The block button wears this
+ *  same element (USER alpha.8 via @coordinator-opus m2d6e12a94c56 "it should look like the red cancel symbol shown
+ *  for agent statuses when theyve blocked you"), so glyph, colour and size can't drift apart. Without `label` it is
+ *  decorative (inside a button that names itself). */
+export function BlockedSign({ label, title }: { label?: string; title?: string }) {
+  return label
+    ? <BlockIcon className="oi-blocked" fontSize="inherit" role="img" aria-label={label} titleAccess={title} />
+    : <BlockIcon className="oi-blocked" fontSize="inherit" aria-hidden="true" />
+}
+
 /** What a caller adds to each row: its status (default: the presence dot), a
  *  control after the chip, and the small red control at the end (null: none):
- *  `block` draws the red Cancel icon (USER mdd0522f95fb0 "make the block icon a
- *  red cancel, not a red x"), anything else (taking an address off the lockdown
+ *  `block` draws the blocked sign (BlockedSign; USER mdd0522f95fb0, corrected on
+ *  alpha.8 m2d6e12a94c56), anything else (taking an address off the lockdown
  *  list) the plain ×. */
 export interface RowControls {
   status?: (p: NetPeer) => ReactNode
@@ -175,7 +185,7 @@ export function ConnectionList({ rows, recent, label, status, trail, x }: { rows
         {(() => {
           const act = x?.(p)
           return act && <button type="button" className={'conn-x' + (act.block ? ' block' : '')} title={act.title} aria-label={act.title}
-            onClick={act.onClick}>{act.block ? <CancelIcon fontSize="inherit" /> : '×'}</button>
+            onClick={act.onClick}>{act.block ? <BlockedSign /> : '×'}</button>
         })()}
       </div>)}
     {last < order.length && <div className="conn-gap" aria-hidden="true" style={{ height: (order.length - last) * rowPx }} />}
