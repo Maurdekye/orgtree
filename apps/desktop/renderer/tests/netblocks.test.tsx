@@ -29,7 +29,7 @@ async function mailservers(t: test.TestContext, answer: () => Response) {
   await inAct(() => tab.click()); await flush(6)
   const list = [...view.el.querySelectorAll('.oi-net .oi-hub')].find(h => /blocked contacts/.test(h.textContent ?? ''))
   return { text: view.el.querySelector('.oi-net')?.textContent ?? '', list: list?.textContent ?? null,
-    listButtons: list ? [...list.querySelectorAll('button')].map(b => ({ cls: b.className, title: b.title, aria: b.getAttribute('aria-label'),
+    listButtons: list ? [...list.querySelectorAll('button.conn-x, button.link')].map(b => ({ cls: b.className, title: b.title, aria: b.getAttribute('aria-label'),
       check: !!b.querySelector('svg[data-testid="CheckIcon"]'), text: b.textContent })) : null,
     signs: [...view.el.querySelectorAll('.oi-net .oi-blocked[role="img"]')].map(s => s.getAttribute('aria-label')),
     buttons: [...view.el.querySelectorAll('.oi-net button.link, .oi-net button.conn-x')].map(b => b.querySelector('svg[data-testid="BlockIcon"].oi-blocked') ? 'blocked sign' : b.textContent) }
