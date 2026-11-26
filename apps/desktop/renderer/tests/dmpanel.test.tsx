@@ -2628,12 +2628,21 @@ test('the take-back × is a corner overlay of the bubble: the time and tick line
   const css = readFileSync(path.join(__SRC_DIR__, 'dm', 'dm.css'), 'utf8')
   const rule = css.match(/\.dm-bubble > button\.dm-retract\s*\{([^}]*)\}/)?.[1] ?? ''
   assert.match(rule, /position:\s*absolute/, `absolute (${rule.trim()})`)
-  // centred on the corner, half outside the bubble, so it never covers the text (coordinator m36c533c58a84)
-  const size = Number(rule.match(/width:\s*(\d+)px/)?.[1])
-  assert.equal(rule.match(/top:\s*(-?\d+)px/)?.[1], String(-size / 2), `its top half above the bubble (${rule.trim()})`)
-  assert.equal(rule.match(/right:\s*(-?\d+)px/)?.[1], String(-size / 2), 'and its right half past it')
-  assert.ok(bubble('u1').closest('.dm-msg')!.classList.contains('has-x'), 'the message keeps room above for it')
-  assert.match(css, /\.dm-msg\.has-x:not\(\.first\) \{ margin-top: (\d+)px; \}/)
+  // USER 2026-11-26 m3fe10fbaf0f9 "place it inside of the chat bubble but small": fully inside the top-right
+  // corner, a plain muted x (no badge), with a hit area of at least 16px
+  const px = (re: RegExp, text = rule) => Number(text.match(re)?.[1] ?? NaN)
+  const top = px(/(?:^|[\s;])top:\s*(-?\d+)px/), right = px(/(?:^|[\s;])right:\s*(-?\d+)px/), size = px(/(?:^|[\s;])width:\s*(\d+)px/)
+  assert.ok(top >= 0 && top <= 6 && right >= 0 && right <= 6, `inside the bubble's top-right corner (${rule.trim()})`)
+  assert.ok(size >= 16 && px(/height:\s*(\d+)px/) >= 16, 'a hit area of at least 16px')
+  assert.ok(px(/font-size:\s*(\d+)px/) <= 12, 'a small glyph, the weight of the tick')
+  assert.doesNotMatch(rule, /background:\s*var\(--dm-out\)|box-shadow/, 'no dark circle around it')
+  // the space is reserved on the bubble's right, so no text is under it; the time and tick line gives that
+  // space back, so the tick does not move (the bubble's own right padding is 11px)
+  assert.ok(bubble('u1').closest('.dm-msg')!.classList.contains('has-x'), 'the message is marked as having it')
+  const pad = px(/\.dm-msg\.has-x \.dm-bubble \{ padding-right: (\d+)px; \}/, css)
+  const give = px(/\.dm-msg\.has-x \.dm-meta \{ margin-right: -(\d+)px; \}/, css)
+  assert.ok(pad >= right + size, `the text keeps clear of it (padding-right ${pad}px, x to ${right + size}px)`)
+  assert.equal(pad - give, 11, `and the time and tick line ends where it ends without it (${pad} - ${give})`)
 })
 
 // VIEW IN CHAT (USER 2026-11-25 m70e86c04946e): the user's own message, outside the loaded window, read back by id

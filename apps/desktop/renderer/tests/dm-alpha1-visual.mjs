@@ -581,8 +581,8 @@ if (flag === '--expect') {
     const u4 = tb.before.find(m => m.entry === 'u4')
     assert.ok(u4 && u4.x, `POSITIVE CONTROL: u4, unread, has the x (${JSON.stringify(tb.before.filter(m => m.x).map(m => m.entry))})`)
     assert.equal(u4.title, 'retract (undelivered)', 'the desk’s tooltip')
-    // coordinator m36c533c58a84: a badge centred on the bubble's top-right corner, never over the text
-    assert.ok(Math.abs(u4.xAt.centreRight) <= 1 && Math.abs(u4.xAt.centreTop) <= 1, `the x is centred on the top-right corner (${JSON.stringify(u4.xAt)})`)
+    // USER 2026-11-26 m3fe10fbaf0f9: inside the bubble, in its top-right corner, small; never over the text
+    assert.ok(u4.inside && u4.xAt.top <= 6 && u4.xAt.right <= 6, `the x is inside the bubble's top-right corner (${JSON.stringify(u4.xAt)})`)
     assert.ok(u4.firstLineFull, `POSITIVE CONTROL: u4's first line runs to the bubble's right padding (${JSON.stringify(u4.text)})`)
     assert.equal(u4.overText, 0, `the x covers none of the text (${JSON.stringify(u4.text)})`)
     assert.ok(u4.visible, 'and it is drawn, not clipped by the timeline')
