@@ -511,7 +511,8 @@ export function DmPanel({ slug, tree, toast, refresh, close, jumpTo, jumpSeq, ju
     const rule = chat ? dmClose(chat) : null
     if (!chat || !rule?.can || !rule.project) { setLosing(null); return }
     const target = rule.revokes ?? chat.peer
-    setLosing([target, ...dmAudienceLoss(nodes, grants, target)])
+    // only the agents who would lose their line are marked, never the project's own row (USER 2026-11-26 m13310210ae7e)
+    setLosing(dmAudienceLoss(nodes, grants, target))
   }, [nodes, grants])
 
   // NEW CHAT SWEEPS OUT OVER THE CHAT LIST (USER 2026-11-24 m740c8cb361d0: "a
