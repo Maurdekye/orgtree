@@ -105,3 +105,23 @@ test('Implementer keeps integration unless the team runs an integrator pool', ()
   for (const requirement of [/team that runs an integrator pool/, /one self-contained job/, /the item/, /exact commit, branch and base/, /test commands/, /capture checklist with pass criteria/, /docs expectations/, /where bounces go/, /keep ownership of the code and the defining failing test/, /fix every bounce yourself/, /Without a pool/]) assert.match(plain, requirement)
   assert.doesNotMatch(text, /\b(?:Sol|Opus|Sonnet|Luna|Astra|Argon|build-slot|integ\/\d)\b/, 'preset wording stays generic')
 })
+
+// USER 2026-11-26 12:50:12Z m22d773a3eeb2 "update the coordinator charter: anything that might take over 10
+// seconds to do should be delegated to a subordinate, including queries and searched"; 12:50:21Z m7d0f3514a611
+// "the one shipped with orgtree". Every coordinator text Orgtree ships carries it: the bundled preset (all four
+// devteam templates) and the Heavy dev shop coordinator's own notes.
+test('every shipped coordinator text delegates anything that might take over 10 seconds, queries and searches included', () => {
+  const rule = /anything that might take over 10 seconds[^.]*queries and searches[^.]*subordinate/i
+  const preset = readFileSync(path.join(root, 'engine/docs/charters/coordinator.md'), 'utf8').replace(/\s+/g, ' ')
+  const role = preset.split(/ --- /)[1] ?? ''
+  assert.match(role, rule, 'the coordinator preset, in the charter itself (below its introduction)')
+  const template = JSON.parse(readFileSync(path.join(root, 'engine/docs/templates/heavy-dev-shop.json'), 'utf8'))
+  const coordinator = template.agents[0].reports[0]
+  assert.equal(coordinator.name, 'coordinator', 'POSITIVE CONTROL: the Heavy dev shop coordinator seat')
+  assert.match(`${coordinator.charter.text ?? ''} ${coordinator.scratch_agents_md ?? ''}`.replace(/\s+/g, ' '), rule,
+    'the Heavy dev shop coordinator (its charter or personal notes)')
+  for (const f of ['devteam-claude', 'devteam-codex', 'devteam-muse', 'devteam-antigravity']) {
+    const t = JSON.parse(readFileSync(path.join(root, `engine/docs/templates/${f}.json`), 'utf8'))
+    assert.deepEqual(t.agents[0].charter, { preset: 'coordinator' }, `${f}: its coordinator uses the preset`)
+  }
+})
