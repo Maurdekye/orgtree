@@ -337,8 +337,10 @@
    chat bubble but small"). Absolute on the bubble and nothing else: no padding, no class, so the text's line
    breaks and the time and tick line are the same with it and without it (USER 2026-11-26 alpha.8 "position it
    absolutely relative to the message's bounds and dont have it interfere with the body text"; USER 2026-11-25
-   m0c7ae1b9c32d). `.dm-bubble >` beats `.settings button` */
-.dm-bubble > button.dm-retract { position: absolute; top: 4px; right: 4px; display: inline-flex; align-items: center; justify-content: center;
+   m0c7ae1b9c32d). At the padding box's corner (USER 2026-11-26 m42f4c372c5f2 "further up and to the right a
+   bit, by 4 pixels or so"); the 11px glyph stays inside the 12px rounded corner. `.dm-bubble >` beats
+   `.settings button` */
+.dm-bubble > button.dm-retract { position: absolute; top: 0; right: 0; display: inline-flex; align-items: center; justify-content: center;
   width: 16px; height: 16px; padding: 0; font-size: 11px; line-height: 1; cursor: pointer; z-index: 1;
   opacity: 1; color: color-mix(in srgb, var(--dm-out-ink) 70%, transparent); background: none; }
 .dm-bubble > button.dm-retract:hover { color: var(--dm-out-ink); background: none; }
