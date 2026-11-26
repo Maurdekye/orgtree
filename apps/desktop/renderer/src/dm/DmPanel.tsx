@@ -1734,9 +1734,9 @@ function DmBubble({ entry, m, first, slug, refs, toast, flash, replying, system,
             }
             menu.open(e, () => entries(anchor)) }}>
           <span className="dm-sr">{entry.out ? 'You' : m.from}{notice ? ', notice' : ''}: </span>
-          {/* the desk's ×, with its tooltip: a badge centred on the bubble's top-right corner, so the time and
-              tick line is the same with it and without it (USER 2026-11-25 m0c7ae1b9c32d "in the top right and
-              not interfere with the read arrows position") and it never covers the text (coordinator m36c533c58a84) */}
+          {/* the desk's ×, with its tooltip: small, inside the bubble's top-right corner (USER 2026-11-26
+              m3fe10fbaf0f9), in room the bubble keeps clear of text; the time and tick line is the same with it
+              and without it (USER 2026-11-25 m0c7ae1b9c32d) */}
           {onRetract && <button type="button" className="chip-x dm-retract" title="retract (undelivered)"
             aria-label="Retract (undelivered)" onClick={onRetract}><CloseIcon fontSize="inherit" /></button>}
           {/* in a project's chat: which agent wrote this, or which one it was written to */}
