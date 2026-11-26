@@ -17,6 +17,7 @@ import { RefChip, resolveRef } from './reflinks'
 import type { RefWorld, ResolvedRef } from './reflinks'
 import type { TypedRef } from './workrefs'
 import { usePresentationTitle } from './presentationtitle'
+import { refNames, refTarget } from './refnames'
 import { objectNavProps, useObjectNavRegistry } from './objectnav'
 
 interface ReplyRow { reply_to?: unknown; replies?: unknown[]; ev?: unknown }
@@ -216,8 +217,21 @@ export function MailReplyPreview({ row, org, world, onOpen, replyAvailable, onLo
     {/* found on this surface, the quote itself is the way there: a chip that cannot open says nothing */}
     {target && !reply.linked && (!here || target.outcome === 'ready') && <RefChip r={target} onOpen={here ? () => here() : onOpen} />}
   </>}>
-    <blockquote>{reply.gist || (quotedMail && describeMail?.(quotedMail)) || 'Reply to a message that is no longer available.'}</blockquote>
+    <blockquote>{reply.gist || (quotedMail && describeMail?.(quotedMail)) || textlessQuote(org, reply.ref, target)}</blockquote>
   </ReplyPreviewFrame>
+}
+
+/** A QUOTE WITH NO TEXT (the engine keeps only a gist of the quoted body, and a picture-only message has none) whose mail
+ *  the surface does not hold: the engine's by-id lookup, the one a mail link names itself by (mailrefs.ts), decides it. A
+ *  mail it finds is named by its files, or said to have had no text; only a mail it does not find is gone (coordinator
+ *  mdedfdf43fe8a, after @rig-sol-b found a picture older than the loaded chat still called gone). While the lookup is
+ *  still out, or failed, nothing says the message is gone either. */
+function textlessQuote(org: string, ref: TypedRef | null | undefined, target: ResolvedRef | null): string {
+  const gone = 'Reply to a message that is no longer available.'
+  if (ref?.kind !== 'mail' || !target || target.outcome === 'absent') return gone
+  const row = refNames.row(ref.org || org, 'mail', refTarget(ref)) as { attachments?: { name?: string }[] } | undefined
+  const files = row?.attachments ?? []
+  return files.length ? (files.length === 1 ? files[0]!.name || 'a file' : `${files.length} files`) : 'A message with no text.'
 }
 
 function PresentationReply({reply,target,world,onOpen}:{reply:NonNullable<ReturnType<typeof recordedMailReply>>;target:ResolvedRef;world:RefWorld;onOpen?: (ref:ResolvedRef)=>void}){
