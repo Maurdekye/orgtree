@@ -2645,8 +2645,11 @@ test('the take-back × is a corner overlay of the bubble: the time and tick line
   // USER 2026-11-26 m3fe10fbaf0f9 "place it inside of the chat bubble but small": fully inside the top-right
   // corner, a plain muted x (no badge), with a hit area of at least 16px
   const px = (re: RegExp, text = rule) => Number(text.match(re)?.[1] ?? NaN)
-  const top = px(/(?:^|[\s;])top:\s*(-?\d+)px/), right = px(/(?:^|[\s;])right:\s*(-?\d+)px/), size = px(/(?:^|[\s;])width:\s*(\d+)px/)
-  assert.ok(top >= 0 && top <= 6 && right >= 0 && right <= 6, `inside the bubble's top-right corner (${rule.trim()})`)
+  const top = px(/(?:^|[\s;])top:\s*(-?\d+)(?:px)?;/), right = px(/(?:^|[\s;])right:\s*(-?\d+)(?:px)?;/), size = px(/(?:^|[\s;])width:\s*(\d+)px/)
+  assert.ok(top >= 0 && right >= 0, `inside the bubble's top-right corner (${rule.trim()})`)
+  // USER 2026-11-26 19:09:41Z m42f4c372c5f2 "move the x ... further up and to the right a bit, by 4 pixels or so":
+  // from 4px in to the corner of the bubble's padding box
+  assert.ok(top <= 1 && right <= 1, `about 4px further up and right than 4px in (top ${top}px, right ${right}px)`)
   assert.ok(size >= 16 && px(/height:\s*(\d+)px/) >= 16, 'a hit area of at least 16px')
   assert.ok(px(/font-size:\s*(\d+)px/) <= 12, 'a small glyph, the weight of the tick')
   assert.doesNotMatch(rule, /background:\s*var\(--dm-out\)|box-shadow/, 'no dark circle around it')

@@ -583,6 +583,10 @@ if (flag === '--expect') {
     assert.equal(u4.title, 'retract (undelivered)', 'the desk’s tooltip')
     // USER 2026-11-26 m3fe10fbaf0f9: inside the bubble, in its top-right corner, small; never over the text
     assert.ok(u4.inside && u4.xAt.top <= 6 && u4.xAt.right <= 6, `the x is inside the bubble's top-right corner (${JSON.stringify(u4.xAt)})`)
+    // USER 2026-11-26 m42f4c372c5f2 "further up and to the right a bit, by 4 pixels or so": the box at the corner
+    // (the bubble's 1px border aside), and the drawn x still inside the bubble's rounded corner, not clipped by it
+    assert.ok(u4.xAt.top <= 2 && u4.xAt.right <= 2, `the x is at the corner (${JSON.stringify(u4.xAt)})`)
+    assert.ok(u4.glyph && u4.glyph.inRound, `the drawn x is inside the rounded corner (${JSON.stringify(u4.glyph)})`)
     assert.ok(u4.firstLineFull, `POSITIVE CONTROL: u4's first line runs to the bubble's right padding (${JSON.stringify(u4.text)})`)
     // USER 2026-11-26 (alpha.8) "position it absolutely relative to the message's bounds and dont have it interfere
     // with the body text": the bubble, its text's line boxes and its time and tick line are the same with the x and

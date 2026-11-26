@@ -777,6 +777,12 @@ module.exports = async (page) => {
     const xr = x?.getBoundingClientRect(), br = b?.getBoundingClientRect(), tr = t?.getBoundingClientRect()
     return { entry: m.dataset.dmEntry ?? null, tick: t?.className ?? null, x: !!x, title: x?.getAttribute('title') ?? null,
       inside: !!(xr && br && xr.width > 0 && xr.left >= br.left && xr.right <= br.right && xr.top >= br.top && xr.bottom <= br.bottom),
+      // the drawn x (its path's box) against the bubble's rounded top-right corner (USER m42f4c372c5f2)
+      glyph: (() => { const pr = x?.querySelector('svg path')?.getBoundingClientRect(); if (!pr || !br) return null
+        const rad = parseFloat(getComputedStyle(b).borderTopRightRadius) || 0, cx = br.right - rad, cy = br.top + rad
+        const dx = Math.max(0, pr.right - cx), dy = Math.max(0, cy - pr.top), d = Math.hypot(dx, dy)
+        return { right: Math.round((br.right - pr.right) * 10) / 10, top: Math.round((pr.top - br.top) * 10) / 10, radius: rad,
+          fromArc: Math.round((rad - d) * 10) / 10, inRound: d <= rad && pr.right <= br.right && pr.top >= br.top } })(),
       // where the tick sits in its bubble, from the bottom-right corner; and the x, from the top-right (USER m0c7ae1b9c32d)
       tickAt: tr && br ? { right: br.right - tr.right, bottom: br.bottom - tr.bottom } : null,
       xAt: xr && br ? { right: br.right - xr.right, top: xr.top - br.top, height: br.height,
