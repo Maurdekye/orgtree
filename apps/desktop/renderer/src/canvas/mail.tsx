@@ -50,7 +50,7 @@ import { AgentLink, AgentName } from './identity'
 import { megaphoneWords } from './inboxwarning'
 import { WatchdogLink } from './watchdoglink'
 import { HubContactChip, useAgentMentions, useOrgMentionCandidates } from './agentmentions'
-import { ConnectionList, NO_RECENCY, hubDotTitle } from './connectionlist'
+import { ConnectionList, NO_RECENCY, UnblockCheck, hubDotTitle } from './connectionlist'
 import { hubListControls, useOrgBlocks } from './orgblocks'
 import { LockdownPanel } from './lockdownpanel'
 import { composerTarget, ObjectReplyDraft, useObjectComposer } from './composerobjects'
@@ -2611,7 +2611,7 @@ function NetSection({ net, slug, lockKey }: { net?: TreePayload['net']; slug: st
   const lockChange = (change: Parameters<typeof setNetLockdown>[1]) =>
     setNetLockdown(slug, change).then((l) => { setLockdown(l); setErr(null) })
       .catch((e: unknown) => setErr(e instanceof Error ? e.message : String(e)))
-  const unblock = (address: string) => <button className="link" onClick={() => blocks.change(address, false)}>unblock</button>
+  const unblock = (address: string) => <UnblockCheck title={`Unblock @net:${address}`} onClick={() => blocks.change(address, false)} />
   return (
     <div className="oi-net">
       {net?.slug && <div className="dim" style={{ paddingBottom: 4 }}>

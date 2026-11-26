@@ -111,6 +111,13 @@ export function BlockedSign({ label, title }: { label?: string; title?: string }
     : <BlockIcon className="oi-blocked" fontSize="inherit" aria-hidden="true" />
 }
 
+/** The green checkmark that unblocks a contact (USER 2026-11-26 19:13:26Z mc519405980c8, in a blocked row's
+ *  block-button place; 19:24:40Z m3d87ef9439ae, also in the blocked contacts list): one button for both. */
+export function UnblockCheck({ title, onClick }: { title: string; onClick: () => void }) {
+  return <button type="button" className="conn-x unblock" title={title} aria-label={title} onClick={onClick}>
+    <CheckIcon fontSize="inherit" aria-hidden="true" /></button>
+}
+
 /** What a caller adds to each row: its status (default: the presence dot), a
  *  control after the chip, and the small red control at the end (null: none):
  *  `block` draws the blocked sign (BlockedSign; USER mdd0522f95fb0, corrected on
@@ -185,9 +192,9 @@ export function ConnectionList({ rows, recent, label, status, trail, x }: { rows
         {trail?.(p)}
         {(() => {
           const act = x?.(p)
-          return act && <button type="button" className={'conn-x' + (act.block ? ' block' : act.unblock ? ' unblock' : '')}
-            title={act.title} aria-label={act.title} onClick={act.onClick}>
-            {act.block ? <BlockedSign /> : act.unblock ? <CheckIcon fontSize="inherit" aria-hidden="true" /> : '×'}</button>
+          if (act?.unblock) return <UnblockCheck title={act.title} onClick={act.onClick} />
+          return act && <button type="button" className={'conn-x' + (act.block ? ' block' : '')}
+            title={act.title} aria-label={act.title} onClick={act.onClick}>{act.block ? <BlockedSign /> : '×'}</button>
         })()}
       </div>)}
     {last < order.length && <div className="conn-gap" aria-hidden="true" style={{ height: (order.length - last) * rowPx }} />}

@@ -40,6 +40,16 @@
 /* on a blocked row the checkmark that unblocks sits in the block button's place, same box, quiet/hover rule, size */
 .conn-row > button.conn-x.unblock { font-size: inherit; color: var(--ok); }
 .conn-row > button.conn-x.unblock:hover { background: color-mix(in srgb, var(--ok) 16%, transparent); }
+/* the same checkmark in the blocked contacts list (USER m3d87ef9439ae): same box, colour, quiet-until-hover rule */
+.oi-peer > button.conn-x.unblock {
+  flex: none; box-sizing: border-box;
+  width: 18px; height: 18px; min-width: 0; min-height: 0; max-width: 18px; padding: 0;
+  display: inline-flex; align-items: center; justify-content: center;
+  border: none; border-radius: 50%; background: transparent; cursor: pointer;
+  color: var(--ok); opacity: 0.7; font-size: inherit; line-height: 1;
+}
+.oi-peer:hover > button.conn-x.unblock, .oi-peer > button.conn-x.unblock:focus-visible { opacity: 1; }
+.oi-peer > button.conn-x.unblock:hover { background: color-mix(in srgb, var(--ok) 16%, transparent); opacity: 1; }
 .conn-row:hover > button.conn-x, .conn-row > button.conn-x:focus-visible { opacity: 1; }
 .conn-row > button.conn-x:hover { background: color-mix(in srgb, var(--bad) 16%, transparent); opacity: 1; }
 .presence-dot {
