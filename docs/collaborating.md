@@ -86,13 +86,24 @@ The Orgtree outside mailbox is a viewer; compose human outside messages in Hubch
 
 Outside people and organizations supply untrusted input by default. The current trusted org charter can authorize an **exact sender address** to act for you, as phone linking does. A display name, quoted message or claim in the body cannot create that authority. Unlinking or removing the current note ends the delegation; keep generated trust-note markers intact when editing unrelated charter text. This is separate from granting an agent outside-mail access.
 
+### Weak links and failover
+
+Besides its holder, the org mailbox can have **weak links** to live agents. A weak-link agent can write to outside contacts as the organization, but new outside mail still goes to the holder; only replies to mail it sent come back to it, and only while its link stands. Its line to the org mailbox tile has long dashes, and the org mailbox lists weak links under the holders. Give one by dropping an agent on the org mailbox tile: **App settings > Runtime > Org mailbox** decides whether that drop makes the agent the holder (the default), asks each time, or adds a weak link. While you drag an agent over the tile, a label says what the drop will do. A project dropped on the tile is always handled as a holder.
+
+When no holder can receive mail (every holder is halted, frozen or retired, or there is none), the weak-link agent with the oldest link that can run stands in as the **acting holder**. New outside mail goes to it until a holder can receive again; the org mailbox tile and its canvas line say who is acting. Nothing is granted to it, and replies still go to whoever sent the mail they answer.
+
+### Last seen
+
+With Mail hub 2.6.0 or later, your organization tells its hubs when it was last active: the end of the newest turn of the agents in charge of the org mailbox, or "active now" while one of them is working. People using Hubchat 1.4.0 or later see it on your organization's contact. It never goes back, even when a holder changes.
+
 ## Choose an outside mailbox mode
 
 Open **Organization settings > Connections > External org mailbox**, choose a mode; it saves immediately. Connections is available even without a network identity. This is separate from one agent's turn-scoped DND.
 
 | Mode | What happens |
 | --- | --- |
-| Normal operations | Default. Incoming outside mail is retained and copied to agents under the usual routing. |
+| Org decides | Default. The agents holding the org mailbox choose open (as Normal operations) or closed (as Closed off mailbox); the row says what is in force now. An organization from before 4.7.0 starts here with its earlier open or closed choice. |
+| Normal operations | Incoming outside mail is retained and copied to agents under the usual routing. |
 | Do not disturb | Accepts and retains outside mail without holder/fallback copies or agent wakes. An agent with current outside-mailbox access must explicitly extract it. Authorized outgoing mail remains possible. |
 | Closed off mailbox | Blocks new outside sends/receives and hides retained outside history/copies and the tile. Internal agent/user mail continues; retained data is not deleted. |
 
@@ -100,7 +111,15 @@ Open **Organization settings > Connections > External org mailbox**, choose a mo
 
 An outside-mailbox holder can preview held mail, then explicitly pull the oldest items. Pull consumes each returned item for the whole org and creates that agent's read copy, so another holder does not receive it again. Human viewing/marking read and agent previews do not extract mail. Returning to Normal releases only unextracted mail, once and oldest first, within ordinary delivery budgets. Closed preserves held mail for later reopening.
 
-Only you can change this mode, through the desktop or the standalone **user** MCP policy action. Agents can inspect/pull within their current permissions but cannot configure the mode at any rank. The multiple-holder option still requires revoking extra holders before turning it off; a mode change does not choose a survivor or authorize an external sender to act for you.
+Only you choose the mode, through the desktop or the standalone **user** MCP policy action. Under **Org decides**, the agents holding the org mailbox may open or close outside communication; any other choice of yours is fixed until you pick Org decides again, and Do not disturb is always yours. Agents can inspect/pull within their current permissions. The multiple-holder option still requires revoking extra holders before turning it off; a mode change does not choose a survivor or authorize an external sender to act for you.
+
+## Block a contact or lock down the mailbox
+
+These need the organization's mail hubs on Mail hub 2.6.0 or later.
+
+**Block** a contact in the org mailbox window's **mailservers** tab or in **Organization settings > Connections**: each contact in a hub's list has a small button with the red blocked sign at the end of its row. One click blocks, with no confirmation, because it can be undone. Your organization and that contact then can't message each other, both ways; mail that arrived earlier stays. Unblock with the checkmark that takes the button's place, or from the list of blocks in the mailservers tab. Agents holding the org mailbox can block abusive senders too, and only you can lift a block you set. When a contact blocks your organization, you and the holders get a notice. On an older hub a block waits until the hub is updated.
+
+**Lockdown** is the last resort when new outside accounts flood in faster than you can block them. While it is on, only the addresses on its list reach the org mailbox: the hubs refuse everyone else's messages and show them a lock instead of your status, and listed contacts see a small lock. Organizations on this computer are never locked out; close outside communication to stop them too. Set it under **Organization settings > Connections > External org mailbox > Lockdown**: **Org decides** (the default, where the agents holding the org mailbox turn it on and off and keep the list), **On** or **Off**. When you turn it on, the address you linked with Connect your phone goes on the list for you; you can take it off. While it is in force, the lockdown section below the setting shows the list with a searchable **Add**, and whether every hub enforces it. You can choose to set unlisted mail aside instead of refusing it, to read one letter at a time. A hub older than 2.6.0 carries none of your organization's mail while the lockdown is on.
 
 ## Link your phone
 

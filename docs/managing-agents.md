@@ -137,6 +137,8 @@ Hovering over the effort bar previews a level's label without changing the
 setting. A click or drag commits on release, when the preview clears and the
 label returns to the chosen or inherited level.
 
+Managers can check an agent's effort too: the agents' inspection tool shows the effort each agent's turns use and whether it was set on the agent, comes from the organization's default or isn't supported by the model, and their organization chart shows it next to the tier.
+
 **Fast mode** is separate from effort. Where supported, the lightning button saves a next-turn speed preference immediately. It can use more provider allowance. The serving fast badge and a queued next-turn fast badge describe different times. Unsupported routes hide or refuse the option. Hire defaults affect new hires and Quick chat, not existing agents or rehires.
 
 **Account** chooses an allowed login. An unavailable saved login is shown rather than silently replaced. The **Switch accounts when limited** override can follow the org default, enable fallback or disable it. Fallback is off by default and has provider-specific eligibility and billing rules; read [Providers and tools](providers-and-tools.md) before enabling it. A manual account selection does not itself unlock a genuine usage-limit freeze.
@@ -176,6 +178,16 @@ Drag a card to move it and its subtree, or use the available Team controls for r
 The superior-insertion hire creates a new manager above a target. Its scope is inherited for that insertion; it is not the same as freely configuring an ordinary child hire. Inspect the proposed seat/grant and target before confirming. Projects can group teams without adding a model seat; [Projects and automation](projects-and-watchdogs.md) covers their purpose.
 
 Reporting, effective scope, funding and lifecycle operations follow the complete nested chain. Outer restrictions remain effective in deep layouts. Malformed cycles or inconsistent concurrent state are refused instead of silently applying a partial chain. A retryable contention refusal rolls back that operation; inspect its reason and current state before retrying, rather than assuming a fixed completion time.
+
+## Export, import and duplicate
+
+Right-click an agent, team or project on the canvas for these three:
+
+- **Export…** saves it as one zip file: only that node, or it and everything under it, with its settings, charters, credits, scratch and team folders, transcript and history, CLI session, documents, docket items and watchdog definitions. Files outside its folders are left out, and nobody is interrupted. When it is finished the Save dialog opens by itself, in Downloads. An export holds at most 256 GiB.
+- **Import here…** creates what a file holds directly under the node you chose, in this or another organization. The dialog first says in one sentence what will be created and what it costs. A taken name is numbered, as a hire's is. Imported agents arrive idle and run when someone writes to them. Claude Code, Codex and OpenCode agents carry on in their own session; others start fresh with a handoff note. An agent on a model this computer can't staff arrives retired, with its team.
+- **Duplicate…** makes a second agent, team or project beside the first, with the same settings, credits, folders, transcript and documents, but not its docket items, cost history or mail. Its watchdogs start paused. An agent with nobody under it is copied at once, without a dialog.
+
+When an export finds passwords, keys, tokens or credential files, it stops, says what it found and where, and asks whether to keep them or export again without them; **App settings > Runtime > Export and import > Strip secrets from exports** always takes them out instead. A team keeps its saved grants; when fewer credits can be drawn than it costs, spare credits are taken away as **Shrink grants that do not fit** says, and the dialog tells you how many. With cost bubbling on, your imports are not limited. **Undo** takes an import or duplicate back in one step. Agents can export, import and duplicate themselves and the nodes below them with their own tools, always within their credits.
 
 ## Context, history and fresh starts
 

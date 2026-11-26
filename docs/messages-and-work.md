@@ -239,7 +239,7 @@ This applies to the top-bar buttons, agent/project Open submenus including team 
 
 ## Use Mail and the user Inbox
 
-An agent's **Mail** tab is that agent's inbox and sent history. Your **Inbox** is your own received mail, questions and sent/record views. The **organization inbox** is outside correspondence. Reading one is not the same as becoming its owner or gaining a composer for all of its contacts.
+An agent's **Mail** tab is that agent's inbox and sent history. Your **Inbox** is your own received mail, questions and sent mail, with file transfers in their own tab. The **organization inbox** is outside correspondence. Reading one is not the same as becoming its owner or gaining a composer for all of its contacts.
 
 ### Your Inbox as chats
 
@@ -262,6 +262,7 @@ Since 4.7.0 your Inbox opens as chats, the way Hubchat shows conversations: a li
 - **Reply to yourself.** Your own message has **Reply** too; the reply goes to the chat's agent with your earlier message quoted.
 - **Keyboard.** Shift+Tab in the message box walks up through the messages and Tab back down; R replies to the highlighted one and Escape returns to the box. Escape also removes the last file you attached before it closes anything.
 - **Agent names open the chat.** Clicking the name of an agent that has an audience with you opens your chat with it, anywhere in the app, including a name written in a message, a presentation or a ticket. Right-click it for **Focus** to go to its desk.
+- **Open › Chat.** Every agent and project menu, on its card, its Agents List row or any link to it, has **Chat** under **Open**. If it has no audience with you yet, opening the chat gives it one first, and the tooltip says so. **Focus** from an agent or project link closes the floating panels in front of the canvas first (the chats, the docket, settings), so the card isn't hidden; pinned and separate windows stay.
 - **Sent or read.** Your own message shows one check after its time: grey while the agent has not read it yet, green once it has. It turns green by itself.
 - **Take it back.** While the agent has not taken your message yet, a small **×** after its check takes it back, as the × in the desk's queued strip does; the message's menu has **Retract (undelivered)** too. If the agent took it in the meantime, you are told why and the message stays.
 - **View in chat.** Your mail with an agent or a project has **View in chat** in its menu in the classic mailbox, in that agent's mailbox and on its desk's Mail tab. It switches the Inbox to the chats, opens that chat and flashes the message. While the chats are on, clicking a mail link to such a mail anywhere (a transcript, a message, a ticket or a presentation) does the same; with the classic mailbox it opens the mailbox it names, as before. A mail link's own menu has **View in chat** and **View in classic inbox**, each switching the Inbox to that view first. In every message menu the View in entries sit together in their own section, always in the same order: View in chat, View in classic inbox, View in transcript, then any other.
@@ -269,7 +270,7 @@ Since 4.7.0 your Inbox opens as chats, the way Hubchat shows conversations: a li
 - **Reading.** Mail in the chat you are looking at is marked read while its window is in front.
 - **What you type** in a chat is ordinary mail to that agent. A new message (not a reply) also tells the agent to answer you by mail, because the chats show mail and not what the agent writes on its own desk.
 
-Prefer the mailbox as it was? Tick **classic** in the Inbox's title bar, or turn on **App settings > Display > Mailbox > Classic mailbox**. That brings back the folders, the mail list with its reading pane, the record view, the tag filter and the mail icon, on this computer for every organization. The rest of this section describes that classic mailbox.
+Prefer the mailbox as it was? Tick **classic** in the Inbox's title bar, or turn on **App settings > Display > Mailbox > Classic mailbox**. That brings back the folders, the mail list with its reading pane, the tag filter and the mail icon, on this computer for every organization. The rest of this section describes that classic mailbox.
 
 ### The classic mailbox
 
@@ -291,7 +292,7 @@ Urgent mail and questions in the Attention view have the same context menu as in
 
 With a row selected in a Mail, Docket or Presented list, the keyboard's context-menu key opens that row's menu, the same one right-clicking the row opens. The menu opens under the row with its first item focused, and Escape closes it. **Shift+F10** stays **Halt all**.
 
-**Transfers** shows file-delivery progress and errors. Retry resumes a failed transfer; Cancel stops it; **Remove file and send**, when offered, explicitly omits that failed attachment so the remaining message can proceed. Closing the panel does not cancel an engine transfer. Confirmed bytes and a queued count are not proof that a human read the file.
+**Transfers** is its own tab, beside inbox and sent, in every mailbox that shows file transfers. It fills the window and loads older transfers as you scroll. It shows file-delivery progress and errors. Retry resumes a failed transfer; Cancel stops it; **Remove file and send**, when offered, explicitly omits that failed attachment so the remaining message can proceed. Closing the panel does not cancel an engine transfer. Confirmed bytes and a queued count are not proof that a human read the file.
 
 The outside-org mailbox is a viewer. Human outside composition belongs in [Hubchat](collaborating.md#connect-hubchat-and-the-mail-hub), not a hidden reply box in that viewer. A received message's detail names every agent it was delivered to, after its sender, the way an outgoing message names who sent it as the org: each agent is followed by "as @org:<slug>", as the Sent tab follows its sender. That list stays inside the org: no hub payload, receipt or reply quote carries it. Mail that arrived before Orgtree kept that record names no one.
 
