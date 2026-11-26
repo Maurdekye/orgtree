@@ -67,6 +67,15 @@ const world = {
     mail('ca1', 'member', 3.5 * H, 'Two numbers were off: the March total and the returns. Both are fixed.',
       { reply_to: { id: 'cj1c', kind: 'mail', from: USER, at: ago(4 * H), gist: 'Please check the numbers in the weekly report.', org: 'mine', box: 'user' } }),
     mail('sys0', '@system', 2 * D, 'Orgtree restarted after an update.', { notice: true, kind: 'system' }),
+    // QUESTION MAIL IS THE BUBBLE WITH ITS TAG (USER 2026-11-26 mb2a0028c1a6d), older than solo's other mail so
+    // nothing else moves: a question that answers nothing, with a file, and one that answers the user's picture
+    mail('sq1', 'solo', 28 * H, 'Which of the two exports should I keep?', { kind: 'question', attachments: [
+      { name: 'export-a.png', path: 'outbox/export-a.png', bytes: 1532 }],
+      ev: { v: 1, variant: 'ordinary.question', actor: { kind: 'agent', id: 'solo' }, object: null, engine_authored: false, body: 'Which of the two exports should I keep?' } }),
+    mail('sq2', 'solo', 27.2 * H, 'I got the picture. What should I do with it?', { kind: 'question',
+      reply_to: { id: 'spic', kind: 'mail', from: USER, at: ago(27.5 * H), gist: '', org: 'mine', box: 'user' },
+      ev: { v: 1, variant: 'reply.mail', actor: { kind: 'agent', id: 'solo' }, engine_authored: false, body: 'I got the picture. What should I do with it?',
+        object: { kind: 'mail', org: 'mine', box: 'user', node: null, id: 'spic', sender: USER, at: ago(27.5 * H) }, quote: { from: USER, at: ago(27.5 * H), gist: '' } } }),
   ],
   pending: [
     mail('w4', 'worker', 90 * M, 'The summary and the chart are attached.', { attachments: [
@@ -77,6 +86,7 @@ const world = {
   sent: [
     sent('s1', 'worker', 26.9 * H, 'Thanks. Send me the summary when the review is done.'),
     sent('s2', 'solo', 26 * H, 'How is the import going?'),
+    sent('spic', 'solo', 27.5 * H, '', { attachments: [{ name: 'orgtree-eye.png', path: 'uploads/orgtree-eye.png', bytes: 2048 }] }),
     // a megaphone send to crew: one copy per member, sharing one send id
     sent('g1a', 'member', 6 * H, 'The standup moves to 10:00 from tomorrow.', { megaphone: { name: 'crew', send: 'g1', to: 2 } }),
     sent('g1b', 'mate', 6 * H, 'The standup moves to 10:00 from tomorrow.', { megaphone: { name: 'crew', send: 'g1', to: 2 } }),
@@ -320,6 +330,18 @@ if (flag === '--expect') {
   assert.ok(v.other.boxRight <= v.other.cardRight + 0.5, `and inside the card (${v.other.boxRight} vs ${v.other.cardRight})`)
   assert.ok(v.other.boxLeft > v.other.rowLeft + 10, `still indented under the option text (${v.other.boxLeft} vs row ${v.other.rowLeft})`)
   checked.push('header badge', 'ticket chip')
+
+  // ---- question mail is the bubble with its tag; a picture-only message is quoted by its file
+  const q = v.question
+  assert.ok(q && q.sq1 && q.sq2, 'POSITIVE CONTROL: both questions are in solo\u2019s chat')
+  assert.equal(q.sq2.label, 'Question', 'POSITIVE CONTROL: the reply question wears the tag'); assert.equal(q.sq2.head, false)
+  assert.equal(q.sq2.unsupported, false, 'POSITIVE CONTROL: the reply question is a valid typed reply')
+  assert.equal(q.sq1.label, 'Question', 'the question that answers nothing wears the same tag')
+  assert.equal(q.sq1.typed, false, 'and is the plain bubble'); assert.equal(q.sq1.head, false, 'with no "Question · solo" header box')
+  assert.equal(q.sq1.files, 1, 'its file under it')
+  assert.match(q.sq2.quote, /orgtree-eye\.png/, 'the picture-only message is quoted by its file')
+  assert.equal(/no longer available/.test(q.sq2.quote), false, 'not called gone')
+  checked.push('question bubble', 'picture quote')
 
   // ---- the send mark: a reply names its mail and says nothing; a new message says dm
   const messages = posts(/\/nodes\/worker\/message$/).map(c => c.body)

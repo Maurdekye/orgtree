@@ -626,5 +626,30 @@ module.exports = async (page) => {
   v.place = { chat: await placeOf('.dm-compose .cc-composer'), desk: await placeOf('#dm-probe-desk .project-composer') }
   await shot('33-megaphone-right-of-the-box-in-the-chat-and-on-the-project-desk')
   await page.eval(() => window.__dm.desk(false))
+
+  // ---------------- 16. question mail is the bubble with its tag (USER 2026-11-26 mb2a0028c1a6d), with
+  // or without a reply target; a reply to the user's picture-only message quotes its file
+  await openChat('solo')
+  await page.eval(() => document.querySelector('[data-dm-entry="spic"]')?.scrollIntoView({ block: 'center' }))
+  await page.sleep(400)
+  v.question = await page.eval(() => {
+    const of = id => {
+      const b = document.querySelector(`[data-dm-entry="${id}"] .dm-bubble`)
+      if (!b) return null
+      return { typed: b.classList.contains('typed'), head: !!b.querySelector('.event-head'), label: b.querySelector('.dm-kind')?.textContent ?? null,
+        files: b.querySelectorAll('.attach-row').length, unsupported: !!b.querySelector('.event-unsupported'), quote: (b.querySelector('.reply-preview')?.textContent ?? '').replace(/\s+/g, ' ').trim() }
+    }
+    return { sq1: of('sq1'), sq2: of('sq2') }
+  })
+  await shot('34-question-bubbles-and-a-picture-only-quote')
+  // the question that answers nothing, from its top edge: the card it was, or the bubble it is
+  await page.eval(() => {
+    const el = document.querySelector('[data-dm-entry="sq1"]')
+    let sc = el?.parentElement
+    while (sc && !(sc.scrollHeight > sc.clientHeight && /auto|scroll/.test(getComputedStyle(sc).overflowY))) sc = sc.parentElement
+    if (el && sc) sc.scrollTop += el.getBoundingClientRect().top - sc.getBoundingClientRect().top - 16
+  })
+  await page.sleep(300)
+  await shot('34a-a-question-that-answers-nothing-from-its-top')
   return v
 }

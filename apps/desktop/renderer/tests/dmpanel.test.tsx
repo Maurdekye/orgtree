@@ -2913,3 +2913,56 @@ test('the open chat is kept per org in local storage, beside the Chats/classic c
   await s.openChat('solo')
   assert.equal(window.localStorage.getItem('orgtree-dm-open:mine'), 'solo', 'kept with the panel state')
 })
+
+// QUESTION MAIL IS A BUBBLE WITH ITS TAG (USER 2026-11-26 19:22:39Z mb2a0028c1a6d "Bubble + tag (rec.)"): a question
+// that answers nothing was drawn as the framed card with its own "Question · <agent>" header, while one with a
+// reply target was the bubble with the QUESTION tag; every question is the bubble now, its files under it.
+const qev = (from: string, body: string) => ({ v: 1, variant: 'ordinary.question', actor: { kind: 'agent', id: from }, object: null,
+  engine_authored: false, body })
+/** a question that answers a mail: the engine stores it as reply.mail (its tag comes from the mail's kind) */
+const rev = (from: string, body: string, id: string, sender: string, at: string, gist: string) => ({ v: 1, variant: 'reply.mail',
+  actor: { kind: 'agent', id: from }, object: { kind: 'mail', org: 'mine', box: 'user', node: null, id, sender, at }, engine_authored: false, body,
+  quote: { from: sender, at, gist } })
+const eye = [{ path: 'uploads/orgtree-eye.png', name: 'orgtree-eye.png', bytes: 2048 }]
+
+test('a question with no reply target is the bubble with the QUESTION tag, not the framed card, and keeps its files', async (t) => {
+  const s = await setup(t, { audiences: [grant('worker')], delivered: [
+    mail('q1', 'worker', '2026-11-20T10:00:00Z', { kind: 'question', body: 'which one should I use?', ev: qev('worker', 'which one should I use?'),
+      attachments: [{ path: 'uploads/one.png', name: 'one.png', bytes: 10 }, { path: 'uploads/two.txt', name: 'two.txt', bytes: 20 }] }),
+    mail('q2', 'worker', '2026-11-20T10:05:00Z', { kind: 'question', body: 'and this one?',
+      ev: rev('worker', 'and this one?', 'q1', 'worker', '2026-11-20T10:00:00Z', 'which one should I use?'),
+      reply_to: { id: 'q1', kind: 'mail', from: 'worker', at: '2026-11-20T10:00:00Z', gist: 'which one should I use?', box: 'user' } })] }, { active: false })
+  await s.openChat('worker')
+  const bubble = (id: string) => s.all<HTMLElement>('.dm-msg').find(m => m.dataset.dmEntry === id)?.querySelector<HTMLElement>('.dm-bubble')
+  const q1 = bubble('q1'), q2 = bubble('q2')
+  assert.ok(q1 && q2, 'both questions are in the chat')
+  assert.equal(q2.querySelector('.dm-kind')?.textContent, 'Question', 'POSITIVE CONTROL: the reply question wears the tag')
+  assert.equal(q2.querySelector('.event-head') === null, true, 'POSITIVE CONTROL: and no card header')
+  assert.equal(/Unsupported message format/.test(q2.textContent ?? ''), false, 'POSITIVE CONTROL: the reply question is a valid typed reply')
+  assert.equal(q1.querySelector('.dm-kind')?.textContent, 'Question', 'the question that answers nothing wears the same tag')
+  assert.equal(q1.classList.contains('typed'), false, 'it is the plain bubble, not the framed card')
+  assert.equal(q1.querySelector('.event-head') === null, true, 'with no "Question · worker" header box')
+  assert.match(q1.textContent ?? '', /which one should I use\?/, 'its text is the bubble’s text')
+  assert.deepEqual([...q1.querySelectorAll('.attach-row')].length, 1, 'its files are under it')
+  assert.match(q1.querySelector('.attach-row')?.textContent ?? '', /two\.txt/)
+})
+
+// A REPLY TO A PICTURE-ONLY MESSAGE quotes the picture, as every place names such a message by its file: the stored
+// quote's text is empty (the message had none), which is not a message that is gone.
+test('a reply to the user’s picture-only message quotes the picture’s file, not "no longer available"; a truly missing one still says so', async (t) => {
+  const s = await setup(t, { audiences: [grant('worker')],
+    sent: [sent('pic1', 'worker', '2026-11-20T10:00:00Z', { body: '', attachments: eye })],
+    delivered: [
+      mail('q3', 'worker', '2026-11-20T10:05:00Z', { kind: 'question', body: 'what should I do with it?',
+        ev: rev('worker', 'what should I do with it?', 'pic1', USER, '2026-11-20T10:00:00Z', ''),
+        reply_to: { id: 'pic1', kind: 'mail', from: USER, at: '2026-11-20T10:00:00Z', gist: '', box: 'user' } }),
+      mail('m4', 'worker', '2026-11-20T10:10:00Z', { reply_to: { id: 'gone1', kind: 'mail', from: USER, at: '2026-09-01T10:00:00Z', gist: '', box: 'user' } })] },
+    { active: false })
+  await s.openChat('worker')
+  const quote = (id: string) => s.all<HTMLElement>('.dm-msg').find(m => m.dataset.dmEntry === id)?.querySelector<HTMLElement>('.reply-preview')
+  const pic = quote('q3'), gone = quote('m4')
+  assert.ok(pic && gone, 'both replies show what they answer')
+  assert.match(gone.textContent ?? '', /no longer available/, 'POSITIVE CONTROL: a message the chat does not hold is still called gone')
+  assert.match(pic.textContent ?? '', /orgtree-eye\.png/, 'the picture-only message is quoted by its file')
+  assert.equal(/no longer available/.test(pic.textContent ?? ''), false, 'and is not called gone')
+})
