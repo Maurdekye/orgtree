@@ -25,7 +25,7 @@ A block is kept and enforced by the org's mail hubs (Mail hub 2.6.0 and later), 
 **What happens next.**
 - A message to a contact that blocks the org, or that the org blocks, ends as failed in the org mailbox and is not retried. Its sender gets a notice: "Not delivered to @net:<address>: you have been blocked by @net:<address> and cannot message them."
 - When a contact blocks or unblocks the org, the user and the org mailbox holders get a notice.
-- The user blocks and unblocks in the org mailbox window's mailservers tab and in Org settings › Connections: every hub's list of connections has a small red × at the end of each row that blocks at once (no confirm; blocking is reversible), and a blocked row shows the red cancel sign and **unblock** instead. The mailservers tab also lists the org's blocks.
+- The user blocks and unblocks in the org mailbox window's mailservers tab and in Org settings › Connections: every hub's list of connections has a small red cancel icon (a circled ×) at the end of each row that blocks at once (no confirm; blocking is reversible), and a blocked row shows the red cancel sign and **unblock** instead. The mailservers tab also lists the org's blocks.
 
 ```json
 {"action":"block","address":"@net:spammer.3f9c2a","reason":"repeated phishing links after two warnings"}

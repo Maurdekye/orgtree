@@ -4088,6 +4088,7 @@
     "apps/desktop/renderer/src/canvas/mail.tsx#MailRowView",
     "apps/desktop/renderer/src/canvas/mail.tsx#InboxView",
     "apps/desktop/renderer/src/canvas/mail.tsx#NodeInboxModal",
+    "apps/desktop/renderer/src/canvas/lockdownpanel.tsx#LockdownPanel",
     "apps/desktop/renderer/src/canvas/mail.tsx#OrgInboxModal",
     "apps/desktop/renderer/src/canvas/mailtagpicker.tsx#MailTagPicker",
     "apps/desktop/renderer/src/canvas/transfers.tsx#TransferPanel",
@@ -6231,6 +6232,10 @@
     {
      "file": "apps/desktop/renderer/src/orginboxpolicy.tsx",
      "label": "Allow multiple org-mailbox audience holders"
+    },
+    {
+     "file": "apps/desktop/renderer/src/canvas/lockdownpanel.tsx",
+     "label": "Set aside mail from unlisted addresses"
     }
    ],
    "key_sources": [
