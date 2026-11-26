@@ -87,10 +87,33 @@ pub fn agent_may_change(user: UserMode) -> bool {
     user == UserMode::Org
 }
 
-/// The bare addresses of the app-wide Connect your phone note (red stub).
+/// The bare addresses the app-wide Connect your phone note names (`phone::with_block`'s exact line), in order, each
+/// once. Point 15 (USER mac84f7b80e4a): the user's own enable lists them; nothing after Unlink.
 #[nolog]
-pub fn phone_addresses(_text: &str) -> Vec<String> {
-    Vec::new()
+pub fn phone_addresses(text: &str) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    for note in crate::phone::notes(text) {
+        if let Some(a) = crate::phone::note_address(&note).and_then(bare_address) {
+            if !out.contains(&a) {
+                out.push(a);
+            }
+        }
+    }
+    out
+}
+
+/// The entries for the linked phone addresses, on the hubs `entries` resolves them to. An address it can't place
+/// (several hubs and on no roster) is left out and logged: never listed on every hub blindly (review B3).
+#[logged]
+async fn phone_entries(engine: &Engine, org_id: i64) -> Vec<Entry> {
+    let mut out = Vec::new();
+    for a in phone_addresses(&engine.app_instructions.get().text) {
+        match entries(engine, org_id, &a, None).await {
+            Ok(list) => out.extend(list),
+            Err(e) => tracing::warn!(address = %a, error = %format!("{e:#}"), "linked phone address not placed on the lockdown list"),
+        }
+    }
+    out
 }
 
 /// Who makes a change.
@@ -300,6 +323,8 @@ pub async fn change(engine: &Arc<Engine>, org_id: i64, who: Who<'_>, edit: Edit)
         crate::refuse!(BadRequest, "nothing to change");
     }
     let by = who.label();
+    // point 15: read before the transaction (it resolves hubs on its own connection); used only on the user's enable
+    let phone = if matches!(who, Who::User) && (edit.on == Some(true) || edit.user_mode.is_some()) { phone_entries(engine, org_id).await } else { Vec::new() };
     let mut conn = engine.db.get().await?;
     let tx = conn.transaction().await?;
     tx.execute("INSERT INTO ot.net_lockdown (org_id) VALUES ($1) ON CONFLICT (org_id) DO NOTHING", &[&org_id]).await?;
@@ -330,6 +355,23 @@ pub async fn change(engine: &Arc<Engine>, org_id: i64, who: Who<'_>, edit: Edit)
     add(&tx, org_id, &edit.add, &by).await?;
     for e in &edit.remove {
         tx.execute("DELETE FROM ot.net_lockdown_allow WHERE org_id = $1 AND hub = $2 AND address = $3", &[&org_id, &e.hub, &e.address]).await?;
+    }
+    // Point 15 (USER mac84f7b80e4a): the USER's enable lists the linked phone address(es) as ordinary, removable
+    // entries; an agent's enable adds nothing, and a removal holds while it stays locked (only an off -> on turn adds).
+    let mut phone_added: Vec<String> = Vec::new();
+    if matches!(who, Who::User) && effective(user, org_on) && !effective(was.user, was.org_on) {
+        for e in &phone {
+            let n = tx
+                .execute(
+                    "INSERT INTO ot.net_lockdown_allow (org_id, hub, address, added_by) VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING",
+                    &[&org_id, &e.hub, &e.address, &by],
+                )
+                .await?;
+            let a = format!("@net:{}", e.address);
+            if n > 0 && !phone_added.contains(&a) {
+                phone_added.push(a);
+            }
+        }
     }
     let over: Option<String> = tx
         .query_opt("SELECT hub FROM ot.net_lockdown_allow WHERE org_id = $1 GROUP BY hub HAVING count(*) > $2 LIMIT 1", &[&org_id, &(MAX_ALLOWED as i64)])
@@ -367,6 +409,9 @@ pub async fn change(engine: &Arc<Engine>, org_id: i64, who: Who<'_>, edit: Edit)
     let mut status = status(engine, org_id).await?;
     if moved.letters > 0 || moved.copies > 0 || moved.jobs > 0 {
         status["set_aside_now"] = json!({ "letters": moved.letters, "unread_copies": moved.copies, "unclaimed_jobs": moved.jobs });
+    }
+    if !phone_added.is_empty() {
+        status["phone_added"] = json!(phone_added);
     }
     let policy_changed = on_before != on_now || user != was.user || set_aside != was.set_aside;
     if policy_changed || on_now {
@@ -566,7 +611,14 @@ async fn notice(engine: &Arc<Engine>, org_id: i64, by: &str, status: &Value, pol
             Some(c) => format!(" Hubs: {c} (see the org mailbox's lockdown)."),
             None => String::new(),
         };
-        format!("{who} put the org mailbox in lockdown (setting {}): only {n} listed outside address(es) can reach it; organizations on this computer still can.{aside}{hubs}", status["setting"].as_str().unwrap_or("org"))
+        let phone = match status["phone_added"].as_array() {
+            Some(a) if !a.is_empty() => format!(
+                " The user's linked phone address ({}) was put on the list; it can be taken off like any other entry.",
+                a.iter().filter_map(Value::as_str).collect::<Vec<_>>().join(", ")
+            ),
+            _ => String::new(),
+        };
+        format!("{who} put the org mailbox in lockdown (setting {}): only {n} listed outside address(es) can reach it; organizations on this computer still can.{phone}{aside}{hubs}", status["setting"].as_str().unwrap_or("org"))
     } else {
         format!("{who} lifted the org mailbox lockdown (setting {}): outside mail reaches the org again.", status["setting"].as_str().unwrap_or("org"))
     };
