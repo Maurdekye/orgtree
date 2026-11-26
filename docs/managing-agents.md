@@ -137,7 +137,7 @@ Hovering over the effort bar previews a level's label without changing the
 setting. A click or drag commits on release, when the preview clears and the
 label returns to the chosen or inherited level.
 
-Managers can check an agent's effort too: the agents' inspection tool shows the effort each agent's turns use and whether it was set on the agent, comes from the organization's default or isn't supported by the model, and their organization chart shows it next to the tier.
+Managers can check an agent's effort too: the agents' inspection tool shows the effort each agent's turns use and whether it was set on the agent, comes from the organization's default or the built-in default, or isn't supported by the model, and their organization chart shows it next to the tier.
 
 **Fast mode** is separate from effort. Where supported, the lightning button saves a next-turn speed preference immediately. It can use more provider allowance. The serving fast badge and a queued next-turn fast badge describe different times. Unsupported routes hide or refuse the option. Hire defaults affect new hires and Quick chat, not existing agents or rehires.
 
