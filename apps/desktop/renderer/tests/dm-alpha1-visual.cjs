@@ -789,7 +789,16 @@ module.exports = async (page) => {
         const first = lines.length ? lines.reduce((a, q) => q.top < a.top - 1 ? q : Math.abs(q.top - a.top) <= 1 && q.right > a.right ? q : a) : null
         const pad = b ? parseFloat(getComputedStyle(b).paddingRight) : 0
         const tl = m.closest('.dm-timeline')?.getBoundingClientRect(), mid = xr ? document.elementFromPoint((xr.left + xr.right) / 2, (xr.top + xr.bottom) / 2) : null
-        return { overText: over, firstLineFull: !!(first && br && br.right - pad - first.right < 40),
+        const overPx = xr ? Math.max(0, ...lines.filter(q => q.top < xr.bottom && q.bottom > xr.top).map(q => Math.min(q.right, xr.right) - Math.max(q.left, xr.left))) : 0
+        // the same bubble with the x out of the page (USER alpha.8 "dont have it interfere with the body text")
+        const geo = () => { const bb = b.getBoundingClientRect(), mr = m.querySelector('.dm-meta')?.getBoundingClientRect(), r = document.createRange(), ls = []
+          const bd = b.querySelector('.mailer-body'); if (bd) { r.selectNodeContents(bd); for (const q of r.getClientRects()) if (q.width > 0 && q.height > 0) ls.push([q.left - bb.left, q.top - bb.top, q.width].map(n => Math.round(n * 10) / 10)) }
+          return { w: Math.round(bb.width * 10) / 10, h: Math.round(bb.height * 10) / 10, meta: mr ? [mr.left - bb.left, mr.top - bb.top, mr.width].map(n => Math.round(n * 10) / 10) : null, lines: ls } }
+        let same = null
+        if (x && b) { const w = geo(), cls = m.className, next = x.nextSibling, par = x.parentNode; x.remove()
+          const wo = geo(); par.insertBefore(x, next); m.className = cls
+          same = { equal: JSON.stringify(w) === JSON.stringify(wo), with: w, without: wo } }
+        return { same, overPx: Math.round(overPx * 10) / 10, overText: over, firstLineFull: !!(first && br && br.right - pad - first.right < 40),
           visible: !!(xr && tl && xr.top >= tl.top && xr.right <= tl.right && mid && x.contains(mid)),
           text: { lines: lines.length, first: first && br ? { right: br.right - first.right, top: first.top - br.top } : null } }
       })() }

@@ -2650,13 +2650,12 @@ test('the take-back × is a corner overlay of the bubble: the time and tick line
   assert.ok(size >= 16 && px(/height:\s*(\d+)px/) >= 16, 'a hit area of at least 16px')
   assert.ok(px(/font-size:\s*(\d+)px/) <= 12, 'a small glyph, the weight of the tick')
   assert.doesNotMatch(rule, /background:\s*var\(--dm-out\)|box-shadow/, 'no dark circle around it')
-  // the space is reserved on the bubble's right, so no text is under it; the time and tick line gives that
-  // space back, so the tick does not move (the bubble's own right padding is 11px)
-  assert.ok(bubble('u1').closest('.dm-msg')!.classList.contains('has-x'), 'the message is marked as having it')
-  const pad = px(/\.dm-msg\.has-x \.dm-bubble \{ padding-right: (\d+)px; \}/, css)
-  const give = px(/\.dm-msg\.has-x \.dm-meta \{ margin-right: -(\d+)px; \}/, css)
-  assert.ok(pad >= right + size, `the text keeps clear of it (padding-right ${pad}px, x to ${right + size}px)`)
-  assert.equal(pad - give, 11, `and the time and tick line ends where it ends without it (${pad} - ${give})`)
+  // USER 2026-11-26 (alpha.8) "position it absolutely relative to the message's bounds and dont have it interfere
+  // with the body text": the message with the x is laid out exactly as without it. Nothing marks it, and no rule
+  // changes its bubble, body or time and tick line; the bubble is the x's containing block
+  assert.equal(bubble('u1').closest('.dm-msg')!.classList.contains('has-x'), false, 'the message carries no class for the x')
+  assert.deepEqual(css.match(/[^{}]*has-x[^{}]*\{[^}]*\}/g) ?? [], [], 'and no rule pads the bubble or moves its time and tick line for it')
+  assert.match(css.match(/(?:^|\s)\.dm-bubble \{([^}]*)\}/)?.[1] ?? '', /position:\s*relative/, 'the bubble holds the x')
 })
 
 // VIEW IN CHAT (USER 2026-11-25 m70e86c04946e): the user's own message, outside the loaded window, read back by id
