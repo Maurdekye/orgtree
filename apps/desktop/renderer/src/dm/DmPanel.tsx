@@ -1568,7 +1568,9 @@ function DmConversation({ slug, tree, chat, nodes, toast, refs, onFocusAgent, fl
       {far && <button type="button" className="dm-jump" onClick={toBottom} title="Jump to the newest message" aria-label="Jump to the newest message"><ArrowDownIcon fontSize="inherit" /></button>}
       </div>
       <span className="dm-sr dm-walk-said" role="status" aria-live="polite">{walkSaid}</span>
-      <div className="dm-compose" ref={boxRef} onKeyDown={boxKeys} {...dropProps}>
+      {/* Orgtree's own chat has no message box and no line in its place (USER 2026-11-26 m5ade5cb71f04
+          "remove this"): its messages run to the bottom */}
+      {chat.kind !== 'system' && <div className="dm-compose" ref={boxRef} onKeyDown={boxKeys} {...dropProps}>
         {replies.length > 0 && <div className="dm-replybar" role="group" aria-label="Replying to">
           <ReplyIcon fontSize="inherit" />
           <div className="dm-replybar-list">
@@ -1603,9 +1605,8 @@ function DmConversation({ slug, tree, chat, nodes, toast, refs, onFocusAgent, fl
                 </> : project ? <UrgentAgentOptions active={megaphone && castDnd.length > 0} value={urgent} onChange={setUrgent} /> : undefined,
                 primary: agent ? <AgentEffortButton node={agent} slug={slug} toast={toast} /> : undefined,
               }} />
-          : <div className="dm-nowrite dim">{chat.kind === 'system' ? 'Orgtree’s own mail cannot be answered.'
-              : chat.node ? `${peer} is retired and cannot be written to.` : `${name} cannot be written to from here.`}</div>}
-      </div>
+          : <div className="dm-nowrite dim">{chat.node ? `${peer} is retired and cannot be written to.` : `${name} cannot be written to from here.`}</div>}
+      </div>}
     </>
   )
 }
