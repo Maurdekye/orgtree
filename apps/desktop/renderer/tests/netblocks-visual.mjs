@@ -64,10 +64,13 @@ check('6: a 2.5.x hub says it needs an update, and offers no block', () => {
 check('4: a contact that blocks the org shows the red sign and "has blocked this org"', () => {
   assert.equal(v.initial.cy?.label, 'has blocked this org'); assert.ok(red(v.initial.cy.color), v.initial.cy.color)
   assert.ok(v.initial.list?.some(l => /has blocked this org: no messages either way/.test(l)), JSON.stringify(v.initial.list))
-  assert.equal(v.initial.alice, null); assert.equal(v.initial.aliceButton, 'cancel icon')
+  assert.equal(v.initial.alice, null); assert.equal(v.initial.aliceButton, 'blocked sign')
 })
-check('1: each row of the hub list ends in a small red Cancel icon that blocks at once (USER mdd0522f95fb0)', () => {
+check('1: each row of the hub list ends in the blocked status sign as a small button that blocks at once (USER alpha.8 m2d6e12a94c56)', () => {
   const x = v.initial.aliceX
+  // the same sign, colour and size as cy's blocked-status badge in the same list
+  assert.ok(Math.abs(x.iconW - v.initial.cy.w) < 0.5 && Math.abs(x.iconH - v.initial.cy.h) < 0.5, `icon ${x.iconW}x${x.iconH} vs badge ${v.initial.cy.w}x${v.initial.cy.h}`)
+  assert.equal(x.iconColor, v.initial.cy.color)
   assert.equal(x?.title, `Block @net:${ALICE}: no messages either way`); assert.ok(red(x.color), x.color)
   assert.ok(x.w > 8 && x.w < 30 && x.h < 30, `small: ${x.w}x${x.h}`); assert.ok(x.rightGap >= 0 && x.rightGap < 20, `at the row's end: ${x.rightGap}`)
   assert.ok(red(v.hoverX.color), v.hoverX.color)
@@ -86,7 +89,7 @@ check('5: a refused message shows the red cancel sign with the engine\'s words',
   assert.equal(v.refused.label, words); assert.equal(v.refused.title, words); assert.ok(v.refused.svg); assert.ok(red(v.refused.color), v.refused.color)
 })
 check('unblock acts at once and the sign goes', () => {
-  assert.equal(v.unblocked.alice, null); assert.equal(v.unblocked.aliceButton, 'cancel icon'); assert.equal(v.unblocked.err, null)
+  assert.equal(v.unblocked.alice, null); assert.equal(v.unblocked.aliceButton, 'blocked sign'); assert.equal(v.unblocked.err, null)
 })
 const DEE = 'dee.fixture.dd0044', GONE = 'gone.fixture.ee0055'
 check('7: the lockdown list is the shared list under its hub, each with a × that takes it off; no address box or allow/unlist', () => {

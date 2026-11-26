@@ -121,7 +121,13 @@ test("Org settings › Connections: a 2.6.0 hub's rows carry the list's red bloc
   const row = (slug: string) => rows(view.el).find(r => addressOf(r) === '@net:' + slug)!
   const x = row('alpha.home.aa0001').querySelector<HTMLButtonElement>('button.conn-x') ?? assert.fail('no × on alpha')
   assert.equal(x.title, 'Block @net:alpha.home.aa0001: no messages either way')
-  assert.ok(x.querySelector('svg[data-testid="CancelIcon"]'), 'the red Cancel icon (USER mdd0522f95fb0)')
+  // USER (alpha.8, via @coordinator-opus m2d6e12a94c56/m91c25d389e0f): the block button wears the very sign a blocked
+  // contact's status shows (the red Material Block ring), not a Cancel ×
+  assert.ok(x.querySelector('svg[data-testid="BlockIcon"].oi-blocked'), 'the block button shows the blocked status sign')
+  assert.equal(x.querySelector('svg[data-testid="CancelIcon"]'), null, 'no Cancel icon')
+  assert.equal(x.querySelector('svg')!.outerHTML.replace(/ aria-[a-z]+="[^"]*"| role="img"/g, '').replace(/<title>.*<\/title>/, ''),
+    row('beta.home.bb0002').querySelector('.oi-blocked')!.outerHTML.replace(/ aria-[a-z]+="[^"]*"| role="img"/g, '').replace(/<title>.*<\/title>/, ''),
+    'the same element as the status sign: same glyph, class and size')
   assert.equal(row('beta.home.bb0002').querySelector('button.conn-x'), null)
   assert.ok(row('beta.home.bb0002').querySelector('.oi-blocked'))
   assert.deepEqual([...row('beta.home.bb0002').querySelectorAll('button.link')].map(b => b.textContent), ['unblock'])

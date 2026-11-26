@@ -12,17 +12,18 @@ module.exports=async(page)=>{
     const lines=where==='list'?[...document.querySelectorAll('.oi-net .oi-hub')].filter(h=>/blocked contacts/.test(h.textContent)).flatMap(h=>[...h.querySelectorAll('.oi-peer')])
       :[...document.querySelectorAll('.oi-net > .oi-hub')][0]?.querySelectorAll('.conn-row')??[]
     const line=[...lines].find(l=>l.textContent.includes(name));const b=line&&[...line.querySelectorAll('button.link, button.conn-x')].pop()
-    return b?(b.querySelector('svg[data-testid="CancelIcon"]')?'cancel icon':b.textContent):null},[name,where])
+    return b?(b.querySelector('svg[data-testid="BlockIcon"].oi-blocked')?'blocked sign':b.textContent):null},[name,where])
   const press=(name)=>page.eval(name=>{const hub=[...document.querySelectorAll('.oi-net > .oi-hub')][0]
     const line=[...hub.querySelectorAll('.conn-row')].find(l=>l.textContent.includes(name));[...line.querySelectorAll('button.link, button.conn-x')].pop().click()},name)
   const xLook=(name)=>page.eval(name=>{const hub=[...document.querySelectorAll('.oi-net > .oi-hub')][0]
     const x=[...hub.querySelectorAll('.conn-row')].find(l=>l.textContent.includes(name))?.querySelector('button.conn-x');if(!x)return null
     const r=x.getBoundingClientRect(),row=x.closest('.conn-row').getBoundingClientRect()
-    return {title:x.title,color:getComputedStyle(x).color,w:r.width,h:r.height,rightGap:row.right-r.right}},name)
+    const i=x.querySelector('svg')?.getBoundingClientRect()
+    return {title:x.title,color:getComputedStyle(x).color,w:r.width,h:r.height,rightGap:row.right-r.right,iconW:i?.width??0,iconH:i?.height??0,iconColor:x.querySelector('svg')?getComputedStyle(x.querySelector('svg')).color:null}},name)
   const state=()=>page.eval(()=>{
     const hubs=[...document.querySelectorAll('.oi-net > .oi-hub')]
     const sign=name=>{const l=[...(hubs[0]?.querySelectorAll('.conn-row')??[])].find(x=>x.textContent.includes(name));const s=l?.querySelector('.oi-blocked');
-      return s?{label:s.getAttribute('aria-label'),color:getComputedStyle(s).color,w:s.getBoundingClientRect().width}:null}
+      return s?{label:s.getAttribute('aria-label'),color:getComputedStyle(s).color,w:s.getBoundingClientRect().width,h:s.getBoundingClientRect().height}:null}
     const list=hubs.find(h=>/blocked contacts/.test(h.textContent))
     return {hubText:hubs.map(h=>h.textContent),alice:sign('alice.fixture'),cy:sign('cy.fixture'),bob:sign('bob.fixture'),
       list:list?[...list.querySelectorAll('.oi-peer')].map(p=>p.textContent):null,

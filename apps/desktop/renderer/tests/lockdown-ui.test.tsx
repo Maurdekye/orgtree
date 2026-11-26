@@ -177,8 +177,10 @@ test('each hub list entry has a small red × that blocks at once; a blocked one 
   const hub = view.el.querySelector('.oi-net > .oi-hub') ?? assert.fail('no hub')
   const x = xOf(rowOf(hub, 'alice.fixture.aa0011') ?? assert.fail('no alice row')) ?? assert.fail('no × on alice')
   assert.equal(x.title, 'Block @net:alice.fixture.aa0011: no messages either way')
-  // point 14 (USER mdd0522f95fb0 "make the block icon a red cancel, not a red x"): the Material Cancel icon, no text ×
-  assert.ok(x.querySelector('svg[data-testid="CancelIcon"]'), 'the block control is the red Cancel icon')
+  // point 14 as corrected on alpha.8 (USER via @coordinator-opus m2d6e12a94c56 "it should look like the red cancel symbol
+  // shown for agent statuses when theyve blocked you"): the blocked status sign itself, no Cancel icon, no text ×
+  assert.ok(x.querySelector('svg[data-testid="BlockIcon"].oi-blocked'), 'the block control is the blocked status sign')
+  assert.equal(x.querySelector('svg[data-testid="CancelIcon"]'), null)
   assert.equal(x.textContent, '')
   const cy = rowOf(hub, 'cy.fixture.cc0033')!
   assert.equal(xOf(cy), null, 'a blocked entry has no ×')
