@@ -12,7 +12,7 @@ module.exports=async(page)=>{
     const lines=where==='list'?[...document.querySelectorAll('.oi-net .oi-hub')].filter(h=>/blocked contacts/.test(h.textContent)).flatMap(h=>[...h.querySelectorAll('.oi-peer')])
       :[...document.querySelectorAll('.oi-net > .oi-hub')][0]?.querySelectorAll('.conn-row')??[]
     const line=[...lines].find(l=>l.textContent.includes(name));const b=line&&[...line.querySelectorAll('button.link, button.conn-x')].pop()
-    return b?b.textContent:null},[name,where])
+    return b?(b.querySelector('svg[data-testid="CancelIcon"]')?'cancel icon':b.textContent):null},[name,where])
   const press=(name)=>page.eval(name=>{const hub=[...document.querySelectorAll('.oi-net > .oi-hub')][0]
     const line=[...hub.querySelectorAll('.conn-row')].find(l=>l.textContent.includes(name));[...line.querySelectorAll('button.link, button.conn-x')].pop().click()},name)
   const xLook=(name)=>page.eval(name=>{const hub=[...document.querySelectorAll('.oi-net > .oi-hub')][0]
@@ -76,5 +76,35 @@ module.exports=async(page)=>{
   await page.screenshot('10-lockdown-removed')
   r.lockCalls=await page.eval(()=>window.__blocks.calls.filter(c=>c.url.endsWith('/net/lockdown')&&c.method==='POST').map(c=>c.body))
   r.calls=await page.eval(()=>window.__blocks.calls.filter(c=>c.url.endsWith('/net/blocks')))
+  // point 13 (USER 2026-11-26 md10751788f2e "this ui is ugly, clean it up") on both surfaces, point 10 (the list under
+  // the settings Lockdown dropdown): lockdown on with 0 and with 3 listed, set-aside on with mail
+  const section=()=>page.eval(()=>{const s=document.querySelector('.oi-lockdown');if(!s)return null
+    s.scrollIntoView({block:'start'});const box=s.getBoundingClientRect()
+    return {chip:s.querySelector('.lk-head .lk-chip')?.textContent??null,headButtons:[...s.querySelectorAll('.lk-head button')].map(b=>b.textContent),
+      hubs:[...s.querySelectorAll('.lk-hub')].map(h=>h.textContent),listHead:s.querySelector('.oi-lock-list-head')?.textContent??null,
+      empty:s.querySelector('.lk-frame .lk-empty')?.textContent??null,rows:[...s.querySelectorAll('.oi-lock-list .conn-row [data-hub-address]')].map(c=>c.getAttribute('data-hub-address')),
+      toggle:s.querySelector('input[role="switch"]')?.getAttribute('aria-label')??null,toggleOn:!!s.querySelector('input[role="switch"]')?.checked,
+      setAsideButton:[...s.querySelectorAll('button')].map(b=>b.textContent).find(t=>/set-aside mail/i.test(t))??null,
+      underDropdown:!!s.closest('.org-lockdown-list'),w:box.width,h:box.height}})
+  const servers2=async()=>{await page.eval(()=>window.__blocks.show(null));await servers();await park()}
+  await page.eval(()=>{window.__blocks.lock({allow:[],pending:true,set_aside:false});window.__blocks.letters(0)});await servers2()
+  r.secEmpty=await section();await page.screenshot('11-section-on-empty')
+  await page.eval(()=>{window.__blocks.lock({allow:[window.__blocks.ALICE,window.__blocks.DEE,window.__blocks.GONE],pending:false,set_aside:true});window.__blocks.letters(2)});await servers2()
+  r.secThree=await section();await page.screenshot('12-section-three-setaside')
+  await page.eval(()=>[...document.querySelectorAll('.oi-lockdown button')].find(b=>/^Show set-aside mail/.test(b.textContent)).click());await paint()
+  r.setAsideShown=await page.eval(()=>[...document.querySelectorAll('.oi-lockdown .oi-peer')].map(p=>p.textContent))
+  await page.screenshot('13-section-setaside-shown')
+  // settings: Org decides with the org off shows no list; On shows it at once
+  const settings=async()=>{await page.eval(()=>window.__blocks.show('settings'));await page.waitFor('select[aria-label="Org mailbox lockdown"]');await paint();await park()}
+  await page.eval(()=>{window.__blocks.lock({setting:'org',org_on:false,allow:[],set_aside:false});window.__blocks.letters(0)});await settings()
+  r.setOff=await section();await page.screenshot('14-settings-org-decides-off')
+  await page.eval(()=>{const s=document.querySelector('select[aria-label="Org mailbox lockdown"]');const set=Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype,'value').set
+    set.call(s,'on');s.dispatchEvent(new Event('change',{bubbles:true}))});await page.waitFor('.org-lockdown-list .oi-lockdown');await paint();await park()
+  r.setOnEmpty=await section();await page.screenshot('15-settings-on-empty')
+  await page.eval(()=>window.__blocks.lock({allow:[window.__blocks.ALICE,window.__blocks.DEE,window.__blocks.GONE]}));await settings()
+  r.setThree=await section();await page.screenshot('16-settings-on-three')
+  await page.eval(()=>[...document.querySelectorAll('.org-lockdown-list button')].find(b=>b.textContent==='Add').click());await page.waitFor('.org-lockdown-list .oi-lock-add');await paint()
+  r.setAdd=await page.eval(()=>[...document.querySelectorAll('.org-lockdown-list .oi-lock-add [role="option"]')].map(o=>o.dataset.address))
+  await page.screenshot('17-settings-add-dropdown')
   return r
 }

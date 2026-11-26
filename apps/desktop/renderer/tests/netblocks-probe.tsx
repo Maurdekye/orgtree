@@ -6,6 +6,7 @@
 // message to Cy ended `failed` with the engine's words. Driven by window.__blocks.
 import { createRoot } from 'react-dom/client'
 import { OrgInboxModal } from '../src/canvas/mail'
+import { OrgInboxPolicy } from '../src/orginboxpolicy'
 import { setNetRoster } from '../src/canvas/netmentions'
 import type { NetBlock, NetBlocks, OrgInboxEntry } from '../src/types'
 
@@ -33,8 +34,17 @@ const FAILED: OrgInboxEntry = {
 let blocks: NetBlocks = { blocked: [], blocked_by: [CY] }
 // the lockdown (LIST UX REDESIGN, USER 2026-11-25 21:48-21:51Z): on, Dee listed and one listed address no longer connected
 let allow = [DEE, GONE].map((address) => ({ hub: 'a', hub_name: 'Hub A', address, added_by: '@user', at: '2026-11-25T21:00:00Z' }))
-const lockdown = () => ({ setting: 'org', on: true, org_on: true, set_aside: false, rev: 4, set_by: '@user', set_at: '2026-11-25T21:00:00Z',
-  refused: 0, agents_may_change: true, coverage: 'enforced', allow, hubs: [{ hub: 'a', hub_name: 'Hub A', state: 'enforced', rev: 4, detail: null }] })
+// points 13 (USER 2026-11-26 md10751788f2e "this ui is ugly, clean it up") and 10 (the list under the settings
+// dropdown): the state and the set-aside letters are set by the page script through __blocks.lock / letters
+let lk = { setting: 'org' as 'org' | 'on' | 'off', org_on: true, set_aside: false, rev: 4,
+  hubs: [{ hub: 'a', hub_name: 'Hub A', state: 'enforced', rev: 4 as number | null, detail: null as string | null }] }
+let letters = 0
+const lockdown = () => ({ ...lk, on: lk.setting === 'on' || (lk.setting === 'org' && lk.org_on), set_by: '@user', set_at: '2026-11-25T21:00:00Z',
+  refused: 0, agents_may_change: true, coverage: 'enforced', allow })
+const setAsidePage = () => ({ total: letters, unread: letters, next_before: null,
+  top_senders: letters ? [{ from: '@net:flood1.fixture.ff0001', letters }] : [],
+  set_aside: Array.from({ length: letters }, (_, i) => ({ id: 's' + i, from: `@net:flood${i + 1}.fixture.ff000${i + 1}`, hub: 'a',
+    at: '2026-11-26T09:0' + i + ':00Z', chars: 120 + i, read_by: null, files: null })) })
 const calls: { method: string; url: string; body?: unknown }[] = []
 const json = (v: unknown) => new Response(JSON.stringify(v), { headers: { 'Content-Type': 'application/json' } })
 window.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -50,9 +60,14 @@ window.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     }
     return json(blocks)
   }
+  if (url.includes('/net/lockdown/set-aside')) return json(setAsidePage())
   if (url.endsWith('/net/lockdown')) {
     if (method === 'POST') {
-      const c = body as { add?: { hub: string; address: string }[]; remove?: { hub: string; address: string }[] }
+      const c = body as { add?: { hub: string; address: string }[]; remove?: { hub: string; address: string }[]
+        setting?: 'org' | 'on' | 'off'; on?: boolean; set_aside?: boolean }
+      if (c.setting) lk = { ...lk, setting: c.setting }
+      if (c.on !== undefined) lk = { ...lk, org_on: c.on }
+      if (c.set_aside !== undefined) lk = { ...lk, set_aside: c.set_aside }
       allow = [...allow.filter((a) => !c.remove?.some((r) => r.hub === a.hub && r.address === a.address)),
         ...(c.add ?? []).map((a) => ({ ...a, hub_name: 'Hub A', added_by: '@user', at: '2026-11-25T21:05:00Z' }))]
     }
@@ -63,9 +78,22 @@ window.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
 }) as typeof fetch
 setNetRoster('blocks-fixture', NET)
 const root = createRoot(document.getElementById('root')!)
-const show = (jumpTo: string | null) => root.render(
-  <OrgInboxModal key={jumpTo ?? 'servers'} slug="blocks-fixture" net={NET} map={new Map()} toast={() => {}} close={() => {}}
+let mounts = 0
+const summary = () => { const l = lockdown(); return { setting: l.setting, on: l.on, coverage: l.on ? 'enforced' : 'off', set_aside: l.set_aside, set_aside_unread: letters } }
+// 'settings': the org settings' External org mailbox group (OrgInboxPolicy) with the lockdown list under its dropdown
+const show = (jumpTo: string | null) => root.render(jumpTo === 'settings'
+  ? <div className="settings" style={{ padding: 16, maxWidth: 680 }} key={'settings' + ++mounts}>
+    <OrgInboxPolicy mode="org" actual="normal" onMode={() => {}} multi={false} onMulti={() => {}}
+      slug="blocks-fixture" lockdown={summary()} hubs={NET.hubs} />
+  </div>
+  : <OrgInboxModal key={(jumpTo ?? 'servers') + ++mounts} slug="blocks-fixture" net={NET} map={new Map()} toast={() => {}} close={() => {}}
     jumpTo={jumpTo} jumpSeq={jumpTo ? 1 : null}
     inbox={{ entries: [FAILED], total: 1, unread: 0, holders: ['helper-opus'], visible: true, multi_holder_enabled: false }} />)
-Object.assign(window, { __blocks: { show, calls, ALICE, CY, BOB, DEE, GONE } })
+const lock = (patch: { setting?: 'org' | 'on' | 'off'; org_on?: boolean; set_aside?: boolean; allow?: string[]; pending?: boolean }) => {
+  const { allow: list, pending, ...rest } = patch
+  lk = { ...lk, ...rest }
+  if (pending !== undefined) lk = { ...lk, hubs: [{ ...lk.hubs[0], state: pending ? 'pending' : 'enforced' }] }
+  if (list) allow = list.map((address) => ({ hub: 'a', hub_name: 'Hub A', address, added_by: '@user', at: '2026-11-26T09:00:00Z' }))
+}
+Object.assign(window, { __blocks: { show, calls, lock, letters: (n: number) => { letters = n }, ALICE, CY, BOB, DEE, GONE } })
 show(null)

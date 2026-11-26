@@ -64,9 +64,9 @@ check('6: a 2.5.x hub says it needs an update, and offers no block', () => {
 check('4: a contact that blocks the org shows the red sign and "has blocked this org"', () => {
   assert.equal(v.initial.cy?.label, 'has blocked this org'); assert.ok(red(v.initial.cy.color), v.initial.cy.color)
   assert.ok(v.initial.list?.some(l => /has blocked this org: no messages either way/.test(l)), JSON.stringify(v.initial.list))
-  assert.equal(v.initial.alice, null); assert.equal(v.initial.aliceButton, '×')
+  assert.equal(v.initial.alice, null); assert.equal(v.initial.aliceButton, 'cancel icon')
 })
-check('1: each row of the hub list ends in a small red × that blocks at once', () => {
+check('1: each row of the hub list ends in a small red Cancel icon that blocks at once (USER mdd0522f95fb0)', () => {
   const x = v.initial.aliceX
   assert.equal(x?.title, `Block @net:${ALICE}: no messages either way`); assert.ok(red(x.color), x.color)
   assert.ok(x.w > 8 && x.w < 30 && x.h < 30, `small: ${x.w}x${x.h}`); assert.ok(x.rightGap >= 0 && x.rightGap < 20, `at the row's end: ${x.rightGap}`)
@@ -86,7 +86,7 @@ check('5: a refused message shows the red cancel sign with the engine\'s words',
   assert.equal(v.refused.label, words); assert.equal(v.refused.title, words); assert.ok(v.refused.svg); assert.ok(red(v.refused.color), v.refused.color)
 })
 check('unblock acts at once and the sign goes', () => {
-  assert.equal(v.unblocked.alice, null); assert.equal(v.unblocked.aliceButton, '×'); assert.equal(v.unblocked.err, null)
+  assert.equal(v.unblocked.alice, null); assert.equal(v.unblocked.aliceButton, 'cancel icon'); assert.equal(v.unblocked.err, null)
 })
 const DEE = 'dee.fixture.dd0044', GONE = 'gone.fixture.ee0055'
 check('7: the lockdown list is the shared list under its hub, each with a × that takes it off; no address box or allow/unlist', () => {
@@ -101,5 +101,21 @@ check('8: Add opens a searchable dropdown of connected contacts not listed; a ch
   assert.deepEqual(v.lockAdded.rows.map(r => r.address).sort(), [`@net:${ALICE}`, `@net:${DEE}`, `@net:${GONE}`])
   assert.deepEqual(v.lockRemoved.rows.map(r => r.address).sort(), [`@net:${ALICE}`, `@net:${DEE}`])
   assert.deepEqual(v.lockCalls, [{ add: [{ hub: 'a', address: ALICE }] }, { remove: [{ hub: 'a', address: GONE }] }])
+})
+check('11-13: the section is one card: chip + inline action, plain hub words, Allowed addresses + Add, empty state, set-aside toggle and count', () => {
+  const e = v.secEmpty, t = v.secThree
+  assert.equal(e.chip, 'On · Org decides · set by you'); assert.deepEqual(e.headButtons, ['Lift lockdown'])
+  assert.deepEqual(e.hubs, ['Hub Awaiting for the hub']); assert.deepEqual(t.hubs, ['Hub Aenforcing'])
+  assert.equal(e.listHead, 'Allowed addressesAdd'); assert.equal(e.empty, 'Nobody outside yet; organizations on this computer can still reach the org')
+  assert.equal(e.toggle, 'Set aside mail from unlisted addresses'); assert.equal(e.toggleOn, false); assert.equal(e.setAsideButton, null)
+  assert.deepEqual(t.rows.sort(), [`@net:${ALICE}`, `@net:${DEE}`, `@net:${GONE}`]); assert.equal(t.empty, null)
+  assert.equal(t.toggleOn, true); assert.equal(t.setAsideButton, 'Show set-aside mail (2)'); assert.equal(v.setAsideShown.length, 2)
+})
+check('14-17: settings shows the list under the Lockdown dropdown once it is in force, with the searchable Add', () => {
+  assert.equal(v.setOff, null, 'Org decides with the org off: no list')
+  assert.ok(v.setOnEmpty?.underDropdown); assert.equal(v.setOnEmpty.chip, 'On · forced on by you · set by you')
+  assert.equal(v.setOnEmpty.empty, 'Nobody outside yet; organizations on this computer can still reach the org')
+  assert.deepEqual(v.setThree.rows.sort(), [`@net:${ALICE}`, `@net:${DEE}`, `@net:${GONE}`])
+  assert.deepEqual(v.setAdd, [BOB, CY], 'connected contacts not listed, across hubs')
 })
 console.log(JSON.stringify({ ok: true, checked: checks, shots: result.shots?.length, out: evidence }))
