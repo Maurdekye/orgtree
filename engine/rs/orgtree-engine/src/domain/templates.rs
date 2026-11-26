@@ -50,13 +50,15 @@ const SHIPPED_EARLIER: &[(&str, &[&str])] = &[
         "2003ff151fef08e03b36a47f6a6418472915637887b6bbafbbd4b357fbba533f",
         // until 4.7.0: its shared notes taught @item:<org>/<slug> (now @ticket:, USER 2026-11-24 mc6e8d9a7dab7)
         "2a3bedc25438a21c5a3d3ea2c9dd40aa5d001e07e4665c6823dda5b9cc7ca99e",
+        // until 4.7.0: its coordinator notes lacked the 10-second delegation rule (USER 2026-11-26 m22d773a3eeb2)
+        "c8fd978462e623e0f6950d3cb731fcf5694ecaa2e791c49a90e19eb90f31253e",
     ]),
 ];
 
 /// The digest `SHIPPED_EARLIER` holds: SHA-256 of the text without its carriage returns, so the file a Windows
-/// build wrote and the one a checkout holds are the same text.
+/// build wrote and the one a checkout holds are the same text. Charter presets use it too (settings.rs).
 #[nolog]
-fn text_digest(text: &[u8]) -> String {
+pub(crate) fn text_digest(text: &[u8]) -> String {
     use sha2::Digest;
     let lf: Vec<u8> = text.iter().copied().filter(|b| *b != b'\r').collect();
     hex::encode(sha2::Sha256::digest(&lf))
@@ -1637,7 +1639,7 @@ mod tests {
             ("devteam-codex.json", "ce1ef5b21152cd6f582ec4051d1749ce0e930b102899efc6a39de2efa3ee4908"),
             ("devteam-muse.json", "993cec32790eee02e632500e89c9c3c701a80013d666570eb0a925315f99fba9"),
             ("devteam-antigravity.json", "562e7c0e19bbfd9c43ebeee998edc1a4e17a7437f34f4546cfa4b995cf01cf83"),
-            ("heavy-dev-shop.json", "c8fd978462e623e0f6950d3cb731fcf5694ecaa2e791c49a90e19eb90f31253e"),
+            ("heavy-dev-shop.json", "c5f745df977628a634e49a2df98e733f67fc0215ebda9c4dbe3ba1c0ad83323d"),
         ];
         assert_eq!(CURRENT.len(), BUNDLED.len());
         for ((f, body), (pinned_file, pinned)) in BUNDLED.iter().zip(CURRENT) {

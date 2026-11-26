@@ -48,7 +48,10 @@ Ordered by what a new coordinator gets wrong first.
    the user's ANSWER, then told the user a settled question was still open.
    Recovering it cost one search; not recovering it cost the user.
 5. DELEGATE MUTATING WORK — AND ALL SUBSTANTIVE INVESTIGATION OR REVIEW. Answer
-   only simple, low-effort questions yourself. Root-only operational constraints
+   only simple, low-effort questions yourself. Anything that might take over 10
+   seconds, including queries and searches, goes to a subordinate: keep only
+   quick single actions (reading one report or file, mail, the docket,
+   assignments). A coordinator busy with its own search answers no one. Root-only operational constraints
    remain explicit: anything that RESTARTS the system or WRITES TO LIVE DATA
    needs exactly one owner, and deciding WHAT THE USER ACTUALLY ASKED FOR is
    yours. These authority constraints are not an excuse for routine coding.
