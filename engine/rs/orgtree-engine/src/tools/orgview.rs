@@ -34,6 +34,53 @@ struct Row {
     waiting: i64,
     peer_mail: bool,
     audiences: Vec<crate::domain::audiences::EffectiveGrant>,
+    /// the effort its turns use (`chart_effort`); None for a project or a model without an effort setting
+    effort: Option<String>,
+}
+
+/// A seat's effort as state_inspect shows it (USER 2026-11-26 m99820c62f071, after org primordial-engine's report
+/// mb98994481ebf): the level its turns use (`catalog::effective_effort`) and where it comes from: `explicit` (set on
+/// the seat), `org default` (the org's default_effort setting) or `built-in default`; `unsupported`, with no level,
+/// for a model without an effort setting. `sent_as` when the model doesn't name the level and its turns are sent a
+/// neighbour (`catalog::launch_effort`); `pending` while a running turn still uses the level it started with.
+/// `offered`: the tier's effort names (`providers::effort_names`), None while unknown. `live`: the actor's view.
+#[nolog]
+pub(crate) fn effort_view(scope: &Value, settings: &Value, offered: Option<&[String]>, live: Option<&Value>) -> Value {
+    if offered.is_some_and(<[String]>::is_empty) {
+        return json!({ "level": null, "source": "unsupported" });
+    }
+    let named = |v: Option<&Value>| v.and_then(Value::as_str).filter(|s| !s.is_empty()).map(str::to_string);
+    let own = named(scope.get("effort"));
+    let org = named(settings.get("default_effort")).filter(|l| catalog::effort_rank(l).is_some());
+    let level = catalog::effective_effort(scope, settings);
+    // a stored level no harness names reads as the built-in default, never the org's (catalog::effective_effort)
+    let source = match (&own, &org) {
+        (Some(l), _) if catalog::effort_rank(l).is_some() => "explicit",
+        (None, Some(_)) => "org default",
+        _ => "built-in default",
+    };
+    let mut v = json!({ "level": level, "source": source });
+    if let Some(names) = offered {
+        let (sent, mapped) = catalog::launch_effort(&level, names);
+        if mapped {
+            v["sent_as"] = json!(sent);
+        }
+    }
+    if let Some(l) = live {
+        if let (Some(running), Some(next)) = (l["effort_current"].as_str(), l["pending_effort"].as_str()) {
+            v["pending"] = json!({ "running": running, "next": next });
+        }
+    }
+    v
+}
+
+/// The chart's compact effort: the effective level, or None for a model without an effort setting.
+#[nolog]
+fn chart_effort(scope: &Value, settings: &Value, offered: Option<&[String]>) -> Option<String> {
+    if offered.is_some_and(<[String]>::is_empty) {
+        return None;
+    }
+    Some(catalog::effective_effort(scope, settings))
 }
 
 fn age(at: Option<DateTime<Utc>>) -> String {
@@ -67,9 +114,16 @@ async fn rows(engine: &Engine, org_id: i64, archived: bool) -> Result<Vec<Row>> 
         )
         .await?;
     let audiences = crate::feed::compute::audiences_held(&**client, org_id).await?;
+    let settings: Value = client.query_one("SELECT settings FROM ot.orgs WHERE id=$1", &[&org_id]).await?.get(0);
+    let settings = crate::feed::groups::effective_settings(&settings, &engine.settings.defaults());
+    let providers = engine.providers.state.load();
     Ok(rs
         .iter()
         .map(|r| Row {
+            effort: if r.get::<_, bool>(14) { None } else {
+                let tier: String = r.get(4);
+                chart_effort(&r.get::<_, Value>(16), &settings, crate::providers::effort_names(&providers, &tier).as_deref())
+            },
             audiences: audiences.get(&r.get::<_, String>(1)).cloned().unwrap_or_default(),
             id: r.get(0),
             name: r.get(1),
@@ -108,7 +162,9 @@ fn line(r: &Row, busy: bool) -> String {
         // provisional: how a project appears in the chart is still the user's to settle
         s.push_str(&format!(" · PROJECT node (runs no turns, holds no credits) · {} mail waiting", r.waiting));
     } else {
-        s.push_str(&format!(" · {} · grant {} (seat {}, free {})", r.tier, r.grant, r.seat, crate::util::round2(r.grant - r.hold)));
+        // the effort its turns use, in brackets after the tier (USER 2026-11-26 m99820c62f071)
+        let effort = r.effort.as_deref().map(|e| format!(" ({e})")).unwrap_or_default();
+        s.push_str(&format!(" · {}{effort} · grant {} (seat {}, free {})", r.tier, r.grant, r.seat, crate::util::round2(r.grant - r.hold)));
     }
     if r.state != "live" {
         s.push_str(&format!(" · {}", r.state));
@@ -436,8 +492,15 @@ pub async fn state_inspect(engine: &Arc<Engine>, caller: &Caller, args: &Value) 
     }
     tx.commit().await?;
     drop(client);
+    let providers = engine.providers.state.load();
     for (id,row) in &mut records {
-        if let Some(h)=engine.agents.get(*id) { row["interrupt"]=h.view.load()["interrupt"].clone(); }
+        let live = engine.agents.get(*id).map(|h| h.view.load_full());
+        if let Some(v)=&live { row["interrupt"]=v["interrupt"].clone(); }
+        // its effort, with where the level comes from (USER 2026-11-26 m99820c62f071); a project runs no turns
+        if row["kind"] != "project" {
+            let offered = crate::providers::effort_names(&providers, row["tier"].as_str().unwrap_or(""));
+            row["effort"] = effort_view(&scopes[&*id].1, &settings, offered.as_deref(), live.as_deref());
+        }
     }
     let (caller_id, caller_name) = (caller.agent_id, caller.name.clone());
     // The snapshot is coherent and owned. CPU work and verbose scope logging

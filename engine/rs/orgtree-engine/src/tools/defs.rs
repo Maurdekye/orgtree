@@ -718,7 +718,7 @@ fn build_tool_inbox() -> Value {
 fn build_tool_chart() -> Value {
     tool(
         "orgtree_chart",
-        "Read the org within your visibility: tiers, credits, status, age and effective audiences with project sources. include_archived reveals retired agents; check them before hiring because rehire restores context.",
+        "Read the org within your visibility: tiers with each seat's effort, credits, status, age and effective audiences with project sources. include_archived reveals retired agents; check them before hiring because rehire restores context.",
         json!({
             "include_archived": { "type": "boolean" },
             "include_standing_charter": { "type": "boolean", "description": "include team charters (default true)" },
@@ -732,7 +732,7 @@ fn build_tool_chart() -> Value {
 fn build_tool_state_inspect() -> Value {
     tool(
         "orgtree_state_inspect",
-        "Inspect visible agents' structured folders, tools, permission mode and effective/explicit/inherited audiences with project sources, optionally archived. Excludes prompts, transcripts and mail.",
+        "Inspect visible agents' structured folders, tools, permission mode, effort (level and source) and effective/explicit/inherited audiences with project sources, optionally archived. Excludes prompts, transcripts and mail.",
         json!({
             "node": { "type": "string" },
             "nodes": { "type": "array", "items": { "type": "string" } },
@@ -2119,9 +2119,9 @@ mod builder_stack_tests {
         let card = expected.as_array_mut().unwrap().iter_mut().find(|c| c["name"] == "orgtree_audience").unwrap();
         card["description"] = serde_json::json!("Manage directional audiences: agent/project endpoints, request target (optional from=managed project), grant from, deny requester, revoke grantee. Project grants reach direct live members as their own, not nested. An audience with a project also reaches its direct agents; reverse access needs a reverse grant. User project mail grants only the project; members inherit. Direct contact adds no user grant while access exists; manual Acquire can. Project decisions go to the nearest agent superior (user if none). Org-mailbox: agent/project holder, no inherit. An agent above both may grant, deny or revoke between two agents in its subtree. Requests do not grant access.\nGuide: orgtree-tool-audience.");
         let card = expected.as_array_mut().unwrap().iter_mut().find(|c| c["name"] == "orgtree_chart").unwrap();
-        card["description"] = serde_json::json!("Read the org within your visibility: tiers, credits, status, age and effective audiences with project sources. include_archived reveals retired agents; check them before hiring because rehire restores context. Team charters default on.\nGuide: orgtree-tool-chart.");
+        card["description"] = serde_json::json!("Read the org within your visibility: tiers with each seat's effort, credits, status, age and effective audiences with project sources. include_archived reveals retired agents; check them before hiring because rehire restores context. Team charters default on.\nGuide: orgtree-tool-chart.");
         let card = expected.as_array_mut().unwrap().iter_mut().find(|c| c["name"] == "orgtree_state_inspect").unwrap();
-        card["description"] = serde_json::json!("Inspect visible agents' structured folders, tools, permission mode and effective/explicit/inherited audiences with project sources, optionally archived. Excludes prompts, transcripts and mail.\nGuide: orgtree-tool-state-inspect.");
+        card["description"] = serde_json::json!("Inspect visible agents' structured folders, tools, permission mode, effort (level and source) and effective/explicit/inherited audiences with project sources, optionally archived. Excludes prompts, transcripts and mail.\nGuide: orgtree-tool-state-inspect.");
         // agents read other agents' activity history (USER 2026-11-05 maac5e83fa61e): three parameters on this one tool
         card["inputSchema"]["properties"]["activity"] = serde_json::json!({ "type": "boolean", "description": "default false; with exactly one node, add its state-history page (spans, 24h/7d totals, cursor)" });
         card["inputSchema"]["properties"]["activity_limit"] = serde_json::json!({ "type": "integer", "minimum": 1, "maximum": 100, "description": "spans per page, default 20" });
