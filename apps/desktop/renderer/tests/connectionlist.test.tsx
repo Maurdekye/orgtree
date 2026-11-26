@@ -126,10 +126,10 @@ test("Org settings › Connections: a 2.6.0 hub's rows carry the list's red bloc
   assert.ok(x.querySelector('svg[data-testid="BlockIcon"].oi-blocked'), 'the block button shows the blocked status sign')
   assert.equal(x.querySelector('svg[data-testid="CancelIcon"]'), null, 'no Cancel icon')
   assert.equal(x.querySelector('svg')!.outerHTML.replace(/ aria-[a-z]+="[^"]*"| role="img"/g, '').replace(/<title>.*<\/title>/, ''),
-    row('beta.home.bb0002').querySelector('.oi-blocked')!.outerHTML.replace(/ aria-[a-z]+="[^"]*"| role="img"/g, '').replace(/<title>.*<\/title>/, ''),
+    row('beta.home.bb0002').querySelector('.oi-blocked[role="img"]')!.outerHTML.replace(/ aria-[a-z]+="[^"]*"| role="img"/g, '').replace(/<title>.*<\/title>/, ''),
     'the same element as the status sign: same glyph, class and size')
   assert.equal(row('beta.home.bb0002').querySelector('button.conn-x'), null)
-  assert.ok(row('beta.home.bb0002').querySelector('.oi-blocked'))
+  assert.ok(row('beta.home.bb0002').querySelector('.oi-blocked[role="img"]'))
   assert.deepEqual([...row('beta.home.bb0002').querySelectorAll('button.link')].map(b => b.textContent), ['unblock'])
   await inAct(async () => { x.click(); await flush(4) })
   assert.deepEqual(posts, [{ address: 'alpha.home.aa0001', blocked: true }])

@@ -184,12 +184,12 @@ test('each hub list entry has a small red × that blocks at once; a blocked one 
   assert.equal(x.textContent, '')
   const cy = rowOf(hub, 'cy.fixture.cc0033')!
   assert.equal(xOf(cy), null, 'a blocked entry has no ×')
-  assert.ok(cy.querySelector('.oi-blocked'), 'it wears the blocked badge')
+  assert.ok(cy.querySelector('.oi-blocked[role="img"]'), 'it wears the blocked badge')
   assert.deepEqual([...cy.querySelectorAll('button.link')].map(b => b.textContent), ['unblock'])
   await inAct(() => x.click()); await flush(4)
   assert.deepEqual(blockPosts, [{ address: 'alice.fixture.aa0011', blocked: true }], 'no confirm step')
   const after = rowOf(view.el.querySelector('.oi-net > .oi-hub')!, 'alice.fixture.aa0011')!
-  assert.ok(after.querySelector('.oi-blocked'))
+  assert.ok(after.querySelector('.oi-blocked[role="img"]'))
   assert.deepEqual([...after.querySelectorAll('button.link')].map(b => b.textContent), ['unblock'])
 })
 

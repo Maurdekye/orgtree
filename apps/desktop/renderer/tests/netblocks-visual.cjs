@@ -22,7 +22,7 @@ module.exports=async(page)=>{
     return {title:x.title,color:getComputedStyle(x).color,w:r.width,h:r.height,rightGap:row.right-r.right,iconW:i?.width??0,iconH:i?.height??0,iconColor:x.querySelector('svg')?getComputedStyle(x.querySelector('svg')).color:null}},name)
   const state=()=>page.eval(()=>{
     const hubs=[...document.querySelectorAll('.oi-net > .oi-hub')]
-    const sign=name=>{const l=[...(hubs[0]?.querySelectorAll('.conn-row')??[])].find(x=>x.textContent.includes(name));const s=l?.querySelector('.oi-blocked');
+    const sign=name=>{const l=[...(hubs[0]?.querySelectorAll('.conn-row')??[])].find(x=>x.textContent.includes(name));const s=l?.querySelector('.oi-blocked[role="img"]');
       return s?{label:s.getAttribute('aria-label'),color:getComputedStyle(s).color,w:s.getBoundingClientRect().width,h:s.getBoundingClientRect().height}:null}
     const list=hubs.find(h=>/blocked contacts/.test(h.textContent))
     return {hubText:hubs.map(h=>h.textContent),alice:sign('alice.fixture'),cy:sign('cy.fixture'),bob:sign('bob.fixture'),
@@ -54,7 +54,7 @@ module.exports=async(page)=>{
   const lock=()=>page.eval(()=>{const l=document.querySelector('.oi-lockdown .oi-lock-list');if(!l)return null
     l.scrollIntoView({block:'start'})
     return {rows:[...l.querySelectorAll('.conn-row')].map(r=>({address:r.querySelector('[data-hub-address]')?.getAttribute('data-hub-address'),
-      x:r.querySelector('button.conn-x')?.title??null,blocked:!!r.querySelector('.oi-blocked')})),
+      x:r.querySelector('button.conn-x')?.title??null,blocked:!!r.querySelector('.oi-blocked[role="img"]')})),
       sharedList:!!l.querySelector('.conn-rows[role="list"]'),addressBox:!!document.querySelector('.oi-lockdown input[aria-label="Address to allow"]'),
       allowLinks:[...document.querySelectorAll('.oi-net button')].filter(b=>/^(allow|unlist)$/.test(b.textContent)).length}})
   r.lockList=await lock();await paint();await park()

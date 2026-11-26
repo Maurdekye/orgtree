@@ -29,7 +29,7 @@ async function mailservers(t: test.TestContext, answer: () => Response) {
   await inAct(() => tab.click()); await flush(6)
   const list = [...view.el.querySelectorAll('.oi-net .oi-hub')].find(h => /blocked contacts/.test(h.textContent ?? ''))
   return { text: view.el.querySelector('.oi-net')?.textContent ?? '', list: list?.textContent ?? null,
-    signs: [...view.el.querySelectorAll('.oi-net .oi-blocked')].map(s => s.getAttribute('aria-label')),
+    signs: [...view.el.querySelectorAll('.oi-net .oi-blocked[role="img"]')].map(s => s.getAttribute('aria-label')),
     buttons: [...view.el.querySelectorAll('.oi-net button.link, .oi-net button.conn-x')].map(b => b.querySelector('svg[data-testid="BlockIcon"].oi-blocked') ? 'blocked sign' : b.textContent) }
 }
 const json = (v: unknown, status = 200) => () => new Response(JSON.stringify(v), { status, headers: { 'X-Orgtree-Instance': 'fixture' } })
