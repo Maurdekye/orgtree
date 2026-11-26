@@ -41,6 +41,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode }
 import type { NetHub, NetPeer } from '../types'
 import { HubContactChip } from './agentmentions'
 import { NET_PRESENCE_WORD, PRESENCE_RANK, netPresence, peerPresence, useNetMentionState, type NetPresence } from './netmentions'
+import { CancelIcon } from '../icons'
 import './connectionlist.css'
 
 /** Rows shown before the list scrolls. */
@@ -101,11 +102,14 @@ export function PresenceDot({ state }: { state: NetPresence }) {
 }
 
 /** What a caller adds to each row: its status (default: the presence dot), a
- *  control after the chip, and the small red × at the end (null: none). */
+ *  control after the chip, and the small red control at the end (null: none):
+ *  `block` draws the red Cancel icon (USER mdd0522f95fb0 "make the block icon a
+ *  red cancel, not a red x"), anything else (taking an address off the lockdown
+ *  list) the plain ×. */
 export interface RowControls {
   status?: (p: NetPeer) => ReactNode
   trail?: (p: NetPeer) => ReactNode
-  x?: (p: NetPeer) => { title: string; onClick: () => void } | null
+  x?: (p: NetPeer) => { title: string; onClick: () => void; block?: boolean } | null
 }
 
 /** One hub's connections: rows, sorted, scrolling past VISIBLE_ROWS, with
@@ -170,7 +174,8 @@ export function ConnectionList({ rows, recent, label, status, trail, x }: { rows
         {trail?.(p)}
         {(() => {
           const act = x?.(p)
-          return act && <button type="button" className="conn-x" title={act.title} aria-label={act.title} onClick={act.onClick}>×</button>
+          return act && <button type="button" className={'conn-x' + (act.block ? ' block' : '')} title={act.title} aria-label={act.title}
+            onClick={act.onClick}>{act.block ? <CancelIcon fontSize="inherit" /> : '×'}</button>
         })()}
       </div>)}
     {last < order.length && <div className="conn-gap" aria-hidden="true" style={{ height: (order.length - last) * rowPx }} />}

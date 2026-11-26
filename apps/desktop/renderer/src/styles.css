@@ -433,11 +433,33 @@ nav { display: flex; flex-direction: column; gap: 2px; }
 .oi-lockbadge-lock { position: absolute; right: -4px; bottom: -3px; font-size: 0.6em; color: var(--dim); }
 /* the lockdown list (USER 2026-11-25 21:48:05Z m6f4d40461dde): its hubs' rows are the shared ConnectionList; Add
    opens a searchable dropdown of the connected contacts not listed yet (21:51:09Z md60a3e7803d1) */
+/* the lockdown section as one card (USER 2026-11-26 10:46:43Z md10751788f2e "this ui is ugly, clean it up"): a
+   header line with a state chip and the action inline, plain-word hub lines, "Allowed addresses" with Add beside it
+   and its cards in one frame, then the set-aside toggle (a settings row) */
+.lk-card { display: flex; flex-direction: column; gap: 6px; margin: 8px 0 4px; padding: 8px 10px;
+  border: 1px solid var(--line-soft); border-radius: 6px; }
+.lk-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; min-height: 24px; }
+.lk-head b { color: var(--ink-strong); }
+.lk-icon { color: var(--dim); }
+.lk-chip { font-size: 11px; padding: 1px 8px; border-radius: 10px; border: 1px solid var(--line); color: var(--dim); }
+.lk-chip.on { color: var(--bad); border-color: color-mix(in srgb, var(--bad) 45%, transparent); }
+.lk-card button.lk-action { font-size: 12px; padding: 2px 10px; min-height: 0; line-height: 1.5; }
+.lk-head button.lk-action { margin-left: auto; }
+.lk-hub { display: flex; align-items: center; gap: 8px; font-size: 12px; padding-left: 2px; }
+.oi-dot.bad { background: var(--bad); }
 .oi-lock-list { display: flex; flex-direction: column; gap: 4px; }
-.oi-lock-list-head { display: flex; align-items: baseline; gap: 6px; flex-wrap: wrap; }
+.oi-lock-list-head { display: flex; align-items: center; gap: 8px; }
+.lk-sub { font-weight: 600; color: var(--ink-strong); font-size: 12px; }
+.lk-frame { border: 1px solid var(--line-soft); border-radius: 6px; padding: 4px 6px; }
+.lk-empty { font-size: 12px; padding: 2px 0; }
 .oi-lock-hub .oi-origin { margin-left: 0; }
-.oi-lock-addwrap { position: relative; margin-left: auto; }
-.oi-lock-add { position: absolute; right: 0; top: calc(100% + 4px); z-index: 20; width: min(340px, 80vw);
+.oi-lock-addwrap { position: relative; }
+.lk-card > .set-row { padding-left: 0; padding-right: 0; }
+.lk-card button.lk-link { font: inherit; font-size: 12px; color: var(--dim); background: none; border: 0; padding: 0;
+  text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }
+.lk-card button.lk-link:hover { background: none; color: var(--ink-strong); }
+.lk-setaside { display: flex; flex-direction: column; gap: 4px; }
+.oi-lock-add { position: absolute; left: 0; top: calc(100% + 4px); z-index: 20; width: min(340px, 80vw);
   background: var(--panel); border: 1px solid var(--line-soft); border-radius: 6px;
   box-shadow: 0 6px 18px rgba(0, 0, 0, 0.28); padding: 6px; display: flex; flex-direction: column; gap: 4px; }
 .oi-lock-add input { width: 100%; box-sizing: border-box; }

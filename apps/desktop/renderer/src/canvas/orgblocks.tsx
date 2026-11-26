@@ -65,7 +65,7 @@ export function hubListControls(h: NetHub, b: OrgBlocks): RowControls {
   return {
     status: (p) => contactStatus(h, p, b),
     x: (p) => can && !b.mine.has(p.slug)
-      ? { title: `Block @net:${p.slug}: no messages either way`, onClick: () => b.change(p.slug, true) } : null,
+      ? { title: `Block @net:${p.slug}: no messages either way`, onClick: () => b.change(p.slug, true), block: true } : null,
     trail: (p) => b.mine.has(p.slug)
       ? <button type="button" className="link" onClick={() => b.change(p.slug, false)}>unblock</button> : null,
   }

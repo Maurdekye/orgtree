@@ -4027,7 +4027,7 @@ export function SettingsPanel({ tree, toast, close, initialTab, target }: {
           active={tab === 'mailserver'}>
           {visited('mailserver') && <>
             <OrgInboxPolicy mode={orgInboxMode} onMode={setOrgInboxMode}
-              actual={tree.org_inbox?.mode} slug={tree.slug} lockdown={tree.org_inbox?.lockdown}
+              actual={tree.org_inbox?.mode} slug={tree.slug} lockdown={tree.org_inbox?.lockdown} hubs={tree.net?.hubs}
               multi={multiHolder} onMulti={setMultiHolder} />
             {tree.net != null && <NetTab tree={tree} toast={toast}
               adding={netHubDraft} setAdding={setNetHubDraft} />}
