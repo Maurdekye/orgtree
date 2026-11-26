@@ -287,3 +287,43 @@ test('§7 a bubble\'s attachments show their transfer\'s progress and state', as
   // a message with no transfer shows none
   assert.equal(s.bubbles('body of m1')[0]?.querySelector('[data-transfer-file]') ?? null, null)
 })
+
+// §8 A PICTURE WITH NO TEXT (USER 2026-11-26 14:08:28Z m2b7a281ca223: "if i send just a picture with no message,
+// dont say "(file attached)" in the message"; docket chats-panel-a-picture-sent-with-no-text-shows-fi)
+
+test('§8 a picture sent with no text carries no "(file attached)": not in the send, the local bubble or the engine\'s row', async (t) => {
+  const world: World = { delivered: [mail('m1', 'lead', '2026-11-25T10:00:00Z')], send: 'hold' }
+  const s = await setup(t, world)
+  const zone = document.querySelector('.dm-timeline')
+  const file = new W.File(['png'], 'image.png', { type: 'image/png' })
+  const drop = new W.Event('drop', { bubbles: true, cancelable: true })
+  Object.defineProperty(drop, 'dataTransfer', { value: { files: [file], types: ['Files'] } })
+  await inAct(async () => { zone!.dispatchEvent(drop); await flush(12) })
+  assert.match(document.querySelector('.dm-compose')?.textContent ?? '', /image\.png/, 'the picture is attached')
+  assert.equal(s.draft(), '', 'with no text')
+  await s.send()
+  const post = s.server.posts.find(p => /\/nodes\/lead\/message$/.test(p.path))
+  assert.ok(post, 'it is sent')
+  assert.equal((post!.body as { text?: string }).text, '', 'with an empty text')
+  const local = s.all<HTMLElement>('.dm-msg.out.local')
+  assert.equal(local.length, 1, 'the local bubble is there at once')
+  assert.doesNotMatch(local[0]!.textContent ?? '', /\(file attached\)/, 'without a placeholder')
+  assert.equal(local[0]!.querySelector('.mailer-body'), null, 'and without an empty text line')
+  await inAct(async () => { s.server.release(); await flush(20) })
+  assert.doesNotMatch(document.querySelector('.dm-timeline')?.textContent ?? '', /\(file attached\)/,
+    'the engine\'s row shows none either')
+})
+
+for (const typed of [false, true]) {
+  test(`§8 an earlier picture-only message saved as "(file attached)" shows no text line${typed ? ' (typed row)' : ''}`, async (t) => {
+    const ev = { v: 1, variant: 'ordinary.message', actor: { kind: 'user', id: USER }, object: null, engine_authored: false,
+      body: '(file attached)' }
+    const s = await setup(t, { delivered: [mail('m1', 'lead', '2026-11-25T10:00:00Z')],
+      sent: [sentMail('s1', 'lead', '2026-11-25T10:05:00Z', { body: '(file attached)', ...(typed ? { ev } : {}),
+        attachments: [{ path: 'uploads/image.png', name: 'image.png', bytes: 100 }] })] })
+    const b = s.all<HTMLElement>('.dm-msg.out').find(x => x.querySelector('[data-transfer-file], .attach-row'))
+    assert.ok(b, 'the picture\'s bubble')
+    assert.doesNotMatch(b!.textContent ?? '', /\(file attached\)/, 'no placeholder')
+    assert.equal(b!.querySelector('.mailer-body'), null, 'no empty text line')
+  })
+}
