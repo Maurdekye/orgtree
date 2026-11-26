@@ -4880,7 +4880,7 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
               onClick={() => interruptNode(slug, node.id)
                 .then((r) => { if (!r.interrupted) toast([`error: ${r.reason}`]) })
                 .catch((e: Error) => toast([`error: ${e.message}`]))}><StopIcon fontSize="inherit" /></button>
-          : <button className="cc-send" title={enterKey.hint} disabled={!canMail || !text.trim()}
+          : <button className="cc-send" title={enterKey.hint} disabled={!canMail || (!text.trim() && !attached.length)}
               onClick={send}><ArrowUpIcon fontSize="inherit" /></button>}
         </div>
         </div>
