@@ -7,7 +7,7 @@ Up: [orgtree-inspection](../SKILL.md)
 
 # orgtree_chart
 
-Use this for a readable roster and hierarchy before staffing or coordinating work. It shows tier, grant, seat price, free credits, last reported status and its age, with mid-turn/halted/frozen markers when present. Check retired agents before hiring a new one when previous context may be useful.
+Use this for a readable roster and hierarchy before staffing or coordinating work. It shows tier with the effort the seat's turns use in brackets (for example `opus (medium)`; none for a model without an effort setting or for a project), grant, seat price, free credits, last reported status and its age, with mid-turn/halted/frozen markers when present. Check retired agents before hiring a new one when previous context may be useful.
 
 ## Parameters
 

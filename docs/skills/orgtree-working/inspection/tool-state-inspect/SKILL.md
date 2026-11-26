@@ -43,6 +43,7 @@ The response has `actor`, your effective `visibility`, and `nodes`. Agent record
 - last status name/time, safe pending-model-switch fields, occupancy/context window, and pending-mail count;
 - effective scope: visibility, permission mode, folders and modes in `add_dirs`, Bash/web/edit/subagents switches, Orgtree group switches and MCP grants;
 - OpenRouter session harness and pin flag when recorded.
+- for an agent, `effort`: `level`, the effort its turns use, and `source`: `explicit` (set on the seat by hire, rehire, retool or staff), `org default` (the org's default effort setting), `built-in default`, or `unsupported` (the model has no effort setting; `level` is null). `sent_as` appears when the model doesn't name the level and its turns are sent the nearest level it does name. `pending` (`running`, `next`) appears while a turn in progress still uses the level it started with and a saved change waits for the next turn or model call. An archived agent shows its saved level;
 - `kind: project` for structural project rows; their presence is not an agent runtime or a new scope ceiling;
 - `audiences_held`, `audiences_explicit` and `audiences_inherited`, the last naming each `grantor` and source `project`;
 - each returned node's active actor `interrupt` record when available, including queued/applied/refused/cancelled/restart outcome, turn and harness boundary. This runtime snapshot is not restored across an engine restart.
