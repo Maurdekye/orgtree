@@ -76,7 +76,7 @@ test('one row per waiting mail, in hand-out order: its place in line, a live wai
   assert.deepEqual(rows.map((r) => r.querySelector('.listener-mail-link')?.getAttribute('data-mail')), ['w1', 'w2', 'w3'])
   assert.ok(rows.every((r) => r.querySelector('.slot-wait .slot-time.live')), 'Waited counts up since it arrived, in the slot time colours')
   assert.equal(cells(rows[0]!)[2], '10m')
-  assert.match(rows[0]!.querySelector('.listener-mail')!.textContent ?? '', /from\s*boss/, 'its sender')
+  assert.equal(rows[0]!.querySelector('.listener-via [data-copy-agent-name]')?.getAttribute('data-copy-agent-name'), 'boss', 'its sender, as the agent link')
   assert.ok(rows[2]!.querySelector('.listener-mail .user-mention, .listener-mail [data-user-mention]') || /from\s*@?user/i.test(rows[2]!.querySelector('.listener-mail')!.textContent ?? ''),
     'the user as sender is the user mention')
   const c = cells(rows[0]!)
