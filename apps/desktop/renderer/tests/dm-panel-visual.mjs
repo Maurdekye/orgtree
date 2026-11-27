@@ -97,8 +97,7 @@ const world = {
       reply_to: { id: 'doc-plan', kind: 'document', from: 'solo', at: ago(30 * H), gist: 'Export plan: two passes, then a review.', org: 'mine' },
       ev: { v: 1, variant: 'reply.document', actor: { kind: 'user', id: USER }, engine_authored: false, body: 'Please shorten the second section.',
         object: { kind: 'document', org: 'mine', id: 'doc-plan', title: 'Export plan', node: 'solo' } } }),
-    sent('stk', 'solo', 29.2 * H, '[DOCKET REPLY · fix-export-title "Fix the export title"] (the user replied on this docket item — treat it as item-linked mail and update the item if it changes the work)
-Looks good, go ahead.', {
+    sent('stk', 'solo', 29.2 * H, '[DOCKET REPLY · fix-export-title "Fix the export title"] (the user replied on this docket item — treat it as item-linked mail and update the item if it changes the work)\nLooks good, go ahead.', {
       reply_to: { id: 'fix-export-title', kind: 'work_item', from: 'solo', at: ago(30 * H), gist: 'Fix the export title', org: 'mine' },
       ev: { v: 1, variant: 'reply.docket', actor: { kind: 'user', id: USER }, engine_authored: false, body: 'Looks good, go ahead.',
         object: { kind: 'work_item', org: 'mine', slug: 'fix-export-title', title: 'Fix the export title' }, role: 'owner', owner: null } }),
