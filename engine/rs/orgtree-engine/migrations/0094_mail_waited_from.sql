@@ -1,0 +1,11 @@
+-- 4.7.x: the mail's own queue wait, stored apart from the listener's (docket
+-- mail-queues-store-and-show-the-mail-s-own-wait-s; USER 2026-11-27 16:26:13Z
+-- m74c2267e6f07 "make sure the amount of time the mail waited is stored and
+-- shown separately from the amount of time the agent processing it waited").
+--
+-- Each hand-out's claim records mail_waited_from next to waited_from: the
+-- mail's arrival for its first hand-out, extra.queued_at (stamped whenever it
+-- goes back in the queue: take-back, release, relay release, dead-letter
+-- retry) for a later one. An ending copies it here. Rows written before this
+-- migration keep NULL: blank on the desk, never a guessed value.
+ALTER TABLE ot.project_mail_endings ADD COLUMN IF NOT EXISTS mail_waited_from timestamptz;

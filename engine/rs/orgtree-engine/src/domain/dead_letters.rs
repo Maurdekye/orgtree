@@ -116,7 +116,7 @@ pub async fn retry(tx: &impl GenericClient, project: i64, pname: &str, uid: &str
     check_open(tx, project, pname, uid).await?;
     tx.execute(
         "UPDATE ot.mail m SET state = 'pending', read_at = NULL,
-                extra = (m.extra - 'dead_letter' - 'claimed') || jsonb_build_object('attempts', 0,
+                extra = (m.extra - 'dead_letter' - 'claimed') || jsonb_build_object('attempts', 0, 'queued_at', now(),
                         'retried', coalesce(m.extra->'retried', '[]'::jsonb) || jsonb_build_array(jsonb_build_object(
                             'by', $3::text, 'at', now(), 'after_attempts', coalesce((m.extra->>'attempts')::bigint, 0),
                             'was', m.extra->'dead_letter')))
