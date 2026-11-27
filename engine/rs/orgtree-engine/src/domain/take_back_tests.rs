@@ -506,6 +506,11 @@ fn tb8b_reason_and_why_wording() {
 
 /// A timestamp the engine wrote into JSON or a row, as an instant.
 #[nolog]
+/// `t` at the API's precision: projections serialize milliseconds (util::iso, SecondsFormat::Millis truncates).
+fn api_ms(t: chrono::DateTime<chrono::Utc>) -> chrono::DateTime<chrono::Utc> {
+    chrono::SubsecRound::trunc_subsecs(t, 3)
+}
+
 fn instant(v: &Value) -> chrono::DateTime<chrono::Utc> {
     chrono::DateTime::parse_from_rfc3339(v.as_str().unwrap_or_else(|| panic!("a timestamp, got {v}"))).unwrap().with_timezone(&chrono::Utc)
 }
@@ -545,8 +550,8 @@ async fn mw1_first_hand_out_stores_the_mail_wait_from_arrival() {
     assert_eq!(instant(&log["mail_waited_from"]), arrived, "the attempt log keeps it per hand-out");
     let h = w.run(Actor::User, json!({"op":"mail_queue_history","node":"P"})).await.unwrap();
     let job = &h["working"][0];
-    assert_eq!(instant(&job["mail_waited_from"]), arrived, "Working: the mail's wait");
-    assert_eq!(job["waited_from"], c["waited_from"], "and the listener's, unchanged");
+    assert_eq!(instant(&job["mail_waited_from"]), api_ms(arrived), "Working: the mail's wait");
+    assert_eq!(instant(&job["waited_from"]), api_ms(instant(&c["waited_from"])), "and the listener's, unchanged");
     w.e.shutdown.cancel();
 }
 
@@ -570,8 +575,8 @@ async fn mw2_a_take_back_restarts_the_mail_wait_and_the_ending_keeps_the_first()
         .query_one("SELECT mail_waited_from FROM ot.project_mail_endings WHERE mail_uid = 'J' ORDER BY id DESC LIMIT 1", &[]).await.unwrap().get(0);
     assert_eq!(ended, Some(arrived), "the taken-back hand-out's ending stores its own mail wait");
     let h = w.run(Actor::User, json!({"op":"mail_queue_history","node":"P"})).await.unwrap();
-    assert_eq!(instant(&h["history"][0]["mail_waited_from"]), arrived, "Recently Finished carries it");
-    assert_eq!(instant(&h["working"][0]["mail_waited_from"]), again, "and Working the new one");
+    assert_eq!(instant(&h["history"][0]["mail_waited_from"]), api_ms(arrived), "Recently Finished carries it");
+    assert_eq!(instant(&h["working"][0]["mail_waited_from"]), api_ms(again), "and Working the new one");
     w.e.shutdown.cancel();
 }
 
@@ -586,7 +591,7 @@ async fn mw3_round_robin_delivery_and_old_rows() {
     let h = w.run(Actor::User, json!({"op":"mail_queue_history","node":"P"})).await.unwrap();
     let row = &h["history"][0];
     assert_eq!(row["mail"], "R");
-    assert_eq!(instant(&row["mail_waited_from"]), arrived, "Recently Delivered: the mail's wait from its arrival");
+    assert_eq!(instant(&row["mail_waited_from"]), api_ms(arrived), "Recently Delivered: the mail's wait from its arrival");
     assert!(row.get("waited_from").is_some(), "and the listener's");
     w.e.shutdown.cancel();
     let w = world(ack()).await;
