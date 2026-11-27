@@ -746,8 +746,9 @@ mod effort_tests {
         // Mythos seats at 8 like Fable and is declared after it: equal seats keep catalog order, so Fable leads
         assert_eq!(names(CLAUDE), ["fable", "mythos", "opus", "sonnet", "haiku"]);
         assert_eq!(names(OPENAI), ["astra", "sol", "terra", "gpt-reserve", "luna"]);
-        // Carbon seats at 4 (user 2026-11-12), level with agy-opus: equal seats keep catalog order, so it leads
-        assert_eq!(names(GOOGLE), ["carbon", "agy-opus", "pro", "argon", "krypton", "neon", "agy-sonnet", "flash", "hydrogen"]);
+        // Carbon seats at 4 (user 2026-11-12), level with agy-opus: equal seats keep catalog order, so it leads.
+        // Neon seats at 3 (user 2026-11-25 meb8ff6987262, c57e9bb), so it comes before the seat-2 Gemini tiers
+        assert_eq!(names(GOOGLE), ["carbon", "agy-opus", "neon", "pro", "argon", "krypton", "agy-sonnet", "flash", "hydrogen"]);
         assert_eq!(names(MUSE), ["wonder-full", "wonder", "spark"]);
         // what a person sees: legacy and not-yet-listed models are hidden
         let seen = |p: &str, conditional: &[&str]| -> Vec<&'static str> {
