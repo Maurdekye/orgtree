@@ -513,7 +513,7 @@ test("§7 one aligned table, values only, as the slots view: Working, Line and R
   await clickCard(ackDesk.view.el)
   assert.deepEqual(headers(ackDesk.view.el), ['Position', 'Agent', 'Waited', 'Held', 'Acked', 'Mail', 'Ack', 'Batch', 'Handed', 'Watchdog', 'Action'],
     "ack mode: three time columns as the slots table's, the job and its ack, the desk tables' one order")
-  assert.deepEqual(sectionTitles(ackDesk.view.el), ['Working', 'Line', 'Recently Finished'], 'three tables, as the slots tab')
+  assert.deepEqual(sectionTitles(ackDesk.view.el), ['Working', 'Line', 'Waiting mail', 'Recently Finished'], 'as the slots tab, with the waiting mail above the history (USER 2026-11-27 m7472b6f3a603)')
   const [first, paused] = lineRows(ackDesk.view.el)
   const c = cells(first!)
   assert.deepEqual(lineRows(ackDesk.view.el).map((r) => r.querySelector('[data-copy-agent-name]')?.getAttribute('data-copy-agent-name')),
@@ -532,7 +532,7 @@ test("§7 one aligned table, values only, as the slots view: Working, Line and R
   await clickCard(rr.view.el)
   assert.deepEqual(headers(rr.view.el), ['Position', 'Agent', 'Waited', 'Delivered', 'Mail', 'Batch', 'Handed', 'Watchdog'],
     'round robin: no Held, Acked or Ack, and Delivered says when (user 2026-10-20 06:22Z, 06:36Z)')
-  assert.deepEqual(sectionTitles(rr.view.el), ['Line', 'Recently Delivered'], 'round robin: no Working')
+  assert.deepEqual(sectionTitles(rr.view.el), ['Line', 'Waiting mail', 'Recently Delivered'], 'round robin: no Working')
 })
 
 test("§7 the order is the engine's pick: never woken first, then least recently woken, then the oldest dog; ack holders after the free, the rest last", () => {
