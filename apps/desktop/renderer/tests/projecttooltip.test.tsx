@@ -60,9 +60,11 @@ test('near card/name and icon hovers share facts matching the rendered badges', 
   const v = await mountView(<AgentNavProvider><Card /></AgentNavProvider>, el => el)
   t.after(() => v.unmount())
   const card = v.el.querySelector<HTMLElement>('.sq.project')!
+  // the queue badge is a button since a5c53b1 (audit #49: it opens the mailbox or events view)
+  const chips = [...card.querySelectorAll('.project-header-badges > span, .project-header-badges > button')]
   for (const text of ['1/2 held', 'listeners 3/5', "3 listeners · 4 q'd · 1 in flight"])
-    assert.ok([...card.querySelectorAll('.project-header-badges > span')].some(b => b.textContent === text), text)
-  assert.equal(info(node, tree).title, [...card.querySelectorAll('.project-header-badges > span')].map(b => b.textContent).join(' · '))
+    assert.ok(chips.some(b => b.textContent === text), text)
+  assert.equal(info(node, tree).title, chips.map(b => b.textContent).join(' · '))
   for (const target of [card, card.querySelector<HTMLElement>('.name')!, card.querySelector<HTMLElement>('.project-mark')!]) {
     await inAct(() => target.dispatchEvent(new MouseEvent('pointerover', { bubbles: true })))
     assert.equal(target.title, target.classList.contains('project-mark') ? `test-project\n${facts}` : facts)
