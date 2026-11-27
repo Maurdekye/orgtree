@@ -556,6 +556,25 @@ mod via_tests {
         json!({ "id": "c-1", "name": "Sam", "on": "Orgtree desktop (PC2)" })
     }
 
+    /// A project mail that went back in the queue (taken back, released, retried) says since when it has waited there
+    /// again, so the listeners folder's Mail waited counts from then; its inbox date stays its arrival. Only while it
+    /// waits: a handed mail's `queued_at` is history (docket mail-queues-store-and-show-the-mail-s-own-wait-s, bounce
+    /// me43c972cb1c6).
+    #[test]
+    fn a_requeued_waiting_mail_says_since_when_it_waits_again() {
+        let mail = json!({ "uid": "m1", "sender": "@user", "kind": "message", "body": "hi", "recipient_kind": "agent", "state": "pending",
+                           "created_at": "2026-11-27T10:00:00+00:00", "extra": { "queued_at": "2026-11-27T10:10:00+00:00" } });
+        let row = mail_entry(&mail);
+        assert_eq!(row["queued_at"], "2026-11-27T10:10:00+00:00", "{row}");
+        assert_eq!(row["at"], mail_entry(&json!({ "created_at": "2026-11-27T10:00:00+00:00" }))["at"], "the inbox date stays its arrival");
+        let mut handed = mail.clone();
+        handed["state"] = json!("read");
+        assert!(mail_entry(&handed).get("queued_at").is_none(), "a handed mail no longer waits");
+        let mut fresh = mail.clone();
+        fresh["extra"] = json!({});
+        assert!(mail_entry(&fresh).get("queued_at").is_none(), "a mail never requeued waits from its arrival");
+    }
+
     #[test]
     fn a_mail_row_says_which_computer_it_came_through_only_when_its_record_does() {
         let mail = json!({ "uid": "m1", "sender": "@user", "kind": "message", "body": "hi", "recipient_kind": "agent", "state": "pending", "extra": {} });

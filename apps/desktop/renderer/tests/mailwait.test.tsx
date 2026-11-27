@@ -94,6 +94,22 @@ test('every section fills the column it has a value for, aligned, and leaves the
   assert.deepEqual(waits(el, older!), ['', '2m'], 'an ending recorded before the mail wait was stored: blank, never guessed')
 })
 
+test('a mail back in the queue (taken back) waits from its return, not its arrival (bounce me43c972cb1c6)', async (t) => {
+  const listeners = [dog('sa', 'mail-a')]
+  const back = [{ id: 'w9', from: 'boss', kind: 'message', body: 'again', at: ago(660), queued_at: ago(60), _wait: true }] as MailRow[]
+  const op = async () => ({ project: 'sync', ack: true, history: [], history_next: null, working: [] }) as unknown as OpResult
+  const view = await mountView(<DeskDogsProvider value={{ org: 'org', dogs: listeners, open: noop }}>
+    <MailListenersView node={map.get('sync')!} state={mailListenerState('sync', listeners)} map={map} rows={back} waiting={1}
+      ack dogs={listeners} onOpenMail={noop} op={op} toast={noop} />
+  </DeskDogsProvider>, (el) => el)
+  t.after(() => view.unmount())
+  await inAct(async () => { await flush(4) })
+  const [queued] = rowsOf(view.el, 'mail-waiting')
+  const [mail, agent] = waits(view.el, queued!)
+  assert.match(mail!, /^6[01]s$/, `one minute since it went back, not eleven since it arrived: ${mail}`)
+  assert.equal(agent, '')
+})
+
 test('round-robin: Recently Delivered fills both waits', async (t) => {
   const el = await folder(t, false)
   const [d] = rowsOf(el, 'mail-history')
