@@ -17,7 +17,8 @@ const node = {
 document.body.style.cssText = 'margin:0;background:var(--bg);color:var(--ink);font:14px sans-serif'
 createRoot(document.getElementById('root')!).render(<main style={{ padding: 20, width: 1180 }}>
   <h3 style={{ margin: '0 0 10px' }}>integrator-4 desk header audiences</h3>
-  <div className="badges" data-fixture="row"><HeldAudienceChips slug="synthetic" toast={() => {}} map={map} node={node} /></div>
+  <div className="badges" data-fixture="row"><HeldAudienceChips slug="synthetic" toast={() => {}} map={map} node={node}
+    onJump={(id) => { ((window as unknown as { __jumps: string[] }).__jumps ??= []).push(id) }} /></div>
   <output style={{ display: 'block', whiteSpace: 'pre-wrap', padding: 10, marginTop: 12, width: 520,
     background: 'var(--panel)', border: '1px solid var(--line)', fontSize: 13 }} />
 </main>)
