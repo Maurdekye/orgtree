@@ -1862,7 +1862,9 @@ interface InboxViewProps {
 export interface InboxExtraFolder {
   id: string
   count?: number
-  render: (rows: MailRow[]) => ReactNode
+  /** `rows`: the waiting mail first (marked `_wait`, oldest first, as the engine hands it out), then the delivered;
+   *  `waiting`: the inbox tab's own count of waiting mail, which may pass the loaded window */
+  render: (rows: MailRow[], waiting: number) => ReactNode
 }
 
 // Only a plain delivery uses the compact marker. Ack/release/dead-letter
@@ -2031,12 +2033,14 @@ export function InboxView({ slug, nid, unreadCount, onRetract, jumpTo, jumpSeq, 
     if (!box) return
     setDropped((d) => d.filter((id) => box.pending.some((m) => m.id === id)))
   }, [box])
+  // the inbox tab's count; a host folder (the project's listeners) shows the same number
+  const unread = unreadCount === undefined ? pending.length : Math.max(0, unreadCount
+    - (box?.pending ?? []).filter(m => dropped.includes(m.id ?? '')).length)
   return (
     <div className="mailwrap" ref={mailbox.ref} onFocusCapture={mailbox.onFocus}>
       <MailFolders folder={onTransfers ? 'transfers' : folder}
         setFolder={(f) => { setFolder(f); if (f !== 'transfers') onFolderPick?.(f) }}
-        unread={unreadCount === undefined ? pending.length : Math.max(0, unreadCount
-          - (box?.pending ?? []).filter(m => dropped.includes(m.id ?? '')).length)} tier={tier}
+        unread={unread} tier={tier}
         folders={extraFolders?.length || transfers.total > 0 || onTransfers
           ? ['inbox', 'sent', ...(extraFolders ?? []).map((f) => f.id),
             ...(transfers.total > 0 || onTransfers ? ['transfers'] : [])] : undefined}
@@ -2047,7 +2051,7 @@ export function InboxView({ slug, nid, unreadCount, onRetract, jumpTo, jumpSeq, 
         <TransferPanel slug={slug} agent={nid} tab={{ visible: onTransfers }} onSummary={setTransfers} />
       </div>
       <div className="mailpane" hidden={onTransfers}>
-        {extra ? extra.render([...pending, ...(box?.delivered ?? [])]) : <>
+        {extra ? extra.render([...pending.map((m) => ({ ...m, _wait: true })), ...(box?.delivered ?? [])], unread) : <>
         {history.error&&<div role="alert">Could not load older mail. <button onClick={history.retry}>Retry</button></div>}
         {mailbox.error ? <div className="dim pad" role="alert">Could not load mailbox. <button onClick={mailbox.retry}>Retry</button></div> : box == null
           ? <div className="dim pad">loading…</div>

@@ -632,8 +632,8 @@ export function ProjectInbox({ node, slug, tree, map, op, toast, refs, onJump, r
       jumpTo={jumpTo ?? null} jumpSeq={jumpSeq ?? null}
       onFolderPick={onPickFolder} folderTools={folderTools}
       extraFolders={[{ id: 'listeners', count: mailListeners.armed.length,
-        render: (rows) => <MailListenersView node={node} state={mailListeners} map={map} onJump={onJump}
-          rows={rows} ack={queueAckMode(node)} onOpenMail={onOpenMail} op={op} toast={toast} dogs={tree.watchdogs ?? []} refs={refs} /> }]}
+        render: (rows, waiting) => <MailListenersView node={node} state={mailListeners} map={map} onJump={onJump}
+          rows={rows} waiting={waiting} ack={queueAckMode(node)} onOpenMail={onOpenMail} op={op} toast={toast} dogs={tree.watchdogs ?? []} refs={refs} /> }]}
       folderAsk={folderAsk} />
     {purging && createPortal(
       <ConfirmModal title={`purge project ${node.id}'s waiting mail?`}

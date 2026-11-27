@@ -8,9 +8,16 @@
 //
 //   ack mode     Working (one row per held job, with its take back), Line,
 //                Dead Letter Line (while a dead-letter listener reaches the
-//                project), Recently Finished (acked, failed, taken back and
-//                dead-lettered jobs, each ending marked by kind)
-//   round-robin  Line, Dead Letter Line, Recently Delivered
+//                project), Waiting mail, Recently Finished (acked, failed,
+//                taken back and dead-lettered jobs, each ending marked by kind)
+//   round-robin  Line, Dead Letter Line, Waiting mail, Recently Delivered
+//
+// WAITING MAIL (docket project-mail-listeners-tab-waiting-mail-section-a; USER
+// 2026-11-27 15:59:52Z m7472b6f3a603 "yes please, above recently finished"):
+// the mail no listener has taken yet, one row each in the engine's hand-out
+// order (`pick` takes `state = 'pending' ORDER BY id`: the oldest first, as the
+// mailbox lists it). They are the inbox's own waiting rows and the count is the
+// inbox tab's, so the two agree; past the loaded window a line says how many more.
 //
 // The columns keep the desk tables' one order (Position · Agent · Waited ·
 // Held · Acked/Delivered · Mail · Ack · Batch · Handed · Watchdog · Action)
@@ -195,13 +202,15 @@ function uniqueRows<T extends { id: number }>(rows: T[]): T[] {
   return rows.filter((r) => !seen.has(r.id) && !!seen.add(r.id))
 }
 
-export function MailListenersView({ node, state, map, onJump, rows, ack, onOpenMail, op, toast, dogs, refs }: {
+export function MailListenersView({ node, state, map, onJump, rows, waiting: waitingCount, ack, onOpenMail, op, toast, dogs, refs }: {
   node: CanvasNode
   state: MailListenerState
   map: Map<string, CanvasNode>
   onJump?: (id: string) => void
-  /** the project mailbox's loaded rows, waiting and delivered */
+  /** the project mailbox's loaded rows, waiting (`_wait`, oldest first) and delivered */
   rows: MailRow[]
+  /** the inbox tab's count of waiting mail (else the waiting rows'): Waiting mail says how many pass the loaded window */
+  waiting?: number
   /** the project's mail queue is in ack mode */
   ack: boolean
   /** open one of the project's mails in its inbox */
@@ -225,7 +234,8 @@ export function MailListenersView({ node, state, map, onJump, rows, ack, onOpenM
   const [failed, setFailed] = useState(false)
   const [asking, setAsking] = useState<WorkingJob | null>(null)
   const [shown, setShown] = useState(HISTORY_FOLD)
-  useEffect(() => { setShown(HISTORY_FOLD) }, [node.id, ack])
+  const [shownWaiting, setShownWaiting] = useState(HISTORY_FOLD)
+  useEffect(() => { setShown(HISTORY_FOLD); setShownWaiting(HISTORY_FOLD) }, [node.id, ack])
   const generation = useRef(0), busy = useRef(false)
   // the host may hand a new `op` each render: read through a ref, so only
   // the queue's own moves re-read
@@ -347,6 +357,11 @@ export function MailListenersView({ node, state, map, onJump, rows, ack, onOpenM
       .catch(() => {})
   }
   const maxAttempts = hist?.max_attempts ?? 3
+  const queued = rows.filter((m) => m._wait && m.id && !m._ask)
+  const beyond = Math.max(0, (waitingCount ?? queued.length) - queued.length)
+  const hiddenWaiting = Math.max(0, queued.length - shownWaiting)
+  const sender = (from: string) => isUserName(from) ? <UserMention refs={refs} />
+    : map.has(from) ? agentLink(from) : <span>{from}</span>
   return (
     <div className="project-mail-listeners" onScroll={onScroll}>
       <div className="slots-table-scroll" role="region" aria-label={`Mail listeners of project ${node.id}`} tabIndex={0} onScroll={onScroll}>
@@ -435,6 +450,34 @@ export function MailListenersView({ node, state, map, onJump, rows, ack, onOpenM
               {actions && <td className="slot-action"/>}
             </WatchdogRow>
           )))}
+          {section('Waiting mail', 'mail-waiting', <>
+            {queued.length === 0 && beyond === 0 && empty('No mail is waiting.')}
+            {queued.slice(0, shownWaiting).map((m, i) => (
+              <tr key={m.id} className="slot-row listener-row waiting-mail">
+                <td className="slot-position"><span className="slot-no">{ordinal(i + 1)}</span></td>
+                <th scope="row" className="slot-agent"/>
+                <td className="slot-wait">{m.at && <ListenerTime from={m.at} />}</td>
+                {ack && <td className="slot-held"/>}
+                <td className="slot-ended"/>
+                <td className="listener-mail">{mailLink(m.id, typeof m.body === 'string' ? m.body : null,
+                  i === 0 ? 'the next mail a listener is handed; click to read it in the inbox' : 'waiting for a listener; click to read it in the inbox')}
+                  {m.from && <div className="listener-via">from {sender(m.from)}</div>}</td>
+                {ack && <td className="listener-ack"/>}
+                <td className="listener-batch"/>
+                <td className="listener-handed"/>
+                <td className="listener-dog-cell"/>
+                {actions && <td className="slot-action"/>}
+              </tr>
+            ))}
+            {(hiddenWaiting > 0 || shownWaiting > HISTORY_FOLD) && <tr><td colSpan={n} className="history-fold">
+              {hiddenWaiting > 0 && <button type="button" data-action="show-more"
+                onClick={() => setShownWaiting((v) => v + HISTORY_STEP)}>Show {Math.min(HISTORY_STEP, hiddenWaiting)} more</button>}
+              {shownWaiting > HISTORY_FOLD && <button type="button" data-action="show-fewer"
+                onClick={() => setShownWaiting(HISTORY_FOLD)}>Show fewer</button>}
+            </td></tr>}
+            {beyond > 0 && <tr><td colSpan={n} className="dim slot-empty waiting-more">
+              {beyond} more waiting mail{beyond === 1 ? '' : 's'} past the loaded window</td></tr>}
+          </>)}
           {section(ack ? 'Recently Finished' : 'Recently Delivered', 'mail-history', <>
             {history.length === 0 && empty(ack ? 'No mail of this project has finished yet.' : 'No mail of this project has been delivered yet.')}
             {ack ? (history as FinishedJob[]).slice(0, shown).map((h) => (
