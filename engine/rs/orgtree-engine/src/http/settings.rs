@@ -431,27 +431,17 @@ pub async fn save_org(State(e): State<Arc<Engine>>, Path(slug): Path<String>, Js
     // the network settings live beside the settings document
     if b.contains_key("net_autoconnect") || b.contains_key("net_hubs") {
         let mut net = Map::new();
-        if let Some(h) = b.get("net_hubs").filter(|v| v.is_array()) {
-            let mut hubs=h.clone();
-            crate::net::assign_hub_ids(&mut hubs);
-            net.insert("hubs".into(), hubs);
-        }
-        // 3.x: auto-connect on adds this computer's hub to the org's list
-        // (first), off takes it out
-        if let Some(a) = b.get("net_autoconnect").and_then(Value::as_bool) {
+        let auto = b.get("net_autoconnect").and_then(Value::as_bool);
+        if let Some(a) = auto {
             net.insert("autoconnect".into(), json!(a));
-            let stored: Option<Value> = client.query_one("SELECT net->'hubs' FROM ot.orgs WHERE id = $1", &[&o.id]).await?.get(0);
-            let mut hubs: Vec<Value> = net.get("hubs").or(stored.as_ref()).and_then(Value::as_array).cloned().unwrap_or_default();
-            let local = json!(crate::net::LOCAL_HUB_ID);
-            let has_local = hubs.iter().any(|h| h["id"] == local);
-            if a && !has_local {
-                hubs.insert(0, json!({ "id": crate::net::LOCAL_HUB_ID, "address": crate::net::local_address(&e), "enabled": true }));
-            } else if !a && has_local {
-                hubs.retain(|h| h["id"] != local);
-                warnings.push("local hub entry removed — the org no longer auto-connects".to_string());
-            }
+        }
+        let stored: Option<Value> = client.query_one("SELECT net->'hubs' FROM ot.orgs WHERE id = $1", &[&o.id]).await?.get(0);
+        let (hubs, warning) = saved_hubs(b.get("net_hubs"), stored.as_ref(), auto,
+            || json!({ "id": crate::net::LOCAL_HUB_ID, "address": crate::net::local_address(&e), "enabled": true }));
+        if let Some(hubs) = hubs {
             net.insert("hubs".into(), Value::Array(hubs));
         }
+        warnings.extend(warning.map(str::to_string));
         client
             .execute("UPDATE ot.orgs SET net = net || $2 WHERE id = $1", &[&o.id, &Value::Object(net)])
             .await?;
@@ -1446,6 +1436,87 @@ pub async fn fs(Query(q): Query<FsQuery>) -> ApiResult<Json<Value>> {
     dirs.sort_by(|a, b| a["name"].as_str().unwrap_or("").to_lowercase().cmp(&b["name"].as_str().unwrap_or("").to_lowercase()));
     let parent = path.parent().map(|p| p.to_string_lossy().to_string()).filter(|p| !p.is_empty());
     Ok(Json(json!({ "path": path.to_string_lossy(), "parent": parent, "dirs": dirs, "home": home })))
+}
+
+/// The org's hub list after a settings save (`None`: the save leaves it
+/// alone). `sent` is a `net_hubs` list, `stored` the org's list now.
+/// 3.x: auto-connect on adds this computer's hub to the list (first), off
+/// takes it out.
+#[nolog]
+fn saved_hubs(sent: Option<&Value>, stored: Option<&Value>, autoconnect: Option<bool>,
+    local: impl FnOnce() -> Value) -> (Option<Vec<Value>>, Option<&'static str>) {
+    let mut hubs: Option<Vec<Value>> = sent.filter(|v| v.is_array()).map(|h| {
+        let mut h = h.clone();
+        crate::net::assign_hub_ids(&mut h);
+        h.as_array().cloned().unwrap_or_default()
+    });
+    let local_id = json!(crate::net::LOCAL_HUB_ID);
+    let Some(a) = autoconnect else { return (hubs, None) };
+    let mut list = hubs.take().or_else(|| stored.and_then(Value::as_array).cloned()).unwrap_or_default();
+    let has_local = list.iter().any(|h| h["id"] == local_id);
+    let mut warning = None;
+    if a && !has_local {
+        list.insert(0, local());
+    } else if !a && has_local {
+        list.retain(|h| h["id"] != local_id);
+        warning = Some("local hub entry removed — the org no longer auto-connects");
+    }
+    (Some(list), warning)
+}
+
+#[cfg(test)]
+mod saved_hubs_tests {
+    use super::*;
+
+    fn local() -> Value { json!({ "id": "local", "address": "http://127.0.0.1:7370", "enabled": true }) }
+    fn ids(h: &[Value]) -> Vec<&str> { h.iter().map(|h| h["id"].as_str().unwrap()).collect() }
+
+    /// USER 2026-11-27 18:07:59Z medd95d6eea12: "does adding an external
+    /// mailhub connection for an org disable its "connect to this computer's
+    /// mail hub" checkbox? it shouldnt do that". The Connections panel saves
+    /// the external hubs only; this computer's hub stays where it was.
+    #[test]
+    fn adding_removing_or_toggling_an_external_hub_keeps_this_computers_hub() {
+        let stored = json!([local(), { "id": "ab12", "address": "http://far:7378", "enabled": true }]);
+        // add
+        let (h, w) = saved_hubs(Some(&json!([{ "id": "ab12", "address": "http://far:7378", "enabled": true },
+            { "address": "http://new:7378", "enabled": true }])), Some(&stored), None, local);
+        let h = h.unwrap();
+        assert_eq!(h.len(), 3, "{h:?}");
+        assert_eq!(ids(&h)[..2], ["local", "ab12"], "this computer's hub kept first: {h:?}");
+        assert_eq!(h[0], local(), "kept as stored");
+        assert!(w.is_none());
+        // remove the external one
+        let (h, _) = saved_hubs(Some(&json!([])), Some(&stored), None, local);
+        assert_eq!(ids(&h.unwrap()), ["local"]);
+        // switch it off
+        let (h, _) = saved_hubs(Some(&json!([{ "id": "ab12", "address": "http://far:7378", "enabled": false }])), Some(&stored), None, local);
+        let h = h.unwrap();
+        assert_eq!(ids(&h), ["local", "ab12"]);
+        assert_eq!(h[1]["enabled"], json!(false));
+    }
+
+    #[test]
+    fn an_org_without_this_computers_hub_does_not_gain_it_from_an_external_edit() {
+        let stored = json!([{ "id": "ab12", "address": "http://far:7378", "enabled": true }]);
+        let (h, _) = saved_hubs(Some(&json!([{ "address": "http://new:7378", "enabled": true }])), Some(&stored), None, local);
+        let h = h.unwrap();
+        assert_eq!(h.len(), 1, "{h:?}");
+        assert_eq!(h[0]["address"], json!("http://new:7378"));
+    }
+
+    #[test]
+    fn the_checkbox_alone_adds_or_removes_this_computers_hub() {
+        let far = json!({ "id": "ab12", "address": "http://far:7378", "enabled": true });
+        let (h, w) = saved_hubs(None, Some(&json!([far.clone()])), Some(true), local);
+        assert_eq!(ids(&h.unwrap()), ["local", "ab12"]);
+        assert!(w.is_none());
+        let (h, w) = saved_hubs(None, Some(&json!([local(), far.clone()])), Some(false), local);
+        assert_eq!(ids(&h.unwrap()), ["ab12"]);
+        assert!(w.is_some());
+        let (h, _) = saved_hubs(None, Some(&json!([local(), far])), None, local);
+        assert!(h.is_none(), "a save without either key leaves the list alone");
+    }
 }
 
 #[cfg(test)]
