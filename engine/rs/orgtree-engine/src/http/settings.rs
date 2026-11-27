@@ -1451,7 +1451,17 @@ fn saved_hubs(sent: Option<&Value>, stored: Option<&Value>, autoconnect: Option<
         h.as_array().cloned().unwrap_or_default()
     });
     let local_id = json!(crate::net::LOCAL_HUB_ID);
-    let Some(a) = autoconnect else { return (hubs, None) };
+    let Some(a) = autoconnect else {
+        // the Connections panel sends the other hubs only: this computer's
+        // hub keeps its place, and only the checkbox adds or removes it
+        // (USER 2026-11-27 18:07:59Z medd95d6eea12)
+        if let (Some(list), Some(kept)) = (hubs.as_mut(), stored.and_then(Value::as_array).and_then(|s| s.iter().find(|h| h["id"] == local_id))) {
+            if !list.iter().any(|h| h["id"] == local_id) {
+                list.insert(0, kept.clone());
+            }
+        }
+        return (hubs, None);
+    };
     let mut list = hubs.take().or_else(|| stored.and_then(Value::as_array).cloned()).unwrap_or_default();
     let has_local = list.iter().any(|h| h["id"] == local_id);
     let mut warning = None;
