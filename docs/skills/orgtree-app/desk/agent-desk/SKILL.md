@@ -109,7 +109,8 @@ offers the personal Revoke button; inherited access is managed at its project.
 Agents (and projects) reached only through a project do not get a badge each:
 they fold into ONE header badge per source project, showing the project and how
 many it reaches. Its hover tooltip starts with **Inherited from project <name>**
-and lists every one of them, retired ones marked (retired). Direct grants keep
+and lists every one of them, retired ones marked (retired). Clicking the project's name
+(or Enter on it) opens the project, as a project mention does. Direct grants keep
 their own badges, and so do the user and org-mailbox audiences even when
 inherited (4.7.x).
 
