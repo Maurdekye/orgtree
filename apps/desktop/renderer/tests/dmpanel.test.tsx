@@ -1826,6 +1826,27 @@ test('a chat\u2019s header shows the model icon once: beside the name there is n
   if (system) { await s.click(system, 'the System chat'); assert.equal(icons(), 1, 'the System chat keeps its icon') }
 })
 
+test('the chats window is where agent links open chats: the name in a chat\u2019s header asks the chat route (USER 2026-11-27 m19b0761ec05f)', async (t) => {
+  const { AgentNavProvider, useProvideAgentNav } = await import('../src/canvas/agentnav')
+  const asked: string[] = [], focused: string[] = []
+  function Provide() { useProvideAgentNav(null, null, (id) => { asked.push(id); return true }); return null }
+  const oldFetch = globalThis.fetch
+  const server = engine({ audiences: [grant('worker')], delivered: [mail('in1', 'worker', '2026-11-20T10:00:00Z')] })
+  globalThis.fetch = server.fetcher
+  resetLocalReads(); resetComposerDrafts(); window.sessionStorage.clear(); window.localStorage.removeItem('orgtree-dm-open:mine'); window.localStorage.removeItem(CLASSIC_MAILBOX_KEY)
+  const view = await mountView(<CurrentOrg.Provider value="mine"><AgentNavProvider><Provide />
+    <UserMailbox slug="mine" tree={tree()} toast={() => {}} close={() => {}} jumpTo={null} jumpSeq={null} openChat={null}
+      onFocusAgent={(id: string) => { focused.push(id) }} onOpenMail={() => {}} /></AgentNavProvider></CurrentOrg.Provider>, el => el)
+  t.after(async () => { await view.unmount(); globalThis.fetch = oldFetch })
+  await inAct(async () => { await flush(12) })
+  await inAct(async () => { [...document.querySelectorAll<HTMLElement>('.dm-row')].find(r => r.dataset.dmChat === 'worker')!.click(); await flush(8) })
+  const name = document.querySelector<HTMLButtonElement>('.dm-head .dm-who-name button')
+  assert.ok(name, 'the header name is an agent link')
+  await inAct(async () => { name.click(); await flush(4) })
+  assert.deepEqual(asked, ['worker'], 'inside the chats window the link asks the chat route first')
+  assert.deepEqual(focused, [], 'and the chat took it')
+})
+
 test('alpha.1 point 24: a bubble\u2019s menu has "Sender…" with the agent\u2019s full menu from the shared builder, right above the View in group; the user\u2019s own bubble has none', async (t) => {
   const { AgentNavProvider, useProvideAgentNav } = await import('../src/canvas/agentnav')
   const { agentLinkMenuEntries } = await import('../src/canvas/contextmenu')

@@ -4,6 +4,11 @@
 // focusing their desk on the canvas / switching the active agent desk in attention view. otherwise
 // just do those things").
 //
+// NARROWED (USER 2026-11-27 16:01:19Z m5a1d8854403d "clicking an agent link anywhere opens the chat window now.
+// thats not whats supposed to happen"; 16:01:36Z m19b0761ec05f "clicking them is only supposed to open their dm
+// in a chat window context"): only inside the chats window (agentnav.tsx ChatsWindowLinks, which DmPanel wraps
+// its content in). Everywhere else an agent link goes to the desk again, audience or not.
+//
 // One rule (mailboxpref.ts `agentLinkChat`), one route (agentnav.tsx: the registry the canonical agent
 // menu already uses), read by the three components every agent link is drawn with: `NodeLink` (mention
 // and reference chips), `AgentName` and `SenderChip`.
@@ -14,7 +19,7 @@ import './harness'
 import test, { type TestContext } from 'node:test'
 import assert from 'node:assert/strict'
 import { flush, inAct, mountView } from './harness'
-import { AgentNavProvider, useProvideAgentNav } from '../src/canvas/agentnav'
+import { AgentNavProvider, ChatsWindowLinks, useProvideAgentNav } from '../src/canvas/agentnav'
 import { AgentName, NodeLink } from '../src/canvas/identity'
 import { SenderChip } from '../src/canvas/senderchip'
 import { RefMdBody } from '../src/canvas/refmd'
@@ -41,18 +46,21 @@ function Route() {
   return null
 }
 
-async function fixture(t: TestContext) {
+/** `inChats`: the links are drawn inside the chats window (DmPanel's ChatsWindowLinks); false: anywhere
+ *  else (the canvas, a desk, a transcript, the docket, settings, Attention, the classic inbox). */
+async function fixture(t: TestContext, inChats = true) {
   window.localStorage.removeItem(CLASSIC_MAILBOX_KEY)
   setShownChat('mine', null)
   const asked: string[] = [], focused: string[] = []
   const off = onChatRequest((org, peer) => { asked.push(`${org}:${peer}`) })
   const focus = (id: string) => { focused.push(id) }
+  const links = [...NODES.keys()].map(id => <div key={id} data-case={id}>
+    <span data-kind="link"><NodeLink id={id} tier="opus" onFocus={focus} /></span>
+    <span data-kind="name"><AgentName id={id} tier="opus" onFocus={focus} /></span>
+    <span data-kind="sender"><SenderChip id={id} nodes={NODES} onFocusAgent={focus} /></span>
+  </div>)
   const view = await mountView(<AgentNavProvider><Route />
-    {[...NODES.keys()].map(id => <div key={id} data-case={id}>
-      <span data-kind="link"><NodeLink id={id} tier="opus" onFocus={focus} /></span>
-      <span data-kind="name"><AgentName id={id} tier="opus" onFocus={focus} /></span>
-      <span data-kind="sender"><SenderChip id={id} nodes={NODES} onFocusAgent={focus} /></span>
-    </div>)}
+    {inChats ? <ChatsWindowLinks>{links}</ChatsWindowLinks> : links}
   </AgentNavProvider>, el => el)
   t.after(async () => { off(); await view.unmount(); window.localStorage.removeItem(CLASSIC_MAILBOX_KEY); setShownChat('mine', null) })
   const click = async (id: string, kind: 'link' | 'name' | 'sender') => {
@@ -70,6 +78,13 @@ const KINDS = ['link', 'name', 'sender'] as const
 test('an agent with its own user audience: the click opens its chat, on every kind of agent link, and does not focus its desk', async t => {
   const f = await fixture(t)
   for (const kind of KINDS) assert.deepEqual(await f.click('own', kind), { asked: ['mine:own'], focused: [] }, kind)
+})
+
+test('OUTSIDE THE CHATS WINDOW every agent link goes to the desk, audience or not (USER 2026-11-27 m19b0761ec05f)', async t => {
+  const f = await fixture(t, false)
+  for (const id of ['own', 'member', 'plain', 'crew']) {
+    for (const kind of KINDS) assert.deepEqual(await f.click(id, kind), { asked: [], focused: [id] }, `${kind} of ${id}`)
+  }
 })
 
 test('an agent without a user audience: the click does what it did, on every kind of agent link', async t => {
@@ -138,13 +153,14 @@ function Prose({ text, focus }: { text: string; focus: (id: string) => void }) {
   return <RefMdBody html={{ __html: `<p>${text}</p>` }} world={refs.world} onOpen={refs.onOpen} />
 }
 
-async function prose(t: TestContext) {
+async function prose(t: TestContext, inChats = true) {
   window.localStorage.removeItem(CLASSIC_MAILBOX_KEY)
   setShownChat('mine', null)
   const asked: string[] = [], focused: string[] = []
   const off = onChatRequest((org, peer) => { asked.push(`${org}:${peer}`) })
+  const body = <Prose text="ask @own, @member, @plain, @crew and @agent:mine/own" focus={id => { focused.push(id) }} />
   const view = await mountView(<AgentNavProvider><Route />
-    <Prose text="ask @own, @member, @plain, @crew and @agent:mine/own" focus={id => { focused.push(id) }} />
+    {inChats ? <ChatsWindowLinks>{body}</ChatsWindowLinks> : body}
   </AgentNavProvider>, el => el)
   t.after(async () => { off(); await view.unmount(); window.localStorage.removeItem(CLASSIC_MAILBOX_KEY); setShownChat('mine', null) })
   await inAct(async () => { await flush(4) })
@@ -171,4 +187,11 @@ test('POSITIVE CONTROL: an @agent chip in written text without a user audience, 
   assert.deepEqual(await f.click('@crew'), { asked: [], focused: ['crew'] })
   setShownChat('mine', 'own')
   assert.deepEqual(await f.click('@own'), { asked: [], focused: ['own'] }, 'its chat already on screen: the desk, as NodeLink does')
+})
+
+test('OUTSIDE THE CHATS WINDOW an @agent chip in written text (a ticket, a presentation, a desk transcript) goes to the desk', async t => {
+  const f = await prose(t, false)
+  assert.deepEqual(await f.click('@own'), { asked: [], focused: ['own'] }, 'a bare @name')
+  assert.deepEqual(await f.click('@agent:mine/own'), { asked: [], focused: ['own'] }, 'the canonical @agent: form')
+  assert.deepEqual(await f.click('@member'), { asked: [], focused: ['member'] }, 'an audience through its project')
 })
