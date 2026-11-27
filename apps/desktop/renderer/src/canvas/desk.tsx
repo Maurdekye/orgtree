@@ -1970,7 +1970,14 @@ export function HeldAudienceChips({ node, map, slug, toast }: {
   slug: string
   toast: ToastFn
 }) {
-  const held = node.audiences_held ?? []
+  const all = node.audiences_held ?? []
+  // Agents reached only through a project fold into ONE badge per source
+  // project, listed in its tooltip (USER 2026-11-27 md04a9104c63a). Direct
+  // grants, and the user and org-mailbox audiences, keep their own badges.
+  const explicitAll = node.audiences_explicit ?? all
+  const viaProjects = inheritedProjectGroups(all, explicitAll, node.audiences_inherited ?? [])
+  const folded = new Set([...viaProjects.values()].flat().filter((g) => !explicitAll.includes(g)))
+  const held = all.filter((g) => !folded.has(g))
   const heldRet = held.filter((g) => g !== USER && g !== EXTERN && g !== EXTERN_WEAK
     && map.get(g)?.state !== 'live')
   const heldChip = (g: string, dim = false) => {
@@ -1993,10 +2000,42 @@ export function HeldAudienceChips({ node, map, slug, toast }: {
           .catch((e: Error) => toast([`error: ${e.message}`]))}><CloseIcon fontSize="inherit" /></button>}
     </span>
   }
+  const projectChip = (project: string, grantors: string[]) => {
+    const kinds = new Set(grantors.map((g) => map.get(g)?.kind === 'project' ? 'project' : 'agent'))
+    const these = kinds.has('project') ? (kinds.has('agent') ? 'agents and projects' : 'projects') : 'agents'
+    const title = [`Inherited from project ${project}`,
+      `Can message these ${these} directly, even though they are outside your normal chain:`,
+      ...grantors.map((g) => map.get(g)?.state === 'live' ? g : `${g} (retired)`)].join('\n')
+    return <span key={'via:' + project} className="badge aud-via-project" title={title}
+      tabIndex={0} aria-label={title}>
+      <HearingIcon fontSize="inherit" />
+      <TierChip tier="project" agentName={project} />
+      {project}
+      <span className="aud-via-count">{grantors.length}</span>
+    </span>
+  }
   return <>
     {held.filter((g) => !heldRet.includes(g)).map((g) => heldChip(g))}
+    {[...viaProjects].map(([project, grantors]) => projectChip(project, grantors))}
     <RetiredFold ids={heldRet} render={(g) => heldChip(g, true)} />
   </>
+}
+
+/** Inherited-only agent audiences grouped by source project, in the order the
+ *  projects are first named, each project's grantors in held order. A grantor
+ *  also held explicitly keeps its own badge but is still listed under every
+ *  project it comes through; the user and the org mailbox are never folded. */
+export function inheritedProjectGroups(held: string[], explicit: string[],
+  inherited: { grantor: string; project: string }[]): Map<string, string[]> {
+  const groups = new Map<string, string[]>()
+  const fold = (g: string) => g !== USER && g !== EXTERN && g !== EXTERN_WEAK
+  for (const { project } of inherited) if (!groups.has(project)) groups.set(project, [])
+  for (const g of held) {
+    if (!fold(g)) continue
+    for (const a of inherited) if (a.grantor === g && !groups.get(a.project)!.includes(g)) groups.get(a.project)!.push(g)
+  }
+  for (const [p, gs] of groups) if (!gs.some((g) => !explicit.includes(g))) groups.delete(p)
+  return groups
 }
 
 /** F-01's bottom row, the same on agent and project desks: one card per

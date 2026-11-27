@@ -776,6 +776,7 @@ main {
    canvas (USER 2026-11-25 m70add47eb0b6 "much longer dashes": was 2 5) */
 .edge.aud-line.weak { stroke-dasharray: 10 8; stroke-linecap: round; }
 .badge.weak-link { border-style: dotted; }
+.badge .aud-via-count { margin-left: 2px; padding: 0 5px; border-radius: 8px; background: color-mix(in srgb, currentColor 14%, transparent); font-size: 0.9em; }
 /* failover (USER 2026-11-25 m872c7d4f0973): the weak link acting as the holder; its line as bright as a holder's,
    still dashed (the link stays weak), and its mailbox badge tagged */
 .edge.aud-line.weak.acting { opacity: .9; stroke-width: 2.2px; }
