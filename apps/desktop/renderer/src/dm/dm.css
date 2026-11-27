@@ -317,6 +317,8 @@
 .dm-panel .dm-request-acts button { font-size: 12.5px; padding: 4px 14px; }
 .dm-request-hint { font-size: 12px; }
 .dm-kind.dm-kind-decision { color: var(--bad); background: color-mix(in srgb, var(--bad) 13%, transparent); }
+/* a presentation or ticket reply's tag: neutral, readable on the user's own bubble (USER 2026-11-27 macaf4dfd8733) */
+.dm-kind.dm-kind-reply { color: inherit; background: color-mix(in srgb, currentColor 12%, transparent); }
 
 :root.contrast-obsidian-black .dm-panel { --dm-tick-sent: #909090; }
 :root:is(.contrast-light, .contrast-solarized-light) .dm-panel { --dm-tick-sent: #3a3a3a; --dm-tick-read: #10852b; }

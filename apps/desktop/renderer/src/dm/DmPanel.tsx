@@ -224,6 +224,9 @@ const dayLabel = (at: string) => {
 /** The mail kinds a bubble names with a small label (USER m1454e651500e,
  *  ruling 5: requests get a small label). An ordinary message has none. */
 const KIND_LABEL: Readonly<Record<string, string>> = { request: 'Request', question: 'Question', decision: 'Decision' }
+/** the user's reply on a presentation or a ticket: the bubble under its quote, with this tag (USER 2026-11-27
+ *  macaf4dfd8733 "presentation replies still get this unusual card in the chat", m49bccaba0b87 "same here") */
+const REPLY_LABEL: Readonly<Record<string, string>> = { 'reply.document': 'Presentation reply', 'reply.docket': 'Ticket reply' }
 
 /** Re-render when the window this panel is in gains or loses the user. */
 function useWindowActive(): boolean {
@@ -1686,11 +1689,15 @@ function DmBubble({ entry, m, first, slug, refs, toast, flash, replying, system,
   // included; a message, a notice and a reply are their text, and so is a
   // question, with its tag above (USER 2026-11-26 mb2a0028c1a6d "Bubble + tag":
   // with or without a reply target, never the framed "Question · <agent>" card); a request and a decision
-  // likewise, with their REQUEST / DECISION tag (USER 2026-11-26 mb633b840c662 "Yes, same (rec.)")
+  // likewise, with their REQUEST / DECISION tag (USER 2026-11-26 mb633b840c662 "Yes, same (rec.)"); and the user's
+  // presentation and ticket replies, with theirs: the quote names what they answer, so no card repeats it (USER 2026-11-27
+  // macaf4dfd8733, m49bccaba0b87; its body part drops the docket card's Role / Assigned to rows)
+  const variant = view?.event.variant ?? ''
   const ordinary = !view || ['ordinary.message', 'ordinary.notice', 'ordinary.question', 'ordinary.request', 'ordinary.decision',
-    'reply.mail'].includes(view.event.variant)
+    'reply.mail', 'reply.document', 'reply.docket'].includes(variant)
   const notice = isMailNotice(m)
-  const label = KIND_LABEL[m.kind] ?? null
+  const reply = REPLY_LABEL[variant] ?? null
+  const label = KIND_LABEL[m.kind] ?? reply
   const mega = entry.megaphone
   const megaLabel = !mega ? null
     : mega.record ? `Megaphone · ${mega.to} agent${mega.to === 1 ? '' : 's'}` : `Megaphone · ${mega.project}`
@@ -1771,7 +1778,7 @@ function DmBubble({ entry, m, first, slug, refs, toast, flash, replying, system,
             {/* the project's own mark: its icon and colour, as everywhere a project is named */}
             {mega && <span className="dm-kind dm-kind-megaphone" title={megaTitle}><CampaignIcon fontSize="inherit" /> {mega.record ? megaLabel
               : <>Megaphone · <TierChip tier="project" agentName={mega.project} />{mega.project}</>}</span>}
-            {label && <span className={'dm-kind dm-kind-' + m.kind}>{label}</span>}
+            {label && <span className={'dm-kind dm-kind-' + (reply && !KIND_LABEL[m.kind] ? 'reply' : m.kind)}>{label}</span>}
             {m.urgent && <span className="urgentkind" title={m.urgent_reason ? `urgent — ${m.urgent_reason}` : 'urgent'}>urgent</span>}
             {queued && <span className="queuekind job-kind"
               title={`a job project ${queued.name}'s mail queue handed to this mailbox`}>project job · {queued.name}</span>}
