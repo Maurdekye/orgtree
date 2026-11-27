@@ -497,3 +497,102 @@ fn tb8b_reason_and_why_wording() {
     assert_eq!(ops::take_back_why("C", "holder_chain", Some("r")), "had it taken back by C, your superior: r");
     assert_eq!(ops::take_back_why("C", "holder_chain", None), "had it taken back by C, your superior");
 }
+
+
+// ─── the mail's own queue wait, stored apart from the listener's (docket mail-queues-store-and-show-the-mail-s-own-wait-s;
+// USER 2026-11-27 16:26:13Z m74c2267e6f07 "make sure the amount of time the mail waited is stored and shown separately from the
+// amount of time the agent processing it waited"). Each hand-out records `mail_waited_from`: the mail's arrival for its first
+// hand-out, the moment it went back in the queue for a later one. `waited_from` stays the listener's.
+
+/// A timestamp the engine wrote into JSON or a row, as an instant.
+#[nolog]
+fn instant(v: &Value) -> chrono::DateTime<chrono::Utc> {
+    chrono::DateTime::parse_from_rfc3339(v.as_str().unwrap_or_else(|| panic!("a timestamp, got {v}"))).unwrap().with_timezone(&chrono::Utc)
+}
+
+impl W {
+    /// A waiting (unclaimed) mail in P's queue that arrived `minutes` ago; its arrival as the engine stored it.
+    #[nolog]
+    async fn waiting(&self, uid: &str, minutes: i32) -> chrono::DateTime<chrono::Utc> {
+        self.e.db.get().await.unwrap().query_one(
+            "INSERT INTO ot.mail(uid,org_id,sender,recipient_kind,recipient_agent_id,recipient_name,body,state,created_at)
+             VALUES($1,$2,'@user','agent',$3,'P','queued work','pending', now() - make_interval(mins => $4)) RETURNING created_at",
+            &[&uid, &self.org.id, &self.p, &minutes]).await.unwrap().get(0)
+    }
+    #[nolog]
+    async fn claimed(&self, uid: &str) -> Value {
+        self.e.db.get().await.unwrap().query_one("SELECT extra->'claimed' FROM ot.mail WHERE uid = $1", &[&uid]).await.unwrap().get(0)
+    }
+    #[nolog]
+    async fn hand_out(&self) {
+        crate::domain::projects::dispatch(&self.e, self.org.id, self.p).await.unwrap();
+    }
+}
+
+/// MW1: the first hand-out stores the mail's wait from its arrival, apart from the listener's; Working shows both.
+#[tokio::test]
+#[ignore = "requires the disposable holdings_fixture DB/role; never an ambient DB"]
+async fn mw1_first_hand_out_stores_the_mail_wait_from_arrival() {
+    let w = world(ack()).await;
+    let arrived = w.waiting("J", 10).await;
+    w.listen(w.b).await;
+    w.hand_out().await;
+    let c = w.claimed("J").await;
+    assert_eq!(c["by"], "B", "handed to B");
+    assert_eq!(instant(&c["mail_waited_from"]), arrived, "the mail waited from its arrival");
+    assert!(instant(&c["waited_from"]) > arrived, "the listener's wait is its own: from its arming, after the mail arrived");
+    let log: Value = w.e.db.get().await.unwrap().query_one("SELECT extra->'attempt_log'->0 FROM ot.mail WHERE uid = 'J'", &[]).await.unwrap().get(0);
+    assert_eq!(instant(&log["mail_waited_from"]), arrived, "the attempt log keeps it per hand-out");
+    let h = w.run(Actor::User, json!({"op":"mail_queue_history","node":"P"})).await.unwrap();
+    let job = &h["working"][0];
+    assert_eq!(instant(&job["mail_waited_from"]), arrived, "Working: the mail's wait");
+    assert_eq!(job["waited_from"], c["waited_from"], "and the listener's, unchanged");
+    w.e.shutdown.cancel();
+}
+
+/// MW2: after a take-back the next hand-out measures from when the mail went back in the queue; the first hand-out's ending
+/// keeps the first wait.
+#[tokio::test]
+#[ignore = "requires the disposable holdings_fixture DB/role; never an ambient DB"]
+async fn mw2_a_take_back_restarts_the_mail_wait_and_the_ending_keeps_the_first() {
+    let w = world(ack()).await;
+    let arrived = w.waiting("J", 10).await;
+    w.listen(w.b).await;
+    w.hand_out().await;
+    let before = chrono::Utc::now();
+    w.take(w.me(w.x, "X"), "J", None).await.unwrap();
+    w.hand_out().await;
+    let c = w.claimed("J").await;
+    assert_eq!(c["by"], "B", "handed again (B is the only listener)");
+    let again = instant(&c["mail_waited_from"]);
+    assert!(again >= before - chrono::Duration::seconds(1) && again > arrived, "measured from the take-back, not the arrival: {again}");
+    let ended: Option<chrono::DateTime<chrono::Utc>> = w.e.db.get().await.unwrap()
+        .query_one("SELECT mail_waited_from FROM ot.project_mail_endings WHERE mail_uid = 'J' ORDER BY id DESC LIMIT 1", &[]).await.unwrap().get(0);
+    assert_eq!(ended, Some(arrived), "the taken-back hand-out's ending stores its own mail wait");
+    let h = w.run(Actor::User, json!({"op":"mail_queue_history","node":"P"})).await.unwrap();
+    assert_eq!(instant(&h["history"][0]["mail_waited_from"]), arrived, "Recently Finished carries it");
+    assert_eq!(instant(&h["working"][0]["mail_waited_from"]), again, "and Working the new one");
+    w.e.shutdown.cancel();
+}
+
+/// MW3: round-robin's Recently Delivered carries the mail's wait too; an ending recorded before the field existed shows none.
+#[tokio::test]
+#[ignore = "requires the disposable holdings_fixture DB/role; never an ambient DB"]
+async fn mw3_round_robin_delivery_and_old_rows() {
+    let w = world(json!({"mail_queue":"round_robin"})).await;
+    let arrived = w.waiting("R", 5).await;
+    w.listen(w.b).await;
+    w.hand_out().await;
+    let h = w.run(Actor::User, json!({"op":"mail_queue_history","node":"P"})).await.unwrap();
+    let row = &h["history"][0];
+    assert_eq!(row["mail"], "R");
+    assert_eq!(instant(&row["mail_waited_from"]), arrived, "Recently Delivered: the mail's wait from its arrival");
+    assert!(row.get("waited_from").is_some(), "and the listener's");
+    w.e.shutdown.cancel();
+    let w = world(ack()).await;
+    w.sql("INSERT INTO ot.project_mail_endings (org_id, project_id, mail_uid, agent_id, agent_name, how, waited_from, held_at)
+           VALUES ($1, $2, 'OLD', $3, 'B', 'acked', now() - interval '2 hours', now() - interval '1 hour')", &[&w.org.id, &w.p, &w.b]).await;
+    let h = w.run(Actor::User, json!({"op":"mail_queue_history","node":"P"})).await.unwrap();
+    assert!(h["history"][0]["mail_waited_from"].is_null(), "an older row has no mail wait: blank, never guessed");
+    w.e.shutdown.cancel();
+}
