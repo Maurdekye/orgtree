@@ -2,8 +2,10 @@
 
 Orgtree's published builds come from GitHub Actions, not from anyone's PC. Pushing
 a version tag builds Windows, macOS and Linux on GitHub's free runners and leaves a
-**draft** release. A person checks the draft and publishes it. Nothing is ever
-published automatically.
+complete, checked **draft** release ("draft ready"). Nothing is public until one
+manual command publishes every app's ready draft together:
+[Publishing](#publishing). Each app's tag runs once, on its own and in parallel with the
+others (USER 2026-11-27 m83564ad801f0, mabde2ca29ca3); there is no rehearsal run first.
 
 `release.yml` runs:
 
@@ -26,7 +28,13 @@ published automatically.
    See [Standalone engine](#standalone-engine).
 5. **stage**: checks the whole asset set and writes `SHA256SUMS.txt`. Every
    platform must build; a release never goes out with one silently missing.
-6. **draft**: `gh release create --draft` with the assets.
+6. **draft**: `gh release create --draft` with the assets, then the draft itself is
+   checked as an installed app will check the release
+   (`.github/ci/releasing/verify-published.mjs` in DRAFT mode: every asset re-read from
+   GitHub against `SHA256SUMS.txt`, `latest.yml` and `latest-linux.yml` against the
+   installer and the AppImage, every `build-info*.json` naming the tag's commit). Green
+   means **draft ready**. If any step fails, the summary says **NOT published, draft
+   left**: the draft stays, visible only to the repository's members.
 
 The draft holds the same six Windows assets as every 4.0.x release, the macOS and
 Linux files, and `SHA256SUMS.txt`:
@@ -116,38 +124,49 @@ and CI does everything after it.
      missing.
    - Tags take the form `vX.Y.Z`, or `vX.Y.Z-beta.N` / `vX.Y.Z-alpha.N` for a
      prerelease. An `-RC` label is refused, as it is by the release tool.
-6. A draft release `vX` appears. The run's summary lists each file's size and
-   SHA-256.
+6. A draft release `vX` appears, and the run's summary says **draft ready** (or **NOT
+   published, draft left**). It lists each file's size and SHA-256.
 
-## Checking and publishing the draft
-
-```
-gh release download vX -R Maurdekye/orgtree -D check-vX
-cd check-vX && sha256sum -c SHA256SUMS.txt
-```
-
-- `build-info.json` must name the tag's commit, `channel: release` and
-  `dirty: false`.
-- Optionally install `Orgtree-Setup-X.exe` on a test machine first. Installing
-  stops a running Orgtree.
-- The macOS and Linux files are prototypes. Their launch smokes passed on the
-  runners; opening them on a real Mac or Ubuntu PC is optional.
+The user's go to publish comes before the tag is pushed (the pre-publish hands-on check
+runs on the release candidate). Hubchat's and the mail hub's tags can be pushed at the
+same time: no app waits for another's CI.
 
 If one platform's build fails, "Re-run failed jobs" on the run; stage and draft
-follow once it passes. To release without a platform, remove its job and its file
-names from `stage` in `release.yml` in a commit, and tag that commit. Never add or
-remove assets of a draft by hand: `SHA256SUMS.txt` would no longer match.
+follow once it passes. If the draft job itself failed after creating the draft, delete
+the draft first (`gh release delete vX -R Maurdekye/orgtree --yes` keeps the tag), then
+re-run: the job refuses to make a second draft. To release without a platform, remove
+its job and its file names from `stage` in `release.yml` in a commit, and tag that
+commit. Never add or remove assets of a draft by hand: `SHA256SUMS.txt` would no
+longer match.
 
-Publish it:
+Optional before publishing: install `Orgtree-Setup-X.exe` from the draft on a test
+machine (`gh release download vX -R Maurdekye/orgtree -p 'Orgtree-Setup-*'`).
+Installing stops a running Orgtree.
+
+## Publishing
+
+One command publishes every app's ready draft, from any PC with the GitHub CLI signed
+in with write access to the three repositories:
 
 ```
-# a stable release: it becomes "latest", which every installed Orgtree updates to
-gh release edit vX -R Maurdekye/orgtree --draft=false --latest
-# a beta: public, but not offered to stable installs
-gh release edit vX -R Maurdekye/orgtree --draft=false --prerelease --latest=false
+node tools/publish-release.mjs orgtree=X hubchat=Y mailhub=Z     # any of the three
+node tools/publish-release.mjs --check orgtree=X ...             # the checks only
 ```
 
-Publishing starts the **verify-release** workflow. It downloads every public asset as an installed app would and checks it against `SHA256SUMS.txt`, the updater feeds (`latest.yml` and, from the first release that has it, `latest-linux.yml` with its embedded blockmap) and the tag, and it checks that GitHub's "latest" release is the right one. A red run means: roll back (below). To check a release again: `gh workflow run verify-release.yml -f tag=<tag>`.
+1. It checks EVERY named draft first and publishes nothing unless all pass: exactly
+   one draft for `v<version>`, the tag on GitHub, the draft's SHA256SUMS, the prerelease
+   flag, and a green newest release run for that tag whose draft job passed.
+2. It publishes them. A stable version becomes "latest", which every installed app
+   updates to; an alpha or beta is published as a prerelease and never "latest".
+3. Publishing as a person starts each app's `release: published` workflows
+   (Orgtree: verify-release and publish-standalone-image; Hubchat: verify-release and
+   publish-web-image; mail hub: release-image). Any that hasn't started within a minute
+   is dispatched with the tag. (A release published with a workflow's own
+   `GITHUB_TOKEN` would start none of them, which is why no workflow publishes.)
+4. It waits for those runs and prints each one's result. Exit status 0 only when all
+   are green; a red one means: roll back (below), or re-run it.
+
+The **verify-release** workflow then checks the public release once more. It downloads every public asset as an installed app would and checks it against `SHA256SUMS.txt`, the updater feeds (`latest.yml` and, from the first release that has it, `latest-linux.yml` with its embedded blockmap) and the tag, and it checks that GitHub's "latest" release is the right one. A red run means: roll back (below). To check a release again: `gh workflow run verify-release.yml -f tag=<tag>`.
 
 **Required after every stable publish** (4.6.0 was published without it, so
 4.6.1-alpha.1 showed no 4.6.0 in its Changelog):
@@ -305,7 +324,8 @@ published release's images again: `gh workflow run publish-standalone-image.yml 
 
 ## Rolling back
 
-- **Before publishing**: delete the draft and the tag, fix, and tag again.
+- **Before publishing** (a red draft, or a problem found in it): delete the draft and
+  the tag, fix, and tag again. No update feed has seen it.
   ```
   gh release delete vX -R Maurdekye/orgtree --yes
   git push origin :refs/tags/vX
@@ -594,20 +614,23 @@ signature, so updates there stay manual.
 
 ## Test runs
 
+Optional: the tag run needs no rehearsal, since it stops at a draft nobody else sees.
 A push to the branch `ci-test/orgtree-release` runs the whole pipeline as a test.
 No release is created; the staged assets are the run's artifact.
 Each `build-<platform>.yml` also runs on its own from a push to
 `ci-test/orgtree-windows`, `ci-test/orgtree-macos`, `ci-test/orgtree-linux`,
 `ci-test/orgtree-linux-arm64` (the arm64 Linux build alone) or
 `ci-test/orgtree-standalone`.
-Once the workflows are on `main`, a manual run can test any tag or commit:
+A manual run can test any tag or commit, and can rehearse the draft step too:
 
 ```
 gh workflow run release.yml -R Maurdekye/orgtree -f ref=vX
+gh workflow run release.yml -R Maurdekye/orgtree -f ref=<commit> -f draft=true   # + a hidden, tagless draft, checked, then deleted
 ```
 
 A manual run is always a test, even one started from a tag: only a pushed tag
-makes a release.
+makes a release. A rehearsal draft is named `ci-test-draft-<run id>`, creates no tag,
+and is deleted at the end (`-f keep_draft=true` leaves it for a look).
 
 ## If GitHub disappears
 
