@@ -41,15 +41,15 @@ const setPref = (enabled: boolean) => {
 async function world(t: { after: (fn: () => void | Promise<void>) => void }, pref: boolean | null) {
   localStorage.clear(); resetConvos(); useFakeClock(); installFetch(new FakeServer())
   if (pref !== null) localStorage.setItem(KEY, JSON.stringify({ enabled: pref }))
-  // the store caches its reading: a storage event (as from another window) makes it read again
-  window.dispatchEvent(new window.StorageEvent('storage', { key: KEY }))
   const original = window.HTMLElement.prototype.getBoundingClientRect
   window.HTMLElement.prototype.getBoundingClientRect = function () { return this.classList.contains('viewport') ? rect : original.call(this) }
   const key = pinSurfaceKey('fit-fixture', 'docket', true)
   const v = await mountView(<OrgCanvas tree={fixture()} slug="fit-fixture" op={async () => ({})} toast={() => {}} mailEvt={null} />, el => el)
+  // the store caches its reading across tests; a storage event (as from another window) makes the mounted canvas read it again
+  await inAct(() => { window.dispatchEvent(new window.StorageEvent('storage', { key: KEY })) })
   t.after(async () => {
     await v.unmount(); removePinSurface(key); window.HTMLElement.prototype.getBoundingClientRect = original
-    localStorage.clear(); window.dispatchEvent(new window.StorageEvent('storage', { key: KEY })); resetConvos(); realClock()
+    localStorage.clear(); resetConvos(); realClock()
   })
   const fit = async () => {
     await inAct(() => v.el.querySelector<HTMLButtonElement>(`button[title="${orgNavigationTooltip(HUD_FIT, 'fitOrg')}"]`)!.click())
