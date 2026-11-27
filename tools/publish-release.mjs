@@ -25,13 +25,13 @@ import { execFileSync } from 'node:child_process'
 
 const APPS = {
   orgtree: { repo: 'Maurdekye/orgtree', title: 'Orgtree',
-    version: /^\d+\.\d+\.\d+(-(alpha|beta)\.\d+)?$/, sums: 'SHA256SUMS.txt',
+    versionForm: /^\d+\.\d+\.\d+(-(alpha|beta)\.\d+)?$/, sums: 'SHA256SUMS.txt',
     followers: ['verify-release.yml', 'publish-standalone-image.yml'] },
   hubchat: { repo: 'Maurdekye/orgtree-hubchat', title: 'Hubchat',
-    version: /^\d+\.\d+\.\d+$/, sums: 'SHA256SUMS.txt',
+    versionForm: /^\d+\.\d+\.\d+$/, sums: 'SHA256SUMS.txt',
     followers: ['verify-release.yml', 'publish-web-image.yml'] },
   mailhub: { repo: 'Maurdekye/orgtree-mailhub', title: 'Mail hub',
-    version: /^\d+\.\d+\.\d+(-(alpha|beta)\.\d+)?$/, sums: 'SHA256SUMS',
+    versionForm: /^\d+\.\d+\.\d+(-(alpha|beta)\.\d+)?$/, sums: 'SHA256SUMS',
     followers: ['release-image.yml'] },
 }
 const START_WAIT_MS = 60_000, POLL_MS = 15_000, FINISH_WAIT_MS = 45 * 60_000
@@ -41,13 +41,13 @@ const checkOnly = args.includes('--check')
 const wanted = args.filter(a => a !== '--check').map(a => {
   const [app, version] = a.split('=')
   if (!APPS[app] || !version) usage(`not app=version: ${a}`)
-  if (!APPS[app].version.test(version)) usage(`${app} ${version} is not a version this app releases`)
-  return { app, version, tag: `v${version}`, prerelease: version.includes('-'), ...APPS[app] }
+  if (!APPS[app].versionForm.test(version)) usage(`${app} ${version} is not a version this app releases`)
+  return { ...APPS[app], app, version, tag: `v${version}`, prerelease: version.includes("-") }
 })
 if (!wanted.length) usage('name at least one app')
 if (new Set(wanted.map(w => w.app)).size !== wanted.length) usage('each app at most once')
 
-const gh = (...a) => execFileSync('gh', a, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] })
+const gh = (...a) => execFileSync('gh', a, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], maxBuffer: 64 << 20 })
 const api = (path, ...a) => JSON.parse(gh('api', ...a, path))
 const sleep = ms => new Promise(r => setTimeout(r, ms))
 const line = s => console.log(s)
@@ -56,7 +56,10 @@ const line = s => console.log(s)
 let bad = 0
 const fail = (w, why) => { bad += 1; line(`FAIL ${w.title} ${w.version}: ${why}`) }
 for (const w of wanted) {
-  const drafts = api(`repos/${w.repo}/releases?per_page=100`).filter(r => r.draft && r.tag_name === w.tag)
+  // every page, drafts only, one small object per line (the full list is megabytes of asset records)
+  const drafts = gh('api', '--paginate', `repos/${w.repo}/releases?per_page=100`, '--jq',
+    `.[] | select(.draft and .tag_name == "${w.tag}") | {id, tag_name, prerelease, assets: [.assets[] | {name}]}`)
+    .split(/\r?\n/).filter(Boolean).map(l => JSON.parse(l))
   if (drafts.length !== 1) { fail(w, `${drafts.length} drafts for ${w.tag} (want exactly 1; a published release is not a draft)`); continue }
   w.release = drafts[0]
   try { w.sha = api(`repos/${w.repo}/commits/${w.tag}`).sha } catch { fail(w, `tag ${w.tag} is not on GitHub`); continue }
