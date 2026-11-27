@@ -511,7 +511,7 @@ test("§7 one aligned table, values only, as the slots view: Working, Line and R
   const ackDesk = await desk(t, project({ mail_queue: 'ack' }, { mail_pending: 3, mail_held: 1 }))
   serveInbox(t)
   await clickCard(ackDesk.view.el)
-  assert.deepEqual(headers(ackDesk.view.el), ['Position', 'Agent', 'Waited', 'Held', 'Acked', 'Mail', 'Ack', 'Batch', 'Handed', 'Watchdog', 'Action'],
+  assert.deepEqual(headers(ackDesk.view.el), ['Position', 'Agent', 'Mail waited', 'Agent waited', 'Held', 'Acked', 'Mail', 'Ack', 'Batch', 'Handed', 'Watchdog', 'Action'],
     "ack mode: three time columns as the slots table's, the job and its ack, the desk tables' one order")
   assert.deepEqual(sectionTitles(ackDesk.view.el), ['Working', 'Line', 'Waiting mail', 'Recently Finished'], 'as the slots tab, with the waiting mail above the history (USER 2026-11-27 m7472b6f3a603)')
   const [first, paused] = lineRows(ackDesk.view.el)
@@ -522,15 +522,16 @@ test("§7 one aligned table, values only, as the slots view: Working, Line and R
   assert.equal(c[0], '1st', 'the place in the order, as the slots line')
   assert.equal(first!.querySelector('.slot-agent [data-copy-agent-name]')?.getAttribute('data-copy-agent-name'), 'sb',
     'the agent, as a link with its model card')
-  assert.match(c[2]!, /^\d+(s|m|h \d+m)$/, 'Waited: a time and nothing else')
-  assert.deepEqual(c.slice(3, 7), ['', '', '', ''], "a Line row's Held is empty (user 2026-10-20 06:22Z), and it holds no mail")
-  assert.equal(c[7], '1', 'Batch')
-  assert.equal(c[8], '0', "Handed: the watchdog's engine count, a bare number")
+  assert.equal(c[2], '', 'Mail waited: a Line row has no mail')
+  assert.match(c[3]!, /^\d+(s|m|h \d+m)$/, 'Agent waited: a time and nothing else')
+  assert.deepEqual(c.slice(4, 8), ['', '', '', ''], "a Line row's Held is empty (user 2026-10-20 06:22Z), and it holds no mail")
+  assert.equal(c[8], '1', 'Batch')
+  assert.equal(c[9], '0', "Handed: the watchdog's engine count, a bare number")
   assert.equal(first!.querySelector('.watchdog-link-name')?.textContent, 'mail-b')
   assert.ok(!!first!.querySelector('.watchdog-link.fair-queue .wd-glyph'), 'watchdog identity includes its kind icon and outline')
   const rr = await desk(t, project({}, { mail_pending: 3 }))
   await clickCard(rr.view.el)
-  assert.deepEqual(headers(rr.view.el), ['Position', 'Agent', 'Waited', 'Delivered', 'Mail', 'Batch', 'Handed', 'Watchdog'],
+  assert.deepEqual(headers(rr.view.el), ['Position', 'Agent', 'Mail waited', 'Agent waited', 'Delivered', 'Mail', 'Batch', 'Handed', 'Watchdog'],
     'round robin: no Held, Acked or Ack, and Delivered says when (user 2026-10-20 06:22Z, 06:36Z)')
   assert.deepEqual(sectionTitles(rr.view.el), ['Line', 'Waiting mail', 'Recently Delivered'], 'round robin: no Working')
 })
@@ -567,7 +568,7 @@ test('§7 Working: a held job\'s marked row, its Held counts up, its wait ended 
   assert.ok(row.classList.contains('held-job'), 'the held job is marked')
   const c = cells(row)
   assert.equal(c[0], '', 'a holder has no place in the order until it acks')
-  assert.equal(c[2], '1h 0m', 'its wait: armed 07:00, handed its job 08:00')
+  assert.equal(c[3], '1h 0m', 'Agent waited: armed 07:00, handed its job 08:00')
   assert.equal(row.querySelector('.slot-wait .slot-time')?.classList.contains('live'), false, 'that wait is over')
   assert.ok(row.querySelector('.slot-held .slot-time.live'), 'its work on the job is counting up')
   const link = row.querySelector<HTMLButtonElement>('.listener-mail-link button.ref-chip.ref-mail.ref-message')!
