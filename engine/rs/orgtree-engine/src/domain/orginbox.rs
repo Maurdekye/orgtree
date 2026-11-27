@@ -1405,7 +1405,8 @@ mod delivered_to_tests {
         let publish_row = &publish_row[..publish_row.find("pub(crate) fn delivered_with").unwrap()];
         assert!(publish_row.contains("publish_copies(") && publish_row.contains("record_delivered(tx,row,&names)"),
             "the list is written by the call that made the copies, in its transaction");
-        assert!(source.contains("jobs::publish(engine,&tx,org,&raw,&row)"), "the release of held mail routes through it");
+        // the release pass walks `&rows`, so each held row is already a reference (1bdabae)
+        assert!(source.contains("jobs::publish(engine,&tx,org,&raw,row)"), "the release of held mail routes through it");
         assert!(source.contains("jobs::publish(engine,tx,org,&raw,&row)"), "so does a new arrival");
         let jobs = include_str!("orginbox_jobs.rs");
         assert!(jobs.contains("publish_row(tx, org, &route.to, row)"), "and the routing publishes the agent copies with it");
