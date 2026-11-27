@@ -37,7 +37,7 @@
 # release; a push to ci-test/orgtree-release, or a manual run, is a test (same build,
 # no release; the staged assets are left as the run's artifact). A manual run with
 # draft=true also rehearses the draft: a tagless draft named ci-test-draft-<run id>,
-# checked the same way and deleted at the end (keep_draft=true leaves it, for
+# checked the same way and deleted at the end; a push to ci-test/orgtree-release-draft does the same (keep_draft=true leaves it, for
 # rehearsing tools/publish-release.mjs --check against it). A rehearsal never pushes a tag.
 # How to cut, check, publish and roll back a release: docs/ci-release.md.
 name: release
@@ -45,7 +45,7 @@ name: release
 on:
   push:
     tags: ['v*']
-    branches: ['ci-test/orgtree-release']
+    branches: ['ci-test/orgtree-release', 'ci-test/orgtree-release-draft']   # -draft: a test that also rehearses the draft (as draft=true)
   workflow_dispatch:
     inputs:
       ref:
@@ -280,7 +280,7 @@ jobs:
   # draft, and checks the draft. Publishing is a separate manual command
   # (tools/publish-release.mjs, docs/ci-release.md), run once every app's draft is ready.
   draft:
-    if: needs.resolve.outputs.mode == 'release' || inputs.draft
+    if: needs.resolve.outputs.mode == 'release' || inputs.draft || github.ref == 'refs/heads/ci-test/orgtree-release-draft'
     needs: [resolve, stage]
     runs-on: ubuntu-24.04
     timeout-minutes: 45
