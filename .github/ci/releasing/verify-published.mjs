@@ -19,11 +19,18 @@
 // - GitHub's "latest" release is this one for a stable version, and is not for a
 //   prerelease (stable installs are offered whatever "latest" is).
 //   TAG=v<x.y.z> GITHUB_REPOSITORY=owner/repo GH_TOKEN=... node verify-published.mjs
+//
+// DRAFT mode (release.yml's draft job, before it publishes): DRAFT_ID=<release id> checks that
+// draft instead, with the same file, hash and feed checks. The draft's assets are read through
+// the API with the token (a draft has no public URLs); the GHCR images and GitHub's "latest"
+// are not checked yet (nothing is pushed or published while it is a draft). EXPECT_SHA gives
+// the commit when the tag does not exist (a rehearsal draft creates no tag).
 import crypto from 'node:crypto'
 import { checkLinuxUpdateInfo, linuxAppImage, linuxChannelFile } from '../linux/update-info.mjs'
 import { ghcrImage } from '../standalone/ghcr-image.mjs'
 
-const { TAG: tag, GITHUB_REPOSITORY: repo, GH_TOKEN: token } = process.env
+const { TAG: tag, GITHUB_REPOSITORY: repo, GH_TOKEN: token, DRAFT_ID: draftId, EXPECT_SHA: expectSha } = process.env
+const draft = !!draftId
 const version = /^v(.+)$/.exec(tag ?? '')?.[1] ?? fail(`not a version tag: ${tag}`)
 const prerelease = /-(alpha|beta)\.\d+$/.test(version)
 const channelFile = prerelease ? `${/-(alpha|beta)\./.exec(version)[1]}.yml` : 'latest.yml'
@@ -37,14 +44,18 @@ const api = async path => {
 const problems = []
 const check = (ok, message) => { console.log(`${ok ? 'ok  ' : 'FAIL'} ${message}`); if (!ok) problems.push(message) }
 
-const release = await api(`releases/tags/${encodeURIComponent(tag)}`)
-check(!release.draft, `release ${tag} is public`)
+const release = await api(draft ? `releases/${draftId}` : `releases/tags/${encodeURIComponent(tag)}`)
+if (draft) check(release.draft, `release ${release.tag_name} (${draftId}) is still a draft`)
+else check(!release.draft, `release ${tag} is public`)
 check(!!release.prerelease === prerelease, `prerelease flag is ${!!release.prerelease} (version ${version} wants ${prerelease})`)
 
-// Public download URLs, unauthenticated, exactly as the updater fetches them.
+// Public download URLs, unauthenticated, exactly as the updater fetches them. A draft's
+// assets are read through the API with the token (fetch drops the token on the redirect).
 const bytes = {}
 for (const asset of release.assets) {
-  const response = await fetch(asset.browser_download_url)
+  const response = draft
+    ? await fetch(asset.url, { headers: { Accept: 'application/octet-stream', Authorization: `Bearer ${token}`, 'User-Agent': 'orgtree-verify' } })
+    : await fetch(asset.browser_download_url)
   if (!response.ok) { check(false, `${asset.name} downloads (HTTP ${response.status})`); continue }
   bytes[asset.name] = Buffer.from(await response.arrayBuffer())
   check(bytes[asset.name].length === asset.size, `${asset.name}: ${asset.size} bytes`)
@@ -96,11 +107,12 @@ if (linuxFeed in bytes) checkLinuxUpdateInfo({ text: bytes[linuxFeed].toString('
 else console.log(`note ${linuxFeed} is not in this release (Linux updates began after 4.1.0)`)
 const linuxArm64Feed = linuxChannelFile(version, 'arm64')
 if (linuxArm64Feed in bytes) checkLinuxUpdateInfo({ text: bytes[linuxArm64Feed].toString('utf8'), version, asset: name => bytes[name], check, arch: 'arm64' })
-let commit = (await api(`git/ref/tags/${encodeURIComponent(tag)}`)).object
+let commit = expectSha ? { type: 'commit', sha: expectSha } : (await api(`git/ref/tags/${encodeURIComponent(tag)}`)).object
 while (commit.type === 'tag') commit = (await api(`git/tags/${commit.sha}`)).object
 // Pushed by publish-standalone-image.yml, which runs alongside this check: a tag it has
 // not pushed yet is a note here (re-run this check after it); a different image fails.
 async function checkGhcr(info, tags) {
+  if (draft) return console.log(`note ${info.image.repository}: not pushed while the release is a draft`)
   for (const t of tags) {
     let found
     try { found = await ghcrImage({ image: info.image.repository, tag: t, token }) } catch (e) { found = { error: e.message } }
@@ -139,12 +151,14 @@ for (const name of ['build-info.json', 'build-info-macos.json', 'build-info-linu
   // Only the Windows build runs the release tool, which guarantees these two.
   if (name === 'build-info.json') check(info.channel === 'release' && info.dirty === false, 'build-info.json: release channel, clean tree')
 }
-const latest = await api('releases/latest')
-if (prerelease) check(latest.tag_name !== tag && !latest.prerelease, `"latest" stays a stable release (${latest.tag_name})`)
+const latest = draft ? null : await api('releases/latest')
+if (draft) console.log('note "latest" is checked after publishing')
+else if (prerelease) check(latest.tag_name !== tag && !latest.prerelease, `"latest" stays a stable release (${latest.tag_name})`)
 else check(latest.tag_name === tag, `"latest" is ${tag} (it is ${latest.tag_name})`)
 
+if (draft && problems.length) fail(`${problems.length} problem(s) with the draft of ${tag}: NOT published, draft left`)
 if (problems.length) fail(`${problems.length} problem(s) with the published ${tag}; see docs/ci-release.md, "Rolling back"`)
-console.log(`${tag} is published correctly`)
+console.log(draft ? `the draft of ${tag} is complete and correct` : `${tag} is published correctly`)
 
 function fail(message) {
   console.log(`::error::${message}`)
