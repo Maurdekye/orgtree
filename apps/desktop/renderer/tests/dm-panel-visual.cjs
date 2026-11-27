@@ -660,5 +660,24 @@ module.exports = async (page) => {
   })
   await page.sleep(300)
   await shot('34b-a-request-and-a-decision-that-answer-nothing')
+  // the user's presentation and ticket replies: the bubble with its tag under the quote (USER 2026-11-27 macaf4dfd8733)
+  v.linkedReply = await page.eval(() => {
+    const of = id => {
+      const b = document.querySelector(`[data-dm-entry="${id}"] .dm-bubble`)
+      if (!b) return null
+      return { typed: b.classList.contains('typed'), head: !!b.querySelector('.event-head'), label: b.querySelector('.dm-kind')?.textContent ?? null,
+        quoted: !!b.querySelector('.reply-preview'), rows: /Role|Assigned to|Not recorded/.test(b.textContent ?? ''),
+        unsupported: !!b.querySelector('.event-unsupported') }
+    }
+    return { spr: of('spr'), stk: of('stk') }
+  })
+  await page.eval(() => {
+    const el = document.querySelector('[data-dm-entry="spr"]')
+    let sc = el?.parentElement
+    while (sc && !(sc.scrollHeight > sc.clientHeight && /auto|scroll/.test(getComputedStyle(sc).overflowY))) sc = sc.parentElement
+    if (el && sc) sc.scrollTop += el.getBoundingClientRect().top - sc.getBoundingClientRect().top - 16
+  })
+  await page.sleep(300)
+  await shot('34c-presentation-and-ticket-replies')
   return v
 }

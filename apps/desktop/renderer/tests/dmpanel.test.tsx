@@ -2967,6 +2967,34 @@ for (const [kind, label] of [['request', 'Request'], ['decision', 'Decision']] a
   })
 }
 
+// ...AND SO ARE THE USER'S PRESENTATION AND TICKET REPLIES (USER 2026-11-27 13:11:21Z macaf4dfd8733 "presentation replies
+// still get this unusual card in the chat", 13:11:53Z m49bccaba0b87 "same here"; @coordinator-opus extends the Bubble + tag
+// ruling): the bubble with a PRESENTATION REPLY / TICKET REPLY tag under its quote, never the framed "Presentation reply ·
+// User · <doc>" / "Docket reply · User · <ticket> · Role · Assigned to" card. reply.mail was already the bubble.
+for (const [variant, label, object, target, extra] of [
+  ['reply.document', 'Presentation reply', { kind: 'document', org: 'mine', id: 'doc-plan', title: 'The plan', node: 'worker' },
+    { id: 'doc-plan', kind: 'document', from: 'worker', at: '2026-11-20T09:00:00Z', gist: 'One app-wide toggle.' }, {}],
+  ['reply.docket', 'Ticket reply', { kind: 'work_item', org: 'mine', slug: 'fix-title', title: 'Fix the title' },
+    { id: 'fix-title', kind: 'work_item', org: 'mine', from: 'worker', at: '2026-11-20T09:00:00Z', gist: 'Fix the title' },
+    { role: 'owner', owner: null }],
+] as const) {
+  test(`the user's ${variant} is the bubble with the ${label.toUpperCase()} tag under its quote, not the framed card`, async (t) => {
+    const ev = { v: 1, variant, actor: { kind: 'user', id: USER }, object, engine_authored: false, body: 'Please revise it.', ...extra }
+    const s = await setup(t, { audiences: [grant('worker')], sent: [
+      sent('r1', 'worker', '2026-11-20T10:00:00Z', { body: 'Please revise it.', ev, reply_to: target })] }, { active: false })
+    await s.openChat('worker')
+    const b = s.all<HTMLElement>('.dm-msg').find(m => m.dataset.dmEntry === 'r1')?.querySelector<HTMLElement>('.dm-bubble')
+    assert.ok(b, `POSITIVE CONTROL: the ${variant} is in the chat`)
+    assert.equal(/Unsupported message format/.test(b.textContent ?? ''), false, `POSITIVE CONTROL: the ${variant} is a valid typed reply`)
+    assert.ok(b.querySelector('.reply-preview'), 'its quote stays, naming what it answers')
+    assert.equal(b.querySelector('.dm-kind')?.textContent, label, `it wears the ${label} tag`)
+    assert.equal(b.classList.contains('typed'), false, 'it is the plain bubble, not the framed card')
+    assert.equal(b.querySelector('.event-head') === null, true, 'with no card header box')
+    assert.equal(/Role|Assigned to|Not recorded/.test(b.textContent ?? ''), false, 'and none of the card’s rows')
+    assert.match(b.textContent ?? '', /Please revise it\./, 'its text is the bubble’s text')
+  })
+}
+
 // A REPLY TO A PICTURE-ONLY MESSAGE quotes the picture, as every place names such a message by its file: the stored
 // quote's text is empty (the message had none), which is not a message that is gone.
 test('a reply to the user’s picture-only message quotes the picture’s file, not "no longer available"; a truly missing one still says so', async (t) => {

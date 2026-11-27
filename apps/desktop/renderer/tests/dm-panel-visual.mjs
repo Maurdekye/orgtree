@@ -91,6 +91,17 @@ const world = {
     sent('s1', 'worker', 26.9 * H, 'Thanks. Send me the summary when the review is done.'),
     sent('s2', 'solo', 26 * H, 'How is the import going?'),
     sent('spic', 'solo', 27.5 * H, '', { attachments: [{ name: 'orgtree-eye.png', path: 'uploads/orgtree-eye.png', bytes: 2048 }] }),
+    // THE USER'S PRESENTATION AND TICKET REPLIES are the bubble with their tag (USER 2026-11-27 macaf4dfd8733,
+    // m49bccaba0b87), older than solo's questions; the ticket reply's stored text carries the engine's banner, as real ones do
+    sent('spr', 'solo', 29.5 * H, 'Please shorten the second section.', {
+      reply_to: { id: 'doc-plan', kind: 'document', from: 'solo', at: ago(30 * H), gist: 'Export plan: two passes, then a review.', org: 'mine' },
+      ev: { v: 1, variant: 'reply.document', actor: { kind: 'user', id: USER }, engine_authored: false, body: 'Please shorten the second section.',
+        object: { kind: 'document', org: 'mine', id: 'doc-plan', title: 'Export plan', node: 'solo' } } }),
+    sent('stk', 'solo', 29.2 * H, '[DOCKET REPLY · fix-export-title "Fix the export title"] (the user replied on this docket item — treat it as item-linked mail and update the item if it changes the work)
+Looks good, go ahead.', {
+      reply_to: { id: 'fix-export-title', kind: 'work_item', from: 'solo', at: ago(30 * H), gist: 'Fix the export title', org: 'mine' },
+      ev: { v: 1, variant: 'reply.docket', actor: { kind: 'user', id: USER }, engine_authored: false, body: 'Looks good, go ahead.',
+        object: { kind: 'work_item', org: 'mine', slug: 'fix-export-title', title: 'Fix the export title' }, role: 'owner', owner: null } }),
     // a megaphone send to crew: one copy per member, sharing one send id
     sent('g1a', 'member', 6 * H, 'The standup moves to 10:00 from tomorrow.', { megaphone: { name: 'crew', send: 'g1', to: 2 } }),
     sent('g1b', 'mate', 6 * H, 'The standup moves to 10:00 from tomorrow.', { megaphone: { name: 'crew', send: 'g1', to: 2 } }),
@@ -178,7 +189,8 @@ const server = createServer(async (req, res) => {
   if (p === '/work-item-references') {
     const names = (url.searchParams.get('names') ?? '').split(',').filter(Boolean)
     const known = { 'agent-team-project-export-import-and-duplication-zip-of-full-context-ui-and-agent-tools':
-      'Agent, team and project export, import and duplication: a zip of the full context, with its UI and agent tools' }
+      'Agent, team and project export, import and duplication: a zip of the full context, with its UI and agent tools',
+      'fix-export-title': 'Fix the export title' }
     return send({ references: names.filter(n => known[n]).map(n => ({ slug: n, title: known[n], status: 'in_progress', rev: 1 })) })
   }
   return send({})
@@ -351,6 +363,14 @@ if (flag === '--expect') {
     assert.equal(q[id].head, false, `with no "${label} · solo" header box`)
   }
   checked.push('question bubble', 'picture quote', 'request and decision bubbles')
+  for (const [id, label] of [['spr', 'Presentation reply'], ['stk', 'Ticket reply']]) {
+    const r = v.linkedReply?.[id]
+    assert.ok(r, `POSITIVE CONTROL: ${id} is in solo's chat`); assert.equal(r.unsupported, false, `POSITIVE CONTROL: ${id} is a valid typed reply`)
+    assert.equal(r.quoted, true, `${label}: its quote stays`)
+    assert.equal(r.label, label, `the ${label} tag`); assert.equal(r.typed, false, `the ${label} is the plain bubble`)
+    assert.equal(r.head, false, `with no "${label} · User" header box`); assert.equal(r.rows, false, `and none of the card's Role / Assigned to rows`)
+  }
+  checked.push('presentation and ticket reply bubbles')
 
   // ---- the send mark: a reply names its mail and says nothing; a new message says dm
   const messages = posts(/\/nodes\/worker\/message$/).map(c => c.body)
