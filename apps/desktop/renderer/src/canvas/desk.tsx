@@ -145,7 +145,7 @@ import { AgentSlotChips } from './slotchips'
 import { PresentationCard, recentDocumentChips } from './docs'
 import { useDocumentRef } from './docrefs'
 import { buildNodeFacts } from './docket'
-import { AgentDirectoryProvider, AgentName, TierChip, agentFactsSig, nodeTierOf, useAgentDirectory } from './identity'
+import { AgentDirectoryProvider, AgentName, ProjectLink, TierChip, agentFactsSig, nodeTierOf, useAgentDirectory } from './identity'
 import { HistoryView, MailFrom } from './historyview'
 export { HistoryView } from './historyview'
 import type { AgentDirectory } from './identity'
@@ -1964,11 +1964,14 @@ export function NavChip({ n, dir, onJump }:
  *  names its source project and has no misleading personal revoke
  *  (project-audiences.md). A project holds them too: user mail grants the
  *  project a user audience its direct members write with. */
-export function HeldAudienceChips({ node, map, slug, toast }: {
+export function HeldAudienceChips({ node, map, slug, toast, onJump }: {
   node: Pick<CanvasNode, 'id' | 'audiences_held' | 'audiences_explicit' | 'audiences_inherited'>
   map: Map<string, CanvasNode>
   slug: string
   toast: ToastFn
+  /** the desk's own jump: a project badge then opens its project the way a
+   *  project mention does (ProjectLink), by click or by keyboard */
+  onJump?: (id: string) => void
 }) {
   const all = node.audiences_held ?? []
   // Agents reached only through a project fold into ONE badge per source
@@ -2007,10 +2010,11 @@ export function HeldAudienceChips({ node, map, slug, toast }: {
       `Can message these ${these} directly, even though they are outside your normal chain:`,
       ...grantors.map((g) => map.get(g)?.state === 'live' ? g : `${g} (retired)`)].join('\n')
     return <span key={'via:' + project} className="badge aud-via-project" title={title}
-      tabIndex={0} aria-label={title}>
+      tabIndex={onJump ? undefined : 0} aria-label={onJump ? undefined : title}>
       <HearingIcon fontSize="inherit" />
-      <TierChip tier="project" agentName={project} />
-      {project}
+      {onJump
+        ? <ProjectLink id={project} className="aud-via-link" tooltip={title} onFocus={(id) => onJump(id)} />
+        : <><TierChip tier="project" agentName={project} />{project}</>}
       <span className="aud-via-count">{grantors.length}</span>
     </span>
   }
@@ -4253,7 +4257,7 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
         {node.bearer_state &&
           <span className={'badge ' + (node.bearer_state === 'preserving' ? 'dim' : '')}>
             {node.bearer_state}</span>}
-        <HeldAudienceChips node={node} map={map} slug={slug} toast={toast} />
+        <HeldAudienceChips node={node} map={map} slug={slug} toast={toast} onJump={onJump ? (id) => onJump(id) : undefined} />
         <SpendBadge node={node} />
         {/* its project slots, held and waiting, right after the $ chip
             (user 2026-10-18 10:52:50Z) */}

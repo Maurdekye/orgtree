@@ -213,6 +213,10 @@ export interface NodeLinkProps {
   /** false: the name alone. For a surface that draws the agent's chip itself right beside the link
    *  (a chat's header, next to the agent's picture): the model icon is shown once. */
   chip?: boolean
+  /** A surface's own hover/focus text for the link. It replaces the shared
+   *  rich tooltip (which would overwrite it on hover); the menu, click and
+   *  keyboard behaviour stay the shared ones. */
+  tooltip?: string
 }
 
 /** Shared inline agent/project link base (`button.ref-chip.ref-agent.ref-ready`
@@ -220,7 +224,7 @@ export interface NodeLinkProps {
  *  agent/project references all share the same badge, rich tooltip, context
  *  menu, click behavior, and style. */
 export function NodeLink({
-  id, tier, label, why, onFocus, atDestination, className, nativeTitle = true, chip = true,
+  id, tier, label, why, onFocus, atDestination, className, nativeTitle = true, chip = true, tooltip,
 }: NodeLinkProps) {
   const text = label ?? id
   const nameFirst = !text.includes(id)
@@ -228,13 +232,14 @@ export function NodeLink({
   const defaultTitle = atDestination
     ? `${id} — this is its own desk`
     : `open the ${tier === 'project' ? 'project' : 'agent'} ${id}`
-  const title = nativeTitle ? (why ?? defaultTitle) : undefined
+  const title = tooltip ?? (nativeTitle ? (why ?? defaultTitle) : undefined)
   // the user's chat with this agent takes the click when it has an audience (agentnav.tsx)
   const chat = useAgentLinkChat()
   if (onFocus && !atDestination) {
     return (
-      <button type="button" data-copy-agent-name={id} {...agentNavProps(id, nameFirst)}
-        className={cls} title={title}
+      <button type="button" data-copy-agent-name={id}
+        {...(tooltip === undefined ? agentNavProps(id, nameFirst) : { [AGENT_NAV_ATTR]: id })}
+        className={cls} title={title} aria-label={tooltip}
         onMouseDown={(e) => { if (e.button !== 0) e.stopPropagation() }}
         onClick={(e) => { e.stopPropagation(); if (!chat(id)) onFocus(id, e) }}>
         {chip && <TierChip tier={tier} agentName={id} />}
