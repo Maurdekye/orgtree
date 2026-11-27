@@ -270,9 +270,10 @@ it, pushes `<v>` (and `latest` for a stable release), then the same for the agen
 image (`<v>-agents`, `latest-agents`), with the run's own
 `GITHUB_TOKEN` (`packages: write`; no other secret or account), reads the tags back
 from the registry and checks their config digest. Its summary lists each tag's
-config and manifest digests. verify-release, which runs at the same time, checks
-the GHCR tags when they are already there and otherwise notes them; re-run it after
-the push for the full check.
+config and manifest digests. verify-release, which runs at the same time, waits
+for that push: a GHCR tag that is missing or still names the previous release's
+image is read again every 20 s for up to 20 minutes (`GHCR_WAIT_S`) before it is
+judged. Still missing then is a note (re-run it after the push); another image fails.
 
 **The GHCR package's visibility.** GitHub creates a package private on its first
 push, and a workflow token cannot change that. After the first push (4.5.11), the
