@@ -31,7 +31,7 @@ const server = createServer((req, res) => {
 })
 await new Promise(resolve => server.listen(0, '127.0.0.1', resolve))
 try {
-  const result = await runDesktop({ dir: evidence, url: `http://127.0.0.1:${server.address().port}`, token: '', org: '' },
+  const result = await runDesktop({ dir: evidence, url: `http://127.0.0.1:${server.address().port}`, token: '', org: '', run: { ui: 'fixture' } },
     path.join(here, 'inherited-audience-group-visual.cjs'), { out: path.join(evidence, 'desktop'), timeout: 90000 })
   writeFileSync(path.join(evidence, 'result.json'), JSON.stringify(result, null, 2))
   console.log(JSON.stringify({ ok: result.ok, error: result.error, value: result.value, out: evidence }))
