@@ -46,7 +46,9 @@ are a second view over the same reads and calls.
   MEGAPHONE is `MailReplyBox`'s `broadcast` prop with `inbox: true` (the desk's words, `megaphoneWords` in
   inboxwarning.tsx, shared with projectdesk.tsx) and `onArmed`; the send is `broadcastMessage` to
   `projectBroadcastRecipients`, and the hint is the desk's `InboxNoListeners`. AGENT LINKS: a plain click
-  on an agent link opens its chat when `mailboxpref.ts` `agentLinkChat` says so (a live agent with a user audience,
+  on an agent link INSIDE THE CHATS WINDOW (agentnav `ChatsWindowLinks`, which DmPanel wraps; USER 2026-11-27
+  m19b0761ec05f; elsewhere `useAgentLinkChat` answers false and the link focuses the desk) opens its chat when
+  `mailboxpref.ts` `agentLinkChat` says so (a live agent with a user audience,
   the chats on, not the chat already shown: `setShownChat`); the route is the third field of the agent-nav
   registry (`useProvideAgentNav`, read with `useAgentLinkChat` in `NodeLink`, `AgentName`, `SenderChip`, and in
   the reference routers for chips in prose: reflinks `useRefRoutes` and docket `openRef`, through `agentChat`). A new
