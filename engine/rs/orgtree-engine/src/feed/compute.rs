@@ -288,6 +288,13 @@ pub fn mail_entry(m: &Value) -> Value {
     // Legacy UI field means an explicit content read, including outside DND.
     if m["extra"]["dnd_read"] == true || m["extra"]["manual_read"] == true { o.insert("dnd_read".into(),json!(true)); }
     let state = m["state"].as_str().unwrap_or("");
+    // a project mail back in its queue (taken back, released, retried) waits again from then: the listeners folder's
+    // Mail waited counts from it, while `at` stays its arrival (docket mail-queues-store-and-show-the-mail-s-own-wait-s)
+    if state == "pending" {
+        if let Some(q) = m["extra"].get("queued_at").filter(|v| v.is_string()) {
+            o.insert("queued_at".into(), q.clone());
+        }
+    }
     if state == "delivering" {
         o.insert("delivering".into(), json!(true));
     }
