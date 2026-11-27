@@ -476,7 +476,7 @@ export function MailListenersView({ node, state, map, onJump, rows, waiting: wai
               <tr key={m.id} className="slot-row listener-row waiting-mail">
                 <td className="slot-position"><span className="slot-no">{ordinal(i + 1)}</span></td>
                 <th scope="row" className="slot-agent"/>
-                <td className="listener-mail-wait">{m.at && <ListenerTime from={m.at} />}</td>
+                <td className="listener-mail-wait">{m.at && <ListenerTime from={m.queued_at ?? m.at} />}</td>
                 <td className="slot-wait"/>
                 {ack && <td className="slot-held"/>}
                 <td className="slot-ended"/>

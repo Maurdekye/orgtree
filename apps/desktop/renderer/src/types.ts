@@ -184,6 +184,9 @@ export interface MailAttachment {
 
 // schema.py MailEntry (№11/№17)
 export interface MailEntry {
+  /** A project mail back in its queue (taken back, released, retried): since when it has waited there again. Absent
+   *  on mail never requeued (it waits from `at`), on handed mail and from an older engine. */
+  queued_at?: string
   /** Which computer a mail from the user came through (people.tsx). Absent on
    *  an older record, on mail that is not the user's, and from an older engine. */
   via?: unknown
