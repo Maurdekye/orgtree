@@ -25,6 +25,7 @@ Display > Desk saves immediately to renderer localStorage for this profile, shar
 | Snap pinned panels to edges | `ls:orgtree-pin-snap` | On | Drag/resize snaps at window edges or beside pinned panels; Off leaves the chosen position. |
 | Collapse many jump cards on desks | `ls:orgtree-jump-fold` | On | More than sixteen report/watchdog jump cards fold behind a counted control; Off shows them separately. |
 | Keep canvas controls inside the area pins leave free | `ls:orgtree-canvas-anchor-bounded` | On | Changes the available rectangle used to anchor canvas corner controls, preserving their corner/offset relationships. |
+| Fit the view around pinned windows | `ls:orgtree-fit-around-pins` | On | On, Fit, Focus and zoom aim at the space beside pinned windows and modals, and the view re-fits when one opens, moves, resizes or closes. Off, the camera ignores them: it uses the whole canvas and a pin change moves nothing. Toggling alone does not move the view; the next Fit or Focus follows it. The canvas controls' anchor and the edge jump cards still avoid pins. |
 
 Suggest larger desk text for legibility, stacks/folding for crowded teams, or a different chart layout for navigating the current organization. Explain that hidden or stacked seats still exist and retain their capacity and work. Suggest snapping/overlap/anchor changes for window arrangement rather than as a way to stop an agent.
 

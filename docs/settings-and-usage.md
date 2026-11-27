@@ -57,7 +57,7 @@ The named presets are Claude Terracotta, Codex Teal, Antigravity Navy, Muse Eggs
 - **Show event message text as the card headline:** Off by default. On makes a WebSocket or MQTT monitor event card in a desk lead with the JSON message's text (then message, then body), with the sender and event kind above it and the rest folded under Details. Open cards change at once.
 - Row or circular chart layout, desk text size (75–250%), crowded-team stacks and hiding retired agents.
 - Bunching consecutive projects, and a separate opt-in to rearrange projects inside a bunch. Bunching alone changes drawing; rearranging changes tree order.
-- Card shortcut buttons, folding long jump-card rows, pin snapping, overlap fading and keeping corner controls inside the area left by pins.
+- Card shortcut buttons, folding long jump-card rows, pin snapping, overlap fading and keeping corner controls inside the area left by pins. **Fit the view around pinned windows** (on by default) makes Fit and Focus aim at the space beside pinned windows and re-fit when they move; turn it off to have the view ignore pinned windows and use the whole canvas.
 
 **Display > Typing/startup** chooses Enter-to-send or Enter-to-newline, Quick chat at the top/bottom or hidden, restored windows versus a fresh homepage, the initial organization view, and whether the Changelog opens after an update that brings a newer published release (**Open changelog after updates**, on by default; the Changelog's own **Show this every time** checkbox is the same setting). Quick chat has its own Enter-to-hire behavior. Window restoration is different from starting the background engine at boot.
 

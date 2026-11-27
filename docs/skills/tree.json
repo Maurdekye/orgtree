@@ -5126,6 +5126,10 @@
      "label": "Keep canvas controls inside the area pins leave free"
     },
     {
+     "file": "apps/desktop/renderer/src/canvas/fitpins.tsx",
+     "label": "Fit the view around pinned windows"
+    },
+    {
      "file": "apps/desktop/renderer/src/canvas/pinoverlap.tsx",
      "label": "Fade pinned desks and modals over expanded desks"
     },
