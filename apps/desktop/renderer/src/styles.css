@@ -3745,6 +3745,8 @@ button.project-slots-badge, button.project-listeners-badge, button.project-queue
    as its one button, take back, and in a narrow pane a narrower Agent (the
    other tables keep theirs: their names have the room) */
 .slots-table.mail-listeners-table.ack { min-width: 660px; }
+/* the two waits, Mail waited and Agent waited, side by side in every section (USER 2026-11-27 m74c2267e6f07) */
+.mail-listeners-table .listener-col-wait { width: 58px; }
 .mail-listeners-table .slot-col-action { width: 82px; }
 .mail-listeners-table .listener-user-actions { display:inline-flex; flex-wrap:nowrap; gap:4px; white-space:nowrap; }
 .mail-listeners-table .slot-action .listener-action { display:inline-flex; align-items:center; justify-content:center;
