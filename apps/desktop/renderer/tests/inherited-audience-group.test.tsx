@@ -91,3 +91,42 @@ test('the inherited user audience keeps its own badge (it is not an agent)', asy
   assert.equal(all.find(b => label(b) === 'user')?.title,
     `Inherited from project integration-queue\n${audienceGrantTooltip('@user')}`)
 })
+
+// The project badge behaves like a project mention (coordinator m425d242d9610): it is the shared
+// ProjectLink, so a click and the keyboard (a native button) open the project through the desk's jump.
+const mountJump = (jumps: string[]) => mountView(
+  <HeldAudienceChips slug="demo" toast={() => {}} map={map} onJump={(id) => jumps.push(id)} node={{
+    id: 'integrator-4', audiences_held: ['boss', 'api-eng', 'xr-eng'], audiences_explicit: ['boss'],
+    audiences_inherited: [{ grantor: 'api-eng', project: 'integration-queue' }, { grantor: 'xr-eng', project: 'integration-queue' }],
+  }} />, el => el)
+
+test('the project badge opens its project like a project mention, by click', async t => {
+  const jumps: string[] = []
+  const view = await mountJump(jumps)
+  t.after(() => view.unmount())
+  const b = badges(view.el).find(x => /integration-queue/.test(label(x)))!
+  const link = b.querySelector<HTMLButtonElement>('button')
+  assert.ok(link, 'the badge holds the project link')
+  assert.equal(link.getAttribute('data-agent-nav'), 'integration-queue', 'the shared project menu marker')
+  assert.equal(link.hasAttribute('data-agent-tooltip'), false, 'the shared hover card would overwrite the agent list')
+  assert.match(link.title, /^Inherited from project integration-queue\n.*\napi-eng\nxr-eng$/s)
+  link.click()
+  assert.deepEqual(jumps, ['integration-queue'])
+  const direct = badges(view.el).find(x => label(x) === 'boss')!
+  assert.equal(direct.querySelector('button')?.title, 'Revoke', 'direct badges are unchanged')
+})
+
+test('the project badge is reached and activated by keyboard through the same link', async t => {
+  const jumps: string[] = []
+  const view = await mountJump(jumps)
+  t.after(() => view.unmount())
+  const b = badges(view.el).find(x => /integration-queue/.test(label(x)))!
+  const link = b.querySelector<HTMLButtonElement>('button')!
+  assert.equal(link.type, 'button', 'a native button: Enter and Space activate it')
+  assert.equal(b.tabIndex, -1, 'one tab stop: the link, not the badge around it')
+  link.focus()
+  assert.equal(link.ownerDocument.activeElement, link)
+  assert.equal(link.getAttribute('aria-label'), link.title, 'focus exposes the same agent list')
+  link.click()
+  assert.deepEqual(jumps, ['integration-queue'])
+})
