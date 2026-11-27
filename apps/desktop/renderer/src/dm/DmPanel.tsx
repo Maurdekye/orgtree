@@ -66,7 +66,7 @@ import {
 } from '../canvas/mail'
 import { attachmentOnlyBody } from '../canvas/attachonly'
 import { NodeLink, TierChip, nodeTierOf } from '../canvas/identity'
-import { agentTooltipProps, useAgentNavRegistry } from '../canvas/agentnav'
+import { agentTooltipProps, ChatsWindowLinks, useAgentNavRegistry } from '../canvas/agentnav'
 import { nodeMenuAction } from '../canvas/objectactions'
 import { ConfirmModal } from '../canvas/modals'
 import { ActiveAgentsFilter, AgentTray, trayRows } from '../canvas/agenttray'
@@ -639,6 +639,8 @@ export function DmPanel({ slug, tree, toast, refresh, close, jumpTo, jumpSeq, ju
        and its icon, not its name; every other place that names it (its
        shortcut, the eye card's menu, the header button) says Inbox, and a
        second name for one panel would be the asymmetry the app avoids. */
+    // its agent links open their chats; nowhere else does (agentnav.tsx ChatsWindowLinks)
+    <ChatsWindowLinks>
     <PinFrame kind="inbox" title={CHATS_TITLE} panel="settings wide dm-panel" close={close} headerActions={headerActions}>
       <h3><ChatBubbleIcon fontSize="inherit" /> {CHATS_TITLE}</h3>
       <div className="mailpane">
@@ -699,6 +701,7 @@ export function DmPanel({ slug, tree, toast, refresh, close, jumpTo, jumpSeq, ju
         body={projectCloseBody(asking.lose)} confirmLabel="Revoke"
         onConfirm={() => revoke(asking.peer, asking.stays, asking.target)} close={() => setAsking(null)} />}
     </PinFrame>
+    </ChatsWindowLinks>
   )
 }
 

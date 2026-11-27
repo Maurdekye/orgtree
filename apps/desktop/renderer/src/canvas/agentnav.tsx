@@ -114,11 +114,24 @@ export function useProvideAgentNav(build: AgentNavMenu | null,
   }
 }
 
+/** AGENT LINKS OPEN THE CHAT ONLY IN THE CHATS WINDOW (USER 2026-11-27 16:01:19Z m5a1d8854403d "clicking an
+ *  agent link anywhere opens the chat window now. thats not whats supposed to happen"; 16:01:36Z m19b0761ec05f
+ *  "clicking them is only supposed to open their dm in a chat window context"; supersedes "anywhere in the
+ *  app" of 2026-11-24 md9120179f714). The chats window (dm/DmPanel.tsx) wraps its content in this; every
+ *  other surface (canvas, desks, transcripts, docket, presentations, settings, Attention, the classic inbox)
+ *  is outside it, so its agent links keep their own route: the desk, or the Attention desk. */
+const ChatsWindowCtx = createContext(false)
+export function ChatsWindowLinks({ children }: { children: ReactNode }) {
+  return <ChatsWindowCtx.Provider value={true}>{children}</ChatsWindowCtx.Provider>
+}
+
 /** For the components an agent link is drawn with: call it in the click, before the link's own
- *  route, and skip that route when it answers true. Read at click time, like the menu. */
+ *  route, and skip that route when it answers true. Read at click time, like the menu. Outside the
+ *  chats window (ChatsWindowLinks) it always answers false. */
 export function useAgentLinkChat(): AgentChatOpener {
   const registry = useContext(AgentNavCtx)
-  return useMemo(() => (id: string) => registry?.chat?.(id) ?? false, [registry])
+  const inChats = useContext(ChatsWindowCtx)
+  return useMemo(() => (id: string) => inChats && (registry?.chat?.(id) ?? false), [registry, inChats])
 }
 
 /** Spread onto every agent link, including links whose surface owns its own
