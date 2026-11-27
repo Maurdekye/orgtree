@@ -58,6 +58,7 @@ import { LanguageServerSection } from './langserver'
 import { ShortcutsSettings } from './shortcutsettings'
 import { ModalOverlapSettings, PinFrame } from './modalpin'
 import { CanvasAnchorSettings } from './canvasanchor'
+import { FitAroundPinsSetting } from './fitpins'
 import {
   setAgentShortcutsOn, useAgentShortcuts, setPinSnapOn, usePinSnap, setJumpFoldOn, useJumpFold, setCrowdPilesOn, setDeskDpi, setHideRetiredOn, setLangServerTiers, setOpenRouterTiers, setShowLegacyModelsOn, setStartView, setStartZoomOn,
   legacyMark, optInLegacyHidden, orderProviderTiers, providersWithAccounts, TIER_LETTER, tierLabel,
@@ -1180,7 +1181,7 @@ export function AccountsPanel({ toast, close, initialTab, target }: {
           hint="Let long ticket, presentation, app and panel links continue onto the next line within a sentence. Off by default." />
       </SetGroup>
       <ThisComputer on={!!remote}>
-      <SetGroup title="Desk"><ChartLayoutSetting /><NewHirePositionSetting /><HireAutoFocusSetting /><EventHeadlineSetting /><ProjectBunchSetting /><ProjectBunchRearrangeSetting /><DeskTextSize /><CrowdStackToggle /><HideRetiredToggle /><AgentShortcutsToggle /><ModalOverlapSettings /><PinSnapToggle /><JumpFoldToggle /><CanvasAnchorSettings /></SetGroup>
+      <SetGroup title="Desk"><ChartLayoutSetting /><NewHirePositionSetting /><HireAutoFocusSetting /><EventHeadlineSetting /><ProjectBunchSetting /><ProjectBunchRearrangeSetting /><DeskTextSize /><CrowdStackToggle /><HideRetiredToggle /><AgentShortcutsToggle /><ModalOverlapSettings /><PinSnapToggle /><JumpFoldToggle /><CanvasAnchorSettings /><FitAroundPinsSetting /></SetGroup>
       <SetGroup title="Quick chat"><QuickChatPositionSetting /></SetGroup>
       <SetGroup title="Mailbox"><ClassicMailboxSetting /><OpenChatOnReplySetting /></SetGroup>
       </ThisComputer>

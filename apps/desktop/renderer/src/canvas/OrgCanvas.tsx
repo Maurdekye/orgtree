@@ -116,6 +116,7 @@ import { useSettingsAsk } from './settingskit'
 import type { SettingsTarget } from './settingskit'
 import { closeFloatingPanels, closeIfCentred, forgetModalOpen, onCloseFloating, isModalPinned, ModalOverPins, modalPinKey, PinFrame, pinModal, readModalPins, toggleNodePanel, toggleOrRaiseModal, readModalOpen, renameModalInstances, requestSurfaceAction, usePersistedModalOpen, revealOpenPanel } from './modalpin'
 import { freeInsets, useCanvasAnchor } from './canvasanchor'
+import { useFitAroundPins } from './fitpins'
 import { glWiresAllowed, readWireStyles, sparkPoint, useGlWires } from './glwires'
 import type { WireStyles, Wire } from './glwires'
 import { ActiveAgentsFilter, AgentTray, trayRows } from './agenttray'
@@ -1566,7 +1567,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
   const viewRef = useRef(view); viewRef.current = view
   const animRef = useRef<number | null>(null)
   const camIntent = useRef<CamIntent | null>(null)
-  const fitGeometry = useRef<{ slug: string; canvas: string; whole: string } | null>(null)
+  const fitGeometry = useRef<{ slug: string; canvas: string; whole: string; fitPins: boolean } | null>(null)
   const animBusyRef = useRef(false)  // a camera animation owns the view
   const focusRef = useRef<string | null>(null)   // №25: the desk the camera rides with
   const keyboardDestination = useRef<string | null>(null)
@@ -2330,7 +2331,8 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
   // on the viewport size and the pin geometry. So cache on exactly those, and
   // a whole glide costs one search instead of one per frame.
   const regionCache = useRef<{ key: string; val: Region } | null>(null)
-  const regionOf = useCallback((vp: { width: number; height: number }): Region => {
+  // THE FREE REGION beside pinned windows and modals, whatever the camera does: the edge jump cards place against it.
+  const freeRegionOf = useCallback((vp: { width: number; height: number }): Region => {
     const box = { x: 0, y: 0, w: vp.width, h: vp.height }
     const key = `${vp.width}x${vp.height}|` + pinRectsKey()
     const hit = regionCache.current
@@ -2354,6 +2356,15 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
     regionCache.current = { key, val }
     return val
   }, [])
+  // THE CAMERA'S REGION. "Fit the view around pinned windows" (Display, on by default; USER 2026-11-27 m56eddd849c57,
+  // mc5532e448c3b "Ignore pinned windows entirely"): on, the free region above; off, the whole viewport, so Fit, Focus,
+  // zoom and the desk/eye gates that must agree with them ignore pins. A ref keeps this identity stable, as `regionOf`
+  // always was; the AVAILABLE CANVAS effect below keeps a toggle from moving the camera by itself.
+  const fitPins = useFitAroundPins().enabled
+  const fitPinsRef = useRef(fitPins)
+  fitPinsRef.current = fitPins
+  const regionOf = useCallback((vp: { width: number; height: number }): Region =>
+    fitPinsRef.current ? freeRegionOf(vp) : { rect: { x: 0, y: 0, w: vp.width, h: vp.height }, status: 'full' }, [freeRegionOf])
 
   // WHERE THE CANVAS'S OWN CONTROLS ANCHOR (user 2026-09-12, opt-in and off
   // by default). `regionOf` is already this app's answer to "what is left of
@@ -2938,14 +2949,17 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
     // `regionOf`'s inputs, so this changes when the free region can have.
     // (the stored rects, unclamped: with the size in the key they still change
     // whenever the clamped ones can)
-    const canvas = `${viewportSize.w}:${viewportSize.h}|pins:` + pinRectsKey()
+    // (pins count only while the camera fits around them: off, a pin change is no change of the camera's canvas)
+    const canvas = `${viewportSize.w}:${viewportSize.h}` + (fitPins ? '|pins:' + pinRectsKey() : '')
     // ...plus the org's own extent, the other half of a whole-org fit
     const whole = canvas + '|nodes:' + [...target]
       .map(([id, p]) => `${id}:${p.x}:${p.y}`).join('|')
     const previous = fitGeometry.current
-    fitGeometry.current = { slug: tree.slug, canvas, whole }
+    fitGeometry.current = { slug: tree.slug, canvas, whole, fitPins }
     const intent = camIntent.current
     if (!previous || previous.slug !== tree.slug || !intent) return
+    // toggling "Fit the view around pinned windows" alone moves nothing: the next camera command follows it
+    if (previous.fitPins !== fitPins) return
     if (intent.kind === 'org') {
       if (previous.whole !== whole) fitAll()
       return
@@ -2962,7 +2976,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
     // nothing today; do not read it as a tested branch.
     if (isMobile || previous.canvas === canvas) return
     refocus(intent.id, intent.z, intent.onCanvas)
-  }, [target, tree.slug, viewportSize.w, viewportSize.h, pins, modalSurfaces, isMobile, fitAll, refocus])
+  }, [target, tree.slug, viewportSize.w, viewportSize.h, pins, modalSurfaces, isMobile, fitAll, refocus, fitPins])
 
   // …and the camera is REMEMBERED (D-228), whatever the startup mode: the
   // position is saved in every mode so that switching to 'remember' later
@@ -4088,7 +4102,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
     // against it would put the cards off the top of the screen. Nowhere is
     // better than the window, so fall back to it. A region too small for the
     // tab form is the same deal: degraded, never dropped.
-    const reg = regionOf(vp)
+    const reg = freeRegionOf(vp)
     const free = reg.status === 'blocked'
       ? { x: 0, y: 0, w: vp.width, h: vp.height }
       : reg.rect
@@ -4133,7 +4147,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
     }
     return out
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [focusId, map, target, hidden, view, compact, pins, regionOf, chartLayout, zoomHudRect])
+  }, [focusId, map, target, hidden, view, compact, pins, freeRegionOf, chartLayout, zoomHudRect])
 
   const lod = view.z < Z_MINI ? 'mini' : 'norm'
 
