@@ -53,7 +53,8 @@ The renderer also shares reserve-route, secondary serving-account, limit-lock,
 bearer-provenance and held-project-slot state badges between the desk and zoom
 card. A waiting project-slot claim is a desk header badge and a separate canvas
 watchdog satellite; it is not an extra shared zoom-card state badge. Audience
-header badges include inherited project access and folded retired grantors.
+header badges include inherited project access (one badge per source project)
+and folded retired grantors.
 
 Members are conditional, not guaranteed to appear together. At this documented
 base the desk shows current effort alongside a queued effort change; the zoom
@@ -104,6 +105,13 @@ is also held explicitly, it says **Also held explicitly**. Keyboard focus expose
 the identical text as an accessible label; it does not open a custom popup.
 Explicit-only header badges keep their existing tooltip. Only an explicit grant
 offers the personal Revoke button; inherited access is managed at its project.
+
+Agents (and projects) reached only through a project do not get a badge each:
+they fold into ONE header badge per source project, showing the project and how
+many it reaches. Its hover tooltip starts with **Inherited from project <name>**
+and lists every one of them, retired ones marked (retired). Direct grants keep
+their own badges, and so do the user and org-mailbox audiences even when
+inherited (4.7.x).
 
 Idle age measures time since the last completed turn ended, including killed turns, across every harness. Open or legacy records without a completion time retain their start-time fallback. Active time measures the current turn's admission; ordinary Antigravity mid-turn hook mail keeps that original active clock. The card and tray use the same idle reference. Halted and usage-freeze clocks retain their own timestamps. The idle, active and halted ages read on the common age scale (seconds, minutes, hours up to 36 hours, then days, weeks, months and years: 45s, 12m, 5h, 3d, 3w), and hovering one shows the full local date and time it counts from. A usage freeze's reset or wake countdown is not an age and keeps its own wording.
 
