@@ -111,10 +111,10 @@ let commit = expectSha ? { type: 'commit', sha: expectSha } : (await api(`git/re
 while (commit.type === 'tag') commit = (await api(`git/tags/${commit.sha}`)).object
 // Pushed by publish-standalone-image.yml, which starts with this check on the same publish:
 // a tag that is missing, or still names the previous release's image (latest, latest-agents),
-// is read again every 20 s for up to GHCR_WAIT_S seconds (default 1200; 0 reads once), so the
-// check never races the push. Still missing at the end is a note (re-run this check after
+// is read again every GHCR_POLL_S seconds (default 20) for up to GHCR_WAIT_S seconds (default
+// 1200; 0 reads once), so the check never races the push. Still missing at the end is a note (re-run this check after
 // publish-standalone-image); a different image at the end fails.
-const ghcrWaitMs = Number(process.env.GHCR_WAIT_S ?? 1200) * 1000
+const ghcrWaitMs = Number(process.env.GHCR_WAIT_S ?? 1200) * 1000, ghcrPollS = Number(process.env.GHCR_POLL_S ?? 20)
 async function checkGhcr(info, tags) {
   if (draft) return console.log(`note ${info.image.repository}: not pushed while the release is a draft`)
   for (const t of tags) {
@@ -124,8 +124,8 @@ async function checkGhcr(info, tags) {
       try { found = await ghcrImage({ image: info.image.repository, tag: t, token }) } catch (e) { found = { error: e.message } }
       if (found && !found.error && found.config === want) break
       if (Date.now() >= deadline) break
-      console.log(`wait ${info.image.repository}:${t} ${found?.error || !found ? `not readable (${found?.error ?? 'no such tag'})` : `names ${found.config}`}; reading again in 20 s`)
-      await new Promise(r => setTimeout(r, 20000))
+      console.log(`wait ${info.image.repository}:${t} ${found?.error || !found ? `not readable (${found?.error ?? 'no such tag'})` : `names ${found.config}`}; reading again in ${ghcrPollS} s`)
+      await new Promise(r => setTimeout(r, ghcrPollS * 1000))
     }
     if (found?.error || !found) console.log(`note ${info.image.repository}:${t} not readable yet (${found?.error ?? 'no such tag'}); re-run after publish-standalone-image`)
     else check(found.config === want, `${info.image.repository}:${t} is the release's image (${want})`)

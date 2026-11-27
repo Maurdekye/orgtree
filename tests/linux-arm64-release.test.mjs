@@ -221,8 +221,10 @@ function published(extra = {}) {
   files['SHA256SUMS.txt'] = Buffer.from(Object.keys(files).sort().map(name => `${sha256(files[name])}  ${name}`).join('\n') + '\n')
   return files
 }
-/** Runs verify-published.mjs against `files`, with GitHub answered from the folder. */
-function verify(files) {
+/** Runs verify-published.mjs against `files`, with GitHub answered from the folder. GHCR is
+ *  unreadable (one read, no wait) unless `ghcr` maps a tag to the config digests its reads
+ *  return in turn (the last one repeats; null = no such tag yet); `env` adds to the verifier's environment. */
+function verify(files, { ghcr = null, env = {} } = {}) {
   const dir = fs.mkdtempSync(path.join(tmp, 'published-'))
   for (const [name, bytes] of Object.entries(files)) fs.writeFileSync(path.join(dir, name), bytes)
   const stub = path.join(dir, '_github.mjs')
@@ -232,8 +234,19 @@ import path from 'node:path'
 const dir = ${JSON.stringify(dir)}
 const names = fs.readdirSync(dir).filter(name => name !== '_github.mjs')
 const json = body => new Response(JSON.stringify(body), { status: 200 })
+const ghcr = ${JSON.stringify(ghcr)}, reads = {}
 globalThis.fetch = async address => {
   const url = new URL(String(address))
+  if (ghcr && url.host === 'ghcr.io') {
+    if (url.pathname === '/token') return json({ token: 'b' })
+    const prefix = '/v2/o/r/manifests/', tag = url.pathname.startsWith(prefix) ? url.pathname.slice(prefix.length) : null
+    const answers = ghcr[tag]
+    if (!answers) return new Response('', { status: 404 })
+    const config = answers[Math.min(reads[tag] = (reads[tag] ?? -1) + 1, answers.length - 1)]
+    console.log('ghcr read ' + tag + ' -> ' + config)
+    if (config === null) return new Response('', { status: 404 })   // not pushed yet
+    return new Response(JSON.stringify({ config: { digest: config } }), { status: 200, headers: { 'docker-content-digest': 'sha256:m-' + config } })
+  }
   if (url.host === 'fake.invalid') return new Response(fs.readFileSync(path.join(dir, decodeURIComponent(url.pathname.slice(1)))))
   if (url.host !== 'api.github.com') return new Response('', { status: 404 })   // GHCR: not readable here
   const route = url.pathname.replace('/repos/o/r/', '')
@@ -245,7 +258,7 @@ globalThis.fetch = async address => {
 }
 `)
   const child = spawnSync(process.execPath, ['--import', pathToFileURL(stub).href, ci('releasing', 'verify-published.mjs')],
-    { env: { ...process.env, TAG, GITHUB_REPOSITORY: 'o/r', GH_TOKEN: 't' }, encoding: 'utf8' })
+    { env: { ...process.env, TAG, GITHUB_REPOSITORY: 'o/r', GH_TOKEN: 't', GHCR_WAIT_S: '0', ...env }, encoding: 'utf8' })
   return { status: child.status, output: child.stdout + child.stderr }
 }
 function arm64Release(change = () => {}) {
@@ -291,4 +304,26 @@ test('a published arm64 build that is incomplete or wrong is a red check', () =>
     assert.notEqual(result.status, 0, `${what}: ${result.output}`)
     assert.match(result.output, line, what)
   }
+})
+
+// 4.7.0 (verify-release run 45989923633): the check read latest-agents 32 s before
+// publish-standalone-image pushed it, saw 4.6.9's image and failed the release.
+test('the published check waits for publish-standalone-image instead of racing its push', () => {
+  const race = { '4.6.4': ['sha256:a'], latest: ['sha256:a'], '4.6.4-agents': [null, 'sha256:b'], 'latest-agents': ['sha256:old', 'sha256:old', 'sha256:b'] }
+  const missing = { ...race, '4.6.4-agents': [null] }
+  const waited = verify(published(), { ghcr: race, env: { GHCR_WAIT_S: '30', GHCR_POLL_S: '0' } })
+  assert.equal(waited.status, 0, waited.output)
+  assert.match(waited.output, /ok {3}ghcr\.io\/o\/r:latest-agents is the release's image \(sha256:b\)/)
+  assert.equal(waited.output.match(/ghcr read latest-agents/g).length, 3, waited.output)
+  // without the wait the same moment is a red check, as it was in 4.7.0
+  const once = verify(published(), { ghcr: race })
+  assert.notEqual(once.status, 0, once.output)
+  assert.match(once.output, /FAIL ghcr\.io\/o\/r:latest-agents is the release's image/)
+  // a tag still missing when the wait ends stays a note; another image at the end still fails
+  const late = verify(published(), { ghcr: missing, env: { GHCR_WAIT_S: '0.2', GHCR_POLL_S: '0.05' } })
+  assert.equal(late.status, 0, late.output)
+  assert.match(late.output, /note ghcr\.io\/o\/r:4\.6\.4-agents not readable yet/)
+  const wrong = verify(published(), { ghcr: { ...race, latest: ['sha256:old'] }, env: { GHCR_WAIT_S: '0.2', GHCR_POLL_S: '0.05' } })
+  assert.notEqual(wrong.status, 0, wrong.output)
+  assert.match(wrong.output, /FAIL ghcr\.io\/o\/r:latest is the release's image \(sha256:a\)/)
 })
