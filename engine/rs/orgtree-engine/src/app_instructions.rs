@@ -250,7 +250,9 @@ mod tests {
             let text = std::fs::read_to_string(file).unwrap();
             // a call may wrap across lines, one method per line
             let flat: String = text.split_whitespace().collect();
-            if [".app_instructions.update(", ".app_instructions.update_or(", ".app_instructions.publish("].iter().any(|call| flat.contains(call)) {
+            // a test module's fixture may publish a block (net/lockdown_tests.rs); only production code is audited
+            let test_module = rel.ends_with("_tests.rs") || rel.ends_with("/tests.rs") || rel.contains("/tests/");
+            if !test_module && [".app_instructions.update(", ".app_instructions.update_or(", ".app_instructions.publish("].iter().any(|call| flat.contains(call)) {
                 writers.push(rel.clone());
             }
             if rel.starts_with("tools/") || rel.contains("template") || rel.starts_with("import") {
