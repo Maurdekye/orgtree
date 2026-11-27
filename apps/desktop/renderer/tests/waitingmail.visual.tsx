@@ -27,9 +27,12 @@ const rows = [
 ] as MailRow[]
 const end = (id: number, how: string, extra = {}) => ({ id, mail: `m${id}`, gist: `job ${id}`, copy: `c${id}`, agent: id % 2 ? 'sa' : 'sb',
   dog: fq(id % 2 ? 'sa' : 'sb', id % 2 ? 'mail-a' : 'mail-b'), how, attempt: 1, waited_from: ago(5000 - id * 600), held_at: ago(4900 - id * 600),
+  // the mail's own queue wait (mail-queues-store-and-show-the-mail-s-own-wait-s); job 2 is an older ending without it
+  mail_waited_from: id === 2 ? null : ago(6200 - id * 600),
   ended_at: ago(4000 - id * 600), ...extra })
 const history = { project: 'sync', ack: true, max_attempts: 3, dead_letters: true, history_next: null,
-  working: [{ mail: 'h1', gist: 'Translate the help pages', copy: 'hc1', agent: 'sa', dog: fq('sa', 'mail-a'), attempts: 1, waited_from: ago(1500), held_at: ago(900) }],
+  working: [{ mail: 'h1', gist: 'Translate the help pages', copy: 'hc1', agent: 'sa', dog: fq('sa', 'mail-a'), attempts: 1, waited_from: ago(1500), held_at: ago(900),
+    mail_waited_from: ago(3300) }],
   history: [end(4, 'acked', { ack: 'a4', ack_gist: 'done, all green' }), end(3, 'failed', { why: 'was halted' }), end(2, 'acked', { ack: 'a2', ack_gist: 'merged' })] }
 const op = async () => history as unknown as OpResult
 

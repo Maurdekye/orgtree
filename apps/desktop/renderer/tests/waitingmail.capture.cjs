@@ -3,7 +3,10 @@
 // (fixture waitingmail.visual.tsx). One picture; `before` (the base) only records the sections, `after` checks Waiting
 // mail sits above Recently Finished with its three rows in hand-out order, visible (hit-tested).
 //
-//   electron.exe waitingmail.capture.cjs <outDir> <repoRoot> <node_modules dir> <label> <before|after>
+//   electron.exe waitingmail.capture.cjs <outDir> <repoRoot> <node_modules dir> <label> <before|after|waits>
+//
+// `waits` (docket mail-queues-store-and-show-the-mail-s-own-wait-s, USER 2026-11-27 m74c2267e6f07): the after checks plus the
+// two aligned wait columns, Mail waited then Agent waited, each row filling the one it has a value for.
 //
 // Session 0, a hidden offscreen window, muted, clipboard stubbed and denied, only file: data: blob: about: requests,
 // no input at all. Writes only under <outDir>/<label>/.
@@ -42,7 +45,11 @@ const READ = `(() => {
       from: (r.querySelector('.listener-via') || {}).textContent || null, wait: r.querySelector('.slot-wait').textContent.trim(),
       inView: !!b && b.top >= 0 && b.bottom <= innerHeight }
   })
-  return { titles, rows } })()`
+  const heads = [...document.querySelectorAll('.mail-listeners-table thead th')].map(h => h.textContent)
+  const im = heads.indexOf('Mail waited'), ia = heads.indexOf('Agent waited')
+  const two = r => [r.cells[im] ? r.cells[im].textContent.trim() : null, r.cells[ia] ? r.cells[ia].textContent.trim() : null]
+  const sec = c => [...document.querySelectorAll('.mail-listeners-table .' + c + ' tr.listener-row')].map(two)
+  return { titles, rows, heads, waits: { working: sec('mail-working'), line: sec('mail-line'), waiting: sec('mail-waiting'), finished: sec('mail-history') } } })()`
 
 app.whenReady().then(async () => {
   const errors = [], problems = [], facts = {}
@@ -62,12 +69,20 @@ app.whenReady().then(async () => {
     await new Promise(r => setTimeout(r, 900))
     const read = await wc.executeJavaScript(READ)
     facts.read = read
-    if (mode === 'after') {
+    if (mode === 'after' || mode === 'waits') {
       if (JSON.stringify(read.titles) !== JSON.stringify(['Working', 'Line', 'Waiting mail', 'Recently Finished'])) problems.push('sections: ' + read.titles.join(', '))
       if (JSON.stringify(read.rows.map(r => r.place + ':' + r.mail)) !== JSON.stringify(['1st:w1', '2nd:w2', '3rd:w3'])) problems.push('rows: ' + JSON.stringify(read.rows))
       for (const r of read.rows) if (!r.hit || !r.inView) problems.push('row not visible or covered: ' + JSON.stringify(r))
     } else if (read.titles.includes('Waiting mail')) problems.push('the base already has Waiting mail')
-    fs.writeFileSync(path.join(out, 'png', (mode === 'after' ? '01-after-waiting-mail-above-recently-finished' : '01-before-no-waiting-mail') + '.png'),
+    if (mode === 'waits') {
+      const w = read.waits, filled = v => !!v && v !== '', empty = v => v === ''
+      if (read.heads.indexOf('Agent waited') !== read.heads.indexOf('Mail waited') + 1) problems.push('the two waits are not side by side: ' + read.heads.join(', '))
+      if (!w.working.every(([m, a]) => filled(m) && filled(a))) problems.push('Working lacks a wait: ' + JSON.stringify(w.working))
+      if (!w.line.every(([m, a]) => empty(m) && filled(a))) problems.push('Line: ' + JSON.stringify(w.line))
+      if (!w.waiting.every(([m, a]) => filled(m) && empty(a))) problems.push('Waiting mail: ' + JSON.stringify(w.waiting))
+      if (!(filled(w.finished[0][0]) && filled(w.finished[0][1]) && empty(w.finished[2][0]) && filled(w.finished[2][1]))) problems.push('Recently Finished: ' + JSON.stringify(w.finished))
+    }
+    fs.writeFileSync(path.join(out, 'png', (mode === 'waits' ? '01-after-mail-waited-and-agent-waited' : mode === 'after' ? '01-after-waiting-mail-above-recently-finished' : '01-before-no-waiting-mail') + '.png'),
       (await wc.capturePage()).toPNG())
     const result = { label, mode, status: problems.length ? 'FAIL' : 'PASS', problems, facts, versions: { electron: process.versions.electron, chrome: process.versions.chrome },
       sessionId: sid(process.pid), rendererSessionId: sid(wc.getOSProcessId()), muted: wc.isAudioMuted(), clipboardCalls, errors,
