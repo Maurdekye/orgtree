@@ -1149,18 +1149,7 @@ async fn ml3_sent_pages_and_refreshes_outside_mail_on_its_own() {
                  SELECT 'o' || lpad(g::text, 3, '0'), $1, 'out', '@net:bob.1', 'b', 'writer', 'delivered',
                         '2026-11-01T00:00:00Z'::timestamptz + g * interval '1 minute', $2 FROM generate_series(0, 159) g",
         &[&w.org, &writer]).await.unwrap();
-    let walk = || async {
-        let (mut ids, mut cursor, mut pages) = (Vec::<String>::new(), None::<i64>, 0);
-        loop {
-            let page = crate::domain::mail_history::agent_page(&w.c, w.org, writer, "sent", cursor).await.unwrap();
-            ids.extend(page["sent"].as_array().unwrap().iter().map(|m| m["id"].as_str().unwrap().to_string()));
-            pages += 1;
-            assert!(pages < 20, "the pages end");
-            match page["next_cursor"].as_str() { Some(c) => cursor = Some(c.parse().unwrap()), None => break }
-        }
-        ids
-    };
-    let ids = walk().await;
+    let ids = walk_sent(&w.c, w.org, writer).await;
     assert_eq!(ids.len(), 160, "outside mail only: all 160 rows are reached");
     assert_eq!(ids.iter().collect::<std::collections::HashSet<_>>().len(), 160, "each once");
     assert_eq!((ids[0].as_str(), ids[159].as_str()), ("o159", "o000"), "newest first");
@@ -1169,7 +1158,7 @@ async fn ml3_sent_pages_and_refreshes_outside_mail_on_its_own() {
                  SELECT 'm' || g, $1, 'writer', $2, 'agent', $3, 'other', 'b', 'read',
                         '2026-11-01T00:20:00Z'::timestamptz + g * interval '37 minutes' FROM generate_series(0, 4) g",
         &[&w.org, &writer, &other]).await.unwrap();
-    let ids = walk().await;
+    let ids = walk_sent(&w.c, w.org, writer).await;
     assert_eq!(ids.len(), 165, "both kinds: {ids:?}");
     assert_eq!(ids.iter().collect::<std::collections::HashSet<_>>().len(), 165, "each once");
     let at = |id: &str| ids.iter().position(|x| x == id).unwrap();
@@ -1183,4 +1172,16 @@ async fn ml3_sent_pages_and_refreshes_outside_mail_on_its_own() {
     // never another agent's
     let page = crate::domain::mail_history::selected_page(&w.c, w.org, Some(other), "sent", r#"["o000"]"#).await.unwrap();
     assert!(page["sent"].as_array().unwrap().is_empty(), "{page}");
+}
+
+/// Every row of an agent's Sent, page by page through next_cursor.
+#[nolog]
+async fn walk_sent(c: &tokio_postgres::Client, org: i64, agent: i64) -> Vec<String> {
+    let (mut ids, mut cursor) = (Vec::<String>::new(), None::<i64>);
+    for _ in 0..20 {
+        let page = crate::domain::mail_history::agent_page(c, org, agent, "sent", cursor).await.unwrap();
+        ids.extend(page["sent"].as_array().unwrap().iter().map(|m| m["id"].as_str().unwrap().to_string()));
+        match page["next_cursor"].as_str() { Some(n) => cursor = Some(n.parse().unwrap()), None => return ids }
+    }
+    panic!("the pages end")
 }
