@@ -1086,3 +1086,47 @@ async fn ml1_an_inbound_rows_copies_name_it_and_it_finds_them() {
     let found = row_copies(&w.c, w.org, &row).await.unwrap();
     assert_eq!(found, json!([{ "agent": "intake", "id": p.jobs[0].mail }]));
 }
+
+/// AN AGENT'S MAIL TO AN OUTSIDE PARTY IS IN ITS SENT (USER 2026-11-28 m3b0568389632 "agent mail sent to the org outbox
+/// should be in its sent"; docket mail-link-context-menus-open-in-recipient-s-inbo): the org mailbox's own 'out' row,
+/// read by its sender (no copy, no migration), with the org row's id, so "View in @agent's outbox" and "View in org
+/// outbox" open the same message. The window, every page in its time slice of the mail-id cursor, and the exact read.
+#[tokio::test]
+#[ignore = "requires an isolated orginbox_queue_fixture database"]
+#[nolog]
+async fn ml2_an_agents_mail_to_an_outside_party_is_in_its_sent() {
+    let w = world(true).await;
+    let writer = w.agent("writer", None).await;
+    let other = w.agent("other", None).await;
+    let mail = |uid: &'static str, at: &'static str| {
+        let c = &w.c; let org = w.org;
+        async move {
+            c.query_one("INSERT INTO ot.mail(uid,org_id,sender,sender_agent_id,recipient_kind,recipient_agent_id,recipient_name,body,state,created_at)
+                         VALUES($1,$2,'writer',$3,'agent',$4,'other','b','read',$5::text::timestamptz) RETURNING id",
+                &[&uid, &org, &writer, &other, &at]).await.unwrap().get::<_, i64>(0)
+        }
+    };
+    let older = mail("m-old", "2026-11-28T09:00:00Z").await;
+    let newer = mail("m-new", "2026-11-28T11:00:00Z").await;
+    w.c.execute("INSERT INTO ot.org_inbox (uid, org_id, dir, peer, body, by_name, state, at, sender_agent_id)
+                 VALUES ('x-out', $1, 'out', '@net:bob.1', 'to bob', 'writer', 'delivered', '2026-11-28T10:00:00Z', $2)",
+        &[&w.org, &writer]).await.unwrap();
+    // someone else's outside mail is not in writer's Sent
+    w.c.execute("INSERT INTO ot.org_inbox (uid, org_id, dir, peer, body, by_name, state, at, sender_agent_id)
+                 VALUES ('x-other', $1, 'out', '@net:bob.1', 'not writer', 'other', 'delivered', '2026-11-28T10:30:00Z', $2)",
+        &[&w.org, &other]).await.unwrap();
+    let window = crate::feed::compute::agent_mailbox(&w.c, writer).await.unwrap();
+    let sent: Vec<&Value> = window.iter().filter(|(_, r)| r["folder"] == "sent").map(|(_, r)| &r["mail"]).collect();
+    let row = sent.iter().find(|m| m["id"] == "x-out").expect("the window's Sent lists the org row");
+    assert_eq!((row["from"].clone(), row["to"].clone(), row["org_row"].clone()), (json!("writer"), json!("@net:bob.1"), json!("x-out")), "{row}");
+    assert_eq!(sent.len(), 3, "two mails and the one org row: {sent:?}");
+    let page = crate::domain::mail_history::agent_page(&w.c, w.org, writer, "sent", None).await.unwrap();
+    assert!(page["sent"].as_array().unwrap().iter().any(|m| m["id"] == "x-out"), "the first page: {page}");
+    let page = crate::domain::mail_history::agent_page(&w.c, w.org, writer, "sent", Some(newer)).await.unwrap();
+    assert!(page["sent"].as_array().unwrap().iter().any(|m| m["id"] == "x-out"), "the page before the newer mail holds it: {page}");
+    let page = crate::domain::mail_history::agent_page(&w.c, w.org, writer, "sent", Some(older)).await.unwrap();
+    assert!(!page["sent"].as_array().unwrap().iter().any(|m| m["id"] == "x-out"), "and the page before the older mail does not: {page}");
+    let found = agent_sent_by_id(&w.c, w.org, "x-out", "writer").await.unwrap().expect("the exact read finds it in writer's box");
+    assert_eq!(found["to"], "@net:bob.1");
+    assert!(agent_sent_by_id(&w.c, w.org, "x-out", "other").await.unwrap().is_none(), "never in another agent's box");
+}
