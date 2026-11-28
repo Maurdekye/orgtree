@@ -43,15 +43,16 @@ for (const box of ['user', 'org', 'node'] as const) test(`mail ${box} identity s
     await inAct(() => link.dispatchEvent(event)); await flush(3)
     assert.equal(event.defaultPrevented, true)
     const labels = [...document.querySelectorAll('.ctxmenu:not(.ctxmenu-submenu) > .ctxmenu-branch > [role="menuitem"]')].map(el => el.textContent!.trim())
-    assert.ok(['Open', 'Close'].includes(labels[0]))
-    // the user's own mail (box user) adds both views on a link (USER 2026-11-25 m2fb0c88ab8f8; viewinchat.test.tsx)
-    assert.deepEqual(labels.filter(label => !['Open', 'Close', 'Reply', 'Mark as read', 'Retract (undelivered)', 'Delete', 'View in chat', 'View in classic inbox'].includes(label)), ['Copy message text', 'Copy reference'])
+    // a row opens or closes; a link's first entries are the mail's other places, which take its Open's slot (USER
+    // 2026-11-28 mde95b23fb23d; mailboxviews.test.tsx)
+    assert.ok(['Open', 'Close'].includes(labels[0]!) || labels[0]!.startsWith('View in '), `${labels}`)
+    assert.deepEqual(labels.filter(label => !['Open', 'Close', 'Reply', 'Mark as read', 'Retract (undelivered)', 'Delete'].includes(label) && !label.startsWith('View in ')), ['Copy message text', 'Copy reference'])
   }
   assert.deepEqual(opened, [], 'hover/menu cannot route or change message state')
   assert.deepEqual(changed, [])
 })
 
-test('mail reference copy fetches every body chunk in its exact box; Open routes only on selection', async t => {
+test('mail reference copy fetches every body chunk in its exact box; a View in entry routes only on selection', async t => {
   const saved = fetch, requests: string[] = [], writes: string[] = [], opened: unknown[] = []
   const nav = window.navigator, descriptor = Object.getOwnPropertyDescriptor(nav, 'clipboard')
   Object.defineProperty(nav, 'clipboard', { configurable: true, value: { writeText: async (text: string) => { writes.push(text) } } })
@@ -75,5 +76,6 @@ test('mail reference copy fetches every body chunk in its exact box; Open routes
   assert.ok(requests.some(url => url.includes('chunk=1')))
   assert.ok(requests.every(url => url.startsWith('/api/orgs/org/mail/node/chunk-mail?node=reader')))
   await right(); await choose('Copy reference'); assert.equal(writes[1], '@mail:org/node/reader/chunk-mail')
-  await right(); await choose('Open'); assert.deepEqual(opened, [{ id: 'chunk-mail', to: 'reader' }])
+  // the link's Open is now its View in @reader’s inbox (USER 2026-11-28 mde95b23fb23d)
+  await right(); await choose('View in @reader’s inbox'); assert.deepEqual(opened, [{ id: 'chunk-mail', to: 'reader' }])
 })

@@ -127,7 +127,8 @@ for (const c of [
   assert.equal(have.includes('View in chat'), c.views, `View in chat (${have})`)
   assert.equal(have.includes('View in classic inbox'), c.views, `View in classic inbox (${have})`)
   if (!c.views) { assert.deepEqual(requests, []); return }
-  assert.deepEqual(have.slice(0, 3), ['Open', 'View in chat', 'View in classic inbox'])
+  // the group takes the link's Open slot, the agent's mailbox after these two (USER 2026-11-28; mailboxviews.test.tsx)
+  assert.deepEqual(have.slice(0, 2), ['View in chat', 'View in classic inbox'])
   setClassicMailbox(true)
   await choose('View in chat')
   await right(chip)

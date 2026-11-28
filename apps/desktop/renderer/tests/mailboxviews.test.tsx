@@ -56,7 +56,7 @@ test('already in one of the two: only the other', () => {
   assert.equal(build(row, { box: 'node', node: 'reader' }, { box: 'node', node: 'other', folder: 'inbox' }).entries.length, 2)
 })
 
-test('the user\'s mail: View in chat, then both mailboxes, the user\'s side as your inbox / outbox', () => {
+test('the user\'s mail: View in chat, then both mailboxes, the user\'s side as View in classic inbox (its inbox or outbox folder)', () => {
   assert.deepEqual(labels(build({ from: '@user', to: 'reader' }, { box: 'node', node: 'reader' }, null, 'reader').entries),
     [VIEW_IN_CHAT, 'View in @reader’s inbox', VIEW_IN_CLASSIC])
   assert.deepEqual(labels(build({ from: 'reader' }, { box: 'user' }, null, 'reader').entries),
@@ -94,11 +94,12 @@ test('several recipients: one entry each, in order; more than three in one subme
     ['View in @r1’s inbox', 'View in @r2’s inbox', 'View in @r3’s inbox', 'View in org inbox'])
   const { entries } = build({ from: '@net:a.b', _delivered: ['r1', 'r2', 'r3', 'r4'] }, { box: 'org' })
   assert.deepEqual(labels(entries), ['View in a recipient’s inbox', 'View in org inbox'])
-  assert.deepEqual(labels((entries[0] as MenuItem).children ?? []),
+  const { children: sub = [] } = entries[0] as MenuItem
+  assert.deepEqual(labels(sub),
     ['View in @r1’s inbox', 'View in @r2’s inbox', 'View in @r3’s inbox', 'View in @r4’s inbox'])
 })
 
-test('transcripts: the sender's always, each recipient's once it read the mail; agents only', () => {
+test('transcripts: the sender\'s always, each recipient\'s once it read the mail; agents only', () => {
   const opened: string[] = []
   const views = (row: Record<string, unknown>, holder: { box: 'user' | 'org' | 'node'; node?: string }, here: MailPlace | null = null) =>
     labels(mailboxViewEntries({ row, holder, here, view() {},
@@ -106,7 +107,7 @@ test('transcripts: the sender's always, each recipient's once it read the mail; 
   assert.deepEqual(views({ from: 'writer', delivered: true }, { box: 'node', node: 'reader' }),
     ['View in @reader’s inbox', 'View in @writer’s outbox', 'View in @writer’s transcript', 'View in @reader’s transcript'])
   assert.deepEqual(views({ from: 'writer', delivered: false }, { box: 'node', node: 'reader' }).filter(l => l.endsWith('transcript')),
-    ['View in @writer’s transcript'], 'unread: the sender's only')
+    ['View in @writer’s transcript'], 'unread: the sender\'s only')
   assert.deepEqual(views({ from: 'writer', _wait: true }, { box: 'node', node: 'reader' }).filter(l => l.endsWith('transcript')),
     ['View in @writer’s transcript'], 'still waiting in the box: unread')
   assert.deepEqual(views({ from: '@user', to: 'reader', delivered: true }, { box: 'user' }).filter(l => l.endsWith('transcript')),
@@ -114,7 +115,7 @@ test('transcripts: the sender's always, each recipient's once it read the mail; 
   assert.deepEqual(views({ from: 'writer', to: 'proj', delivered: true }, { box: 'node', node: 'writer' }).filter(l => l.endsWith('transcript')),
     ['View in @writer’s transcript'], 'a project has no transcript')
   assert.deepEqual(views({ from: 'writer', delivered: true }, { box: 'node', node: 'reader' }, { transcript: 'writer' }).filter(l => l.endsWith('transcript')),
-    ['View in @reader’s transcript'], 'already in the writer's transcript')
+    ['View in @reader’s transcript'], 'already in the writer\'s transcript')
 })
 
 test('mailSides names each side once', () => {
@@ -171,7 +172,7 @@ test('a mail link between agents: both mailboxes, each through the open-mail rou
   const chip = v.el.querySelector('.ref-mail')!
   await right(chip)
   assert.deepEqual(menuLabels().slice(0, 2), ['View in @reader’s inbox', 'View in @writer’s outbox'],
-    'the group takes the generic Open's place (USER mde95b23fb23d)')
+    'the group takes the generic Open\'s place (USER mde95b23fb23d)')
   assert.equal(menuLabels().includes('Open'), false)
   await choose('View in @writer’s outbox')
   await right(chip)
@@ -200,18 +201,28 @@ test('a mail link to the user\'s mail: View in chat, View in classic inbox and t
 
 test('mail rows in an agent\'s mailbox: an inbox row offers the sender\'s outbox, a Sent row the recipient\'s inbox', async (t) => {
   const inbox = [{ id: 'i1', from: 'writer', at: '2026-11-20T10:00:00Z', kind: 'message', body: 'received one' }]
-  const v = await mountView(<ObjectMenuBoundary><MailList org="mine" boxOwner="reader" delivered={inbox} toast={() => {}} /></ObjectMenuBoundary>, el => el)
+  const opened: unknown[] = []
+  const refs = { world: { org: 'mine', agents: new Map([['reader', 'reader'], ['writer', 'writer']]) }, onOpen: (r: { ref: unknown }) => { opened.push(r.ref) } }
+  const v = await mountView(<ObjectMenuBoundary><MailList org="mine" boxOwner="reader" delivered={inbox} refs={refs as never} toast={() => {}} /></ObjectMenuBoundary>, el => el)
   t.after(() => v.unmount())
   await inAct(async () => { await flush(4) })
   await right(v.el.querySelector('.mailrow')!)
   assert.equal(menuLabels().includes('View in @writer’s outbox'), true, `${menuLabels()}`)
   assert.equal(menuLabels().includes('View in @reader’s inbox'), false, 'already there')
-  await dismiss()
+  await choose('View in @writer’s outbox')
+  assert.deepEqual(opened, [{ kind: 'mail', org: 'mine', box: 'node', node: 'writer', id: 'i1' }], "the writer's mailbox, at that mail")
   const sent = [{ id: 's1', from: 'reader', to: 'writer', at: '2026-11-20T10:00:00Z', kind: 'message', body: 'sent one' }]
-  const w = await mountView(<ObjectMenuBoundary><MailList org="mine" boxOwner="reader" outgoing delivered={sent} toast={() => {}} /></ObjectMenuBoundary>, el => el)
+  const w = await mountView(<ObjectMenuBoundary><MailList org="mine" boxOwner="reader" outgoing delivered={sent} refs={refs as never} toast={() => {}} /></ObjectMenuBoundary>, el => el)
   t.after(() => w.unmount())
   await inAct(async () => { await flush(4) })
   await right(w.el.querySelector('.mailrow')!)
   assert.equal(menuLabels().includes('View in @writer’s inbox'), true, `${menuLabels()}`)
   assert.equal(menuLabels().includes('View in @reader’s outbox'), false, 'already there')
+  await dismiss()
+  // a list with no route to another mailbox offers none (the Attention-shaped control in symmetrymenus)
+  const x = await mountView(<ObjectMenuBoundary><MailList org="mine" boxOwner="reader" delivered={inbox} toast={() => {}} /></ObjectMenuBoundary>, el => el)
+  t.after(() => x.unmount())
+  await inAct(async () => { await flush(4) })
+  await right(x.el.querySelector('.mailrow')!)
+  assert.equal(menuLabels().some(l => l.endsWith('box')), false, `${menuLabels()}`)
 })

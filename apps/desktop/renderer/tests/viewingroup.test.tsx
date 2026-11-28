@@ -34,7 +34,8 @@ test('a chats bubble: its own entries, then the View in group in the shared orde
   // the bubble's leading list as DmPanel builds it today (View in entries scattered, Sender… among them)
   const leading = ['Reply', 'Mark as read', 'View in @worker’s inbox', 'View in transcript', 'Sender…', 'View in classic inbox'].map(item)
   assert.deepEqual(labels(mailMenuEntries({ leading, ...copy })),
-    ['Reply', 'Mark as read', 'Sender…', '-', 'View in classic inbox', 'View in transcript', 'View in @worker’s inbox', '-', ...COPY])
+    // an agent's mailbox comes right after the classic inbox (USER 2026-11-28; mailboxviews.ts)
+    ['Reply', 'Mark as read', 'Sender…', '-', 'View in classic inbox', 'View in @worker’s inbox', 'View in transcript', '-', ...COPY])
 })
 
 test('a mail link: Open, then both views as a group, then copy', () => {
