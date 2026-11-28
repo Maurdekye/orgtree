@@ -24,7 +24,7 @@ import { ObjectMenuBoundary } from '../src/canvas/contextmenu'
 import type { MenuEntry, MenuItem } from '../src/canvas/contextmenu'
 import { MailList } from '../src/canvas/mail'
 import { RefChip, resolveRef } from '../src/canvas/reflinks'
-import { CLASSIC_MAILBOX_KEY, VIEW_IN_CHAT, classicMailbox, onMailViewRequest } from '../src/mailboxpref'
+import { CLASSIC_MAILBOX_KEY, VIEW_IN_CHAT, VIEW_IN_CLASSIC, classicMailbox, onMailViewRequest } from '../src/mailboxpref'
 
 const labels = (entries: MenuEntry[]) => entries.map(e => (e === 'sep' ? '-' : e.label))
 type Row = { from?: string; to?: string; _by?: string; _delivered?: string[] }
@@ -58,15 +58,15 @@ test('already in one of the two: only the other', () => {
 
 test('the user\'s mail: View in chat, then both mailboxes, the user\'s side as your inbox / outbox', () => {
   assert.deepEqual(labels(build({ from: '@user', to: 'reader' }, { box: 'node', node: 'reader' }, null, 'reader').entries),
-    [VIEW_IN_CHAT, 'View in @reader’s inbox', 'View in your outbox'])
+    [VIEW_IN_CHAT, 'View in @reader’s inbox', VIEW_IN_CLASSIC])
   assert.deepEqual(labels(build({ from: 'reader' }, { box: 'user' }, null, 'reader').entries),
-    [VIEW_IN_CHAT, 'View in your inbox', 'View in @reader’s outbox'])
+    [VIEW_IN_CHAT, VIEW_IN_CLASSIC, 'View in @reader’s outbox'])
   // the engine's shape for the user's mail in an agent's inbox: no `to`, the box is its recipient
   assert.deepEqual(labels(build({ from: '@user' }, { box: 'node', node: 'reader' }, null, 'reader').entries),
-    [VIEW_IN_CHAT, 'View in @reader’s inbox', 'View in your outbox'])
-  // in that chat: no View in chat; in the user's inbox: no View in your inbox
+    [VIEW_IN_CHAT, 'View in @reader’s inbox', VIEW_IN_CLASSIC])
+  // in that chat: no View in chat; in the classic inbox: no View in classic inbox
   assert.deepEqual(labels(build({ from: 'reader' }, { box: 'user' }, { chat: 'reader' }, 'reader').entries),
-    ['View in your inbox', 'View in @reader’s outbox'])
+    [VIEW_IN_CLASSIC, 'View in @reader’s outbox'])
   assert.deepEqual(labels(build({ from: 'reader' }, { box: 'user' }, { box: 'user', folder: 'inbox' }, 'reader').entries),
     [VIEW_IN_CHAT, 'View in @reader’s outbox'])
 })
@@ -122,12 +122,13 @@ test('mailSides names each side once', () => {
     { sender: { box: 'node', node: 'writer', folder: 'sent' }, recipients: [{ box: 'node', node: 'reader', folder: 'inbox' }] })
 })
 
-test('the group sits where View in classic inbox sat: after View in chat, before View in transcript', () => {
+test('the group order: View in chat, View in classic inbox, the other mailboxes, the transcripts', () => {
   const item = (label: string): MenuEntry => ({ label, onSelect() {} })
   const views = build({ from: '@user', to: 'reader' }, { box: 'node', node: 'reader' }, null, 'reader').entries
   const leading = [item('Open'), item('View in transcript'), ...views]
   assert.deepEqual(labels(mailMenuEntries({ leading, copy() {}, canCopy: true })),
-    ['Open', '-', VIEW_IN_CHAT, 'View in @reader’s inbox', 'View in your outbox', 'View in transcript', '-', 'Copy message text'])
+    ['Open', '-', VIEW_IN_CHAT, VIEW_IN_CLASSIC, 'View in @reader’s inbox', 'View in transcript', '-', 'Copy message text'],
+    'View in chat, View in classic inbox, the other mailboxes, then the transcripts')
 })
 
 // ---- surfaces ----
@@ -178,7 +179,7 @@ test('a mail link between agents: both mailboxes, each through the open-mail rou
   assert.deepEqual(opened, [{ id: 'mm1', to: 'writer' }, { id: 'mm1', to: 'reader' }])
 })
 
-test('a mail link to the user\'s mail: View in chat, your inbox (the classic mailbox) and the agent\'s outbox', async (t) => {
+test('a mail link to the user\'s mail: View in chat, View in classic inbox and the agent\'s outbox', async (t) => {
   const requests = asked(t)
   const saved = fetch
   const mail = { id: 'mm2', at: '2026-11-20T10:00:00Z', kind: 'message', body: 'the body', from: 'reader' }
@@ -192,9 +193,8 @@ test('a mail link to the user\'s mail: View in chat, your inbox (the classic mai
   t.after(() => v.unmount())
   await inAct(async () => { await flush(4) })
   await right(v.el.querySelector('.ref-mail')!)
-  assert.deepEqual(menuLabels().slice(0, 3), [VIEW_IN_CHAT, 'View in your inbox', 'View in @reader’s outbox'])
-  assert.equal(menuLabels().includes('View in classic inbox'), false, 'View in your inbox takes its place')
-  await choose('View in your inbox')
+  assert.deepEqual(menuLabels().slice(0, 3), [VIEW_IN_CHAT, VIEW_IN_CLASSIC, 'View in @reader’s outbox'])
+  await choose(VIEW_IN_CLASSIC)
   assert.deepEqual(requests, [{ id: 'mm2', classic: true }], 'the classic mailbox, on that mail')
 })
 
