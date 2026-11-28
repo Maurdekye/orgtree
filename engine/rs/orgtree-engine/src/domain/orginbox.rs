@@ -268,6 +268,54 @@ pub fn entry(r: &Value) -> Value {
     Value::Object(o)
 }
 
+/// AN AGENT'S MAIL TO AN OUTSIDE PARTY, as its Sent folder lists it (USER 2026-11-28 m3b0568389632 "agent mail sent to
+/// the org outbox should be in its sent"; @coordinator-opus m2ab730bb9a8e): the org mailbox's own 'out' row, read by
+/// its sender where it is (no copy, no migration), as a sent mail row with the org row's id and `org_row`, so its
+/// "View in @agent's outbox" and "View in org outbox" open the same message.
+pub fn sent_entry(r: &Value) -> Value {
+    let mut o = Map::new();
+    o.insert("id".into(), r["uid"].clone());
+    o.insert("from".into(), r["by_name"].clone());
+    o.insert("to".into(), r["peer"].clone());
+    o.insert("kind".into(), r.get("kind").filter(|v| !v.is_null()).cloned().unwrap_or(json!("message")));
+    o.insert("body".into(), r["body"].clone());
+    o.insert("at".into(), ts(&r["at"]));
+    o.insert("org_row".into(), r["uid"].clone());
+    if let Some(s) = r.get("state").filter(|v| !v.is_null()) { o.insert("state".into(), s.clone()); }
+    let att = Value::Array(r["attachments"].as_array().into_iter().flatten()
+        .filter(|a| a["transfer_removed"] != true).cloned().collect());
+    if att.as_array().is_some_and(|a| !a.is_empty()) { o.insert("attachments".into(), att); }
+    if let Some(q) = r.get("reply_to").filter(|v| v.is_object()) { o.insert("reply_to".into(), q.clone()); }
+    let all = super::replies::value(r.get("reply_to"), r.get("replies"));
+    if all.as_array().is_some_and(|a| !a.is_empty()) { o.insert("replies".into(), all); }
+    Value::Object(o)
+}
+
+/// The agent's org 'out' rows in one slice of its Sent folder, newest first. The folder pages by ot.mail id, so a slice
+/// is a span of time between two of its mails: before `before` (exclusive) and from `from` on (inclusive); none = open.
+#[logged]
+pub(crate) async fn agent_sent(client: &impl tokio_postgres::GenericClient, agent_id: i64, before: Option<i64>, from: Option<i64>, limit: i64)
+    -> Result<Vec<(i64, Value)>> {
+    let rows = client.query(
+        "SELECT i.id, to_jsonb(i) FROM ot.org_inbox i
+          WHERE i.sender_agent_id = $1 AND i.dir = 'out'
+            AND ($2::bigint IS NULL OR i.at < (SELECT m.created_at FROM ot.mail m WHERE m.id = $2))
+            AND ($3::bigint IS NULL OR i.at >= (SELECT m.created_at FROM ot.mail m WHERE m.id = $3))
+          ORDER BY i.id DESC LIMIT $4",
+        &[&agent_id, &before, &from, &limit]).await?;
+    Ok(rows.iter().map(|r| (r.get::<_, i64>(0), sent_entry(&r.get::<_, Value>(1)))).collect())
+}
+
+/// The exact read of one such row in the box of the agent that sent it (`name`), for a link or a jump outside the window.
+#[logged]
+pub(crate) async fn agent_sent_by_id(client: &impl tokio_postgres::GenericClient, org_id: i64, uid: &str, name: &str) -> Result<Option<Value>> {
+    let row = client.query_opt(
+        "SELECT to_jsonb(i) FROM ot.org_inbox i JOIN ot.agents a ON a.id = i.sender_agent_id
+          WHERE i.org_id = $1 AND i.uid = $2 AND i.dir = 'out' AND a.name = $3",
+        &[&org_id, &uid, &name]).await?;
+    Ok(row.map(|r| sent_entry(&r.get::<_, Value>(0))))
+}
+
 /// THE LOCAL COPIES OF AN INBOUND ROW, for a mail link's "View in @agent's inbox" at that agent's own copy (docket
 /// mail-link-context-menus-open-in-recipient-s-inbo; @coordinator-opus me123cd3dfa03): each holder's ot.mail row, an
 /// agent's copy by `extra.org_inbox_source`, a project's job by `extra.org_inbox.uid`, in delivery order. Only the
@@ -278,13 +326,14 @@ pub(crate) async fn row_copies(client: &impl tokio_postgres::GenericClient, org_
     let names = row["delivered_to"].clone();
     if row["dir"] != "in" || !names.as_array().is_some_and(|a| !a.is_empty()) { return Ok(json!([])); }
     let rows = client.query(
-        "SELECT m.recipient_name, m.uid FROM ot.mail m
+        "SELECT m.recipient_name, m.uid, m.state IN ('delivered', 'read') FROM ot.mail m
           WHERE m.org_id = $1 AND (m.extra->>'org_inbox_source' = $2 OR m.extra->'org_inbox'->>'uid' = $2)
             AND m.recipient_agent_id IN (SELECT a.id FROM ot.agents a WHERE a.org_id = $1
                                           AND a.name IN (SELECT jsonb_array_elements_text($3::jsonb)))
           ORDER BY m.id",
         &[&org_id, &uid, &names]).await?;
-    Ok(Value::Array(rows.iter().map(|r| json!({ "agent": r.get::<_, String>(0), "id": r.get::<_, String>(1) })).collect()))
+    // `read`: the holder took its copy, so its transcript has the delivery row
+    Ok(Value::Array(rows.iter().map(|r| json!({ "agent": r.get::<_, String>(0), "id": r.get::<_, String>(1), "read": r.get::<_, bool>(2) })).collect()))
 }
 
 /// The columns a reply's quote is made from (`inbox_quote`).
@@ -420,7 +469,10 @@ pub async fn send_extern(engine: &Arc<Engine>, org_id: i64, out: &Outgoing) -> R
         // there), so the peer's answer can route back into the worker's thread (D13)
         let job_reply = match (&via_job, &out.from) { (Some(job), From::Agent { id, .. }) => Some(JobReply { agent: *id, job: job.as_str(), out }), _ => None };
         let (uid, to, transfer_ids) = crate::net::queue(engine, org_id, peer, &out.body, &by, sender, &out.kind, &out.attachments, out.reply_to.as_ref(), &out.replies, job_reply.as_ref(), via_weak).await?;
-        changes::notify(engine, &src, vec![Change::OrgInbox, Change::Spark { from: out.from.spark(), to: "org_inbox".into() }]);
+        let mut ch = vec![Change::OrgInbox, Change::Spark { from: out.from.spark(), to: "org_inbox".into() }];
+        // it is in the sender's Sent too (sent_entry)
+        if let From::Agent { id, .. } = &out.from { ch.push(Change::Mailbox(*id)); }
+        changes::notify(engine, &src, ch);
         return Ok(Sent { dnd_held: false,
             transfer_ids,
             uid,
@@ -505,7 +557,10 @@ pub async fn send_extern(engine: &Arc<Engine>, org_id: i64, out: &Outgoing) -> R
     drop(client);
     if via_weak { crate::net::kick(engine); }
     // the spark rides from the sender to the mailbox here, and from the mailbox to each holder there
-    changes::notify(engine, &src, vec![Change::OrgInbox, Change::Spark { from: out.from.spark(), to: "org_inbox".into() }]);
+    let mut ch = vec![Change::OrgInbox, Change::Spark { from: out.from.spark(), to: "org_inbox".into() }];
+    // it is in the sender's Sent too (sent_entry)
+    if let From::Agent { id, .. } = &out.from { ch.push(Change::Mailbox(*id)); }
+    changes::notify(engine, &src, ch);
     changes::notify(engine, &dst, vec![Change::OrgInbox]);
     if audience_changed { changes::notify(engine,&dst,vec![Change::Audiences,Change::Events]); }
     wake_copies(engine, dst.id, delivered);

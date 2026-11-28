@@ -193,7 +193,7 @@ pub async fn mail_by_id(
             .map(|r| user_mail_entry(&r.get::<_, Value>(0))),
         "node" => {
             let name = q.node.unwrap_or_default();
-            client
+            let mail = client
                 .query_opt(
                     "SELECT to_jsonb(m) FROM ot.mail m WHERE ((m.sender NOT LIKE '@org:%' AND m.sender NOT LIKE '@net:%' AND COALESCE(m.ev->>'variant','') <> 'runtime.external_unroutable' AND m.extra->>'transfer_failure' IS NULL) OR NOT EXISTS (SELECT 1 FROM ot.orgs inbox_org WHERE inbox_org.id=m.org_id AND inbox_org.settings->'org_inbox_enabled'='false'::jsonb)) AND org_id = $1 AND uid = $2
                         AND (recipient_name = $3 OR sender = $3)",
@@ -208,7 +208,9 @@ pub async fn mail_by_id(
                     // sender's view of what it sent answers for that recipient (USER 2026-11-01 mc13db4358667)
                     entry["unread"] = json!(matches!(m["state"].as_str(), Some("pending" | "delivering")));
                     entry
-                })
+                });
+            // the agent's own mail to an outside party, which is in its Sent as the org mailbox's row (orginbox::sent_entry)
+            match mail { Some(m) => Some(m), None => crate::domain::orginbox::agent_sent_by_id(&**client, o.id, &id, &name).await? }
         }
         other => return Err(ApiError::bad_request(format!("no mailbox {other}"))),
     };

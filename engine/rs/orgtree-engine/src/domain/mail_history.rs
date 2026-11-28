@@ -103,7 +103,16 @@ pub async fn agent_page(client: &Client, org: i64, agent: i64, folder: &str, bef
           OR NOT EXISTS (SELECT 1 FROM ot.orgs o WHERE o.id=m.org_id AND o.settings->'org_inbox_enabled'='false'::jsonb))
         ORDER BY m.id DESC LIMIT 151");
     let rows = client.query(&sql, &[&org, &before, &agent]).await?;
-    Ok(project(rows, Some(sent), 150))
+    // the slice's first and last mail, before the page is projected (`project` takes the lookahead row off)
+    let from = (rows.len() > 150).then(|| rows[149].get::<_, i64>(0));
+    let mut page = project(rows, Some(sent), 150);
+    if sent {
+        // its mail to outside parties in the same span of time (orginbox::sent_entry; USER 2026-11-28 m3b0568389632)
+        let upper = (before < i64::MAX).then_some(before);
+        let outside = crate::domain::orginbox::agent_sent(client, agent, upper, from, 1000).await?;
+        if let Some(list) = page["sent"].as_array_mut() { list.extend(outside.into_iter().map(|(_, m)| m)); }
+    }
+    Ok(page)
 }
 
 /// `sent`: the folder every row is of; `None` for a chat page, where a row is
