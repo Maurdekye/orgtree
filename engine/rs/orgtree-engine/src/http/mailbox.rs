@@ -329,3 +329,24 @@ pub async fn states(State(e): State<Arc<Engine>>, Path((slug, nid)): Path<(Strin
     let out = page.http_json(&a.name);
     Ok(Json(out))
 }
+
+#[cfg(test)]
+mod user_by_id_tests {
+    use super::*;
+
+    /// The user's own mail read back by id names its recipient, as the agent box's read does, so a link to it can offer that
+    /// agent's inbox and the chat (docket mail-link-context-menus-open-in-recipient-s-inbo, bounce m782724ff17a3).
+    #[test]
+    fn the_users_sent_mail_names_its_recipient() {
+        let sent = json!({ "uid": "m1", "sender": "@user", "recipient_kind": "agent", "recipient_name": "reader", "state": "read",
+                           "kind": "message", "body": "hi", "created_at": "2026-11-28T10:00:00+00:00" });
+        let row = user_mail_entry(&sent);
+        assert_eq!(row["to"], "reader", "{row}");
+        assert_eq!(row["unread"], false);
+        let received = json!({ "uid": "m2", "sender": "reader", "recipient_kind": "user", "recipient_name": "@user", "state": "pending",
+                               "kind": "message", "body": "hi", "created_at": "2026-11-28T10:00:00+00:00" });
+        let row = user_mail_entry(&received);
+        assert!(row.get("to").is_none(), "received mail keeps its shape: {row}");
+        assert_eq!(row["unread"], true);
+    }
+}

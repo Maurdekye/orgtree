@@ -1062,3 +1062,27 @@ async fn u4_the_users_follow_up_is_bundled_while_the_job_waits_and_a_new_job_aft
     let direct: i64 = w2.c.query_one("SELECT count(*) FROM ot.mail WHERE org_id=$1 AND recipient_agent_id=$2 AND body='later' AND extra->'via_project'->>'followup'='true'", &[&w2.org, &worker2]).await.unwrap().get(0);
     assert_eq!(direct, 0, "not sent to the former holder as a follow-up");
 }
+
+/// Each holder copy names the org mailbox row it came from, and the row finds its copies, so a mail link can open the same
+/// mail on the other side (docket mail-link-context-menus-open-in-recipient-s-inbo; @coordinator-opus me123cd3dfa03 option a,
+/// no migration): an agent copy by `extra.org_inbox_source`, a project job by its existing `extra.org_inbox.uid`.
+#[tokio::test]
+#[ignore = "requires an isolated orginbox_queue_fixture database"]
+#[nolog]
+async fn ml1_an_inbound_rows_copies_name_it_and_it_finds_them() {
+    let mut w = world(true).await;
+    w.agent("front", None).await;
+    w.grant("front").await;
+    w.project("intake", true).await;
+    w.grant("intake").await;
+    let (uid, p) = w.arrive("ml1", "@net:bob.1", "hello", json!([])).await;
+    let copy = p.copies[0].2.clone();
+    assert_eq!(w.job_extra(&copy).await["org_inbox_source"], json!(uid), "the agent copy names its row");
+    let row: Value = w.c.query_one("SELECT to_jsonb(i) FROM ot.org_inbox i WHERE uid=$1", &[&uid]).await.unwrap().get(0);
+    let found = row_copies(&w.c, w.org, &row).await.unwrap();
+    assert_eq!(found, json!([{ "agent": "front", "id": copy }, { "agent": "intake", "id": p.jobs[0].mail }]), "in delivery order");
+    // a row from before the stamp, or one nobody got, finds none
+    w.c.execute("UPDATE ot.mail SET extra = extra - 'org_inbox_source' WHERE uid=$1", &[&copy]).await.unwrap();
+    let found = row_copies(&w.c, w.org, &row).await.unwrap();
+    assert_eq!(found, json!([{ "agent": "intake", "id": p.jobs[0].mail }]));
+}

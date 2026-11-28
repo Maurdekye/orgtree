@@ -559,6 +559,21 @@ mod delivered_tests {
 mod via_tests {
     use super::*;
 
+    /// A holder's copy of inbound org mail names the org mailbox row it came from, so its menu can offer "View in org
+    /// inbox" at that row (docket mail-link-context-menus-open-in-recipient-s-inbo): an agent's copy by
+    /// `extra.org_inbox_source`, a project's job by `extra.org_inbox.uid`. Other mail names none.
+    #[test]
+    fn an_org_mailbox_copy_names_its_org_row() {
+        let base = json!({ "uid": "m1", "sender": "@net:bob.1", "kind": "message", "body": "hi", "created_at": "2026-11-28T10:00:00+00:00" });
+        let mut copy = base.clone();
+        copy["extra"] = json!({ "org_inbox_source": "x-row" });
+        assert_eq!(mail_entry(&copy)["org_row"], "x-row");
+        let mut job = base.clone();
+        job["extra"] = json!({ "org_inbox": { "uid": "x-job-row", "peer": "@net:bob.1" } });
+        assert_eq!(mail_entry(&job)["org_row"], "x-job-row");
+        assert!(mail_entry(&base).get("org_row").is_none());
+    }
+
     fn sam() -> Value {
         json!({ "id": "c-1", "name": "Sam", "on": "Orgtree desktop (PC2)" })
     }
