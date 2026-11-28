@@ -78,8 +78,9 @@ test('outside parties: the local agent\'s mailbox and the org mailbox', () => {
   assert.deepEqual(labels(build({ from: '@net:someone.abc', org_row: 'o1' }, { box: 'node', node: 'reader' }).entries),
     ['View in @reader’s inbox', 'View in org inbox'])
   // outgoing: the agent sent it; the org mailbox sent it on
-  // outgoing: only the org mailbox holds it (an agent's Sent lists no mail to an outside party)
-  assert.deepEqual(labels(build({ from: '@org:mine', _by: 'writer', to: '@net:x.y' }, { box: 'org' }).entries), ['View in org outbox'])
+  // outgoing: the org mailbox's row, which the agent's Sent lists as it is
+  assert.deepEqual(labels(build({ from: '@org:mine', _by: 'writer', to: '@net:x.y' }, { box: 'org' }).entries),
+    ['View in org outbox', 'View in @writer’s outbox'])
   // already in the org mailbox's inbox
   assert.deepEqual(labels(build({ from: '@net:someone.abc', _delivered: ['reader'], copies: [{ agent: 'reader', id: 'c1' }] }, { box: 'org' },
     { box: 'org', folder: 'inbox' }).entries), ['View in @reader’s inbox'])
@@ -132,15 +133,26 @@ test('the org mailbox row read by id (dir, peer, by, delivered_to): incoming ope
   assert.deepEqual(labels(mailboxViewEntries({ row: { ...row, copies: [] }, holder: { box: 'org' }, view })), ['View in org inbox'])
 })
 
-test('the org mailbox row read by id: outgoing is the org outbox and the sender\'s transcript, never an agent outbox', () => {
+test('the org mailbox row read by id: outgoing is the org outbox, the sender\'s outbox at the same row, and its transcript', () => {
+  // an agent's mail to an outside party is in its Sent as the org mailbox's own row (USER 2026-11-28 m3b0568389632)
   const row = { id: 'org-out', dir: 'out', peer: '@net:external.demo', by: 'writer' }
   const opened: [string, string][] = []
-  const entries = mailboxViewEntries({ row, holder: { box: 'org' }, view() {},
-    transcript: { has: () => true, open: (n, id) => { opened.push([n, id]) } } })
-  assert.deepEqual(labels(entries), ['View in org outbox', 'View in @writer’s transcript'],
-    'an agent\'s Sent lists no mail to an outside party')
-  ;(entries[1] as MenuItem).onSelect()
-  assert.deepEqual(opened, [['writer', 'org-out']], 'its send call names the org row')
+  const entries = mailboxViewEntries({ row, holder: { box: 'org' }, view: (s, id) => { opened.push([s.box + ':' + (s.node ?? ''), id]) },
+    transcript: { has: () => true, open: (n, id) => { opened.push(['transcript:' + n, id]) } } })
+  assert.deepEqual(labels(entries), ['View in org outbox', 'View in @writer’s outbox', 'View in @writer’s transcript'])
+  for (const e of entries) (e as MenuItem).onSelect()
+  assert.deepEqual(opened, [['org:', 'org-out'], ['node:writer', 'org-out'], ['transcript:writer', 'org-out']],
+    'one id in all three: the agent\'s Sent lists the org row itself, and its send call names it')
+})
+
+test('that mail in the agent\'s own Sent: View in org outbox at the same row', () => {
+  const opened: [MailboxSide, string][] = []
+  const row = { id: 'org-out', from: 'writer', to: '@net:external.demo', org_row: 'org-out' }
+  const entries = mailboxViewEntries({ row, holder: { box: 'node', node: 'writer' }, here: { box: 'node', node: 'writer', folder: 'sent' },
+    view: (s, id) => { opened.push([s, id]) } })
+  assert.deepEqual(labels(entries), ['View in org outbox'])
+  ;(entries[0] as MenuItem).onSelect()
+  assert.deepEqual(opened, [[{ box: 'org', folder: 'sent' }, 'org-out']])
 })
 
 test('a listed org row (to repeats the peer, _delivered): the holder\'s inbox, its copy read on choosing', async () => {
