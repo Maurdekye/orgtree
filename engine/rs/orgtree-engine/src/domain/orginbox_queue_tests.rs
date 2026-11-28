@@ -1080,11 +1080,14 @@ async fn ml1_an_inbound_rows_copies_name_it_and_it_finds_them() {
     assert_eq!(w.job_extra(&copy).await["org_inbox_source"], json!(uid), "the agent copy names its row");
     let row: Value = w.c.query_one("SELECT to_jsonb(i) FROM ot.org_inbox i WHERE uid=$1", &[&uid]).await.unwrap().get(0);
     let found = row_copies(&w.c, w.org, &row).await.unwrap();
-    assert_eq!(found, json!([{ "agent": "front", "id": copy }, { "agent": "intake", "id": p.jobs[0].mail }]), "in delivery order");
+    assert_eq!(found, json!([{ "agent": "front", "id": copy, "read": false }, { "agent": "intake", "id": p.jobs[0].mail, "read": false }]), "in delivery order");
+    // a holder that read its copy says so (its transcript has the delivery row; rig-sol-b m54a67753d15a)
+    w.c.execute("UPDATE ot.mail SET state='read' WHERE uid=$1", &[&copy]).await.unwrap();
+    assert_eq!(row_copies(&w.c, w.org, &row).await.unwrap()[0]["read"], json!(true));
     // a row from before the stamp, or one nobody got, finds none
     w.c.execute("UPDATE ot.mail SET extra = extra - 'org_inbox_source' WHERE uid=$1", &[&copy]).await.unwrap();
     let found = row_copies(&w.c, w.org, &row).await.unwrap();
-    assert_eq!(found, json!([{ "agent": "intake", "id": p.jobs[0].mail }]));
+    assert_eq!(found, json!([{ "agent": "intake", "id": p.jobs[0].mail, "read": false }]));
 }
 
 /// AN AGENT'S MAIL TO AN OUTSIDE PARTY IS IN ITS SENT (USER 2026-11-28 m3b0568389632 "agent mail sent to the org outbox

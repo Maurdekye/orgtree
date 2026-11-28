@@ -129,6 +129,15 @@ test('the org mailbox row read by id (dir, peer, by, delivered_to): incoming ope
   for (const e of entries) (e as MenuItem).onSelect()
   assert.deepEqual(opened, [[{ box: 'node', node: 'reader', folder: 'inbox' }, 'copy-r'], [{ box: 'org', folder: 'inbox' }, 'org-in']],
     'the agent at its copy, the org mailbox at its row')
+  // the holder read its copy: its transcript, at that copy (rig-sol-b m54a67753d15a); unread: none
+  const seen: [string, string][] = []
+  const transcript = { has: () => true, open: (n: string, id: string) => { seen.push([n, id]) } }
+  const read = mailboxViewEntries({ row: { ...row, copies: [{ agent: 'reader', id: 'copy-r', read: true }] }, holder: { box: 'org' }, view, transcript })
+  assert.deepEqual(labels(read), ['View in @reader’s inbox', 'View in org inbox', 'View in @reader’s transcript'])
+  ;(read[2] as MenuItem).onSelect()
+  assert.deepEqual(seen, [['reader', 'copy-r']])
+  assert.deepEqual(labels(mailboxViewEntries({ row: { ...row, copies: [{ agent: 'reader', id: 'copy-r', read: false }] }, holder: { box: 'org' }, view, transcript })),
+    ['View in @reader’s inbox', 'View in org inbox'])
   // a copy made before the link (none found): no entry for that agent
   assert.deepEqual(labels(mailboxViewEntries({ row: { ...row, copies: [] }, holder: { box: 'org' }, view })), ['View in org inbox'])
 })
