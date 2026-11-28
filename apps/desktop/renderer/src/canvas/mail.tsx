@@ -5,7 +5,10 @@ import { appendSelection } from '../replySelection'
 import type { SelectionDraft, SelectionTarget } from '../replySelection'
 import { MentionLanding } from './mentionlanding'
 import { hasMailAttention } from '../mailattention'
-import { chatPeerOf, isChatMail, viewMailIn, VIEW_IN_CHAT } from '../mailboxpref'
+import { askForMailbox, chatPeerOf, isChatMail, viewMailIn, VIEW_IN_CHAT } from '../mailboxpref'
+import { isMailboxViewLabel, MAIL_COPY_UNLINKED, mailboxViewEntries } from './mailboxviews'
+import { agentNavElementAt } from './agentnav'
+import { objectNavElementAt } from './objectnav'
 import { focusComposerBackground } from '../composerfocus'
 import { resizeComposer } from '../composerautosize'
 import { readComposerDraft, writeComposerDraft } from '../composerdrafts'
@@ -49,7 +52,7 @@ import type { CanvasNode, MailRow } from './shared'
 import { AgentLink, AgentName } from './identity'
 import { megaphoneWords } from './inboxwarning'
 import { WatchdogLink } from './watchdoglink'
-import { HubContactChip, useAgentMentions, useOrgMentionCandidates } from './agentmentions'
+import { HubContactChip, requestTranscriptMail, useAgentMentions, useOrgMentionCandidates } from './agentmentions'
 import { ConnectionList, NO_RECENCY, UnblockCheck, hubDotTitle } from './connectionlist'
 import { hubListControls, useOrgBlocks } from './orgblocks'
 import { LockdownPanel } from './lockdownpanel'
@@ -57,7 +60,7 @@ import { composerTarget, ObjectReplyDraft, useObjectComposer } from './composero
 import type { ComposerObject } from './composerobjects'
 import type { ReplyTarget } from '../generated/events'
 import { RefMdBody } from './refmd'
-import { refToken } from './reflinks'
+import { refToken, resolveRef } from './reflinks'
 import { parseRef } from './workrefs'
 import { mailMenuEntries, mailTooltipProps } from './mailidentity'
 import { mailTitle } from './mailtitle'
@@ -73,7 +76,7 @@ import { CollapsibleMailer } from './narrowlist'
 import { MailItemBoundary, Rendered } from './mailitemboundary'
 import { CopyFeedback, copyToClipboard, useContextMenu } from './contextmenu'
 import { openSelectedRowMenu } from './panelsteps'
-import type { MenuEntry } from './contextmenu'
+import type { MenuEntry, MenuItem } from './contextmenu'
 import { MAIL_COPY_FAILED, fetchMailRowForCopy, mailRowCopyText, mailRowNeedsFullFetch, resolveFullMailCopyText } from './copytext'
 import type { CopyableMailRow } from './copytext'
 import { fmtFull, fmtShort } from '../timefmt'
@@ -204,6 +207,9 @@ export interface MailListProps {
    *  a real agent whose model is unknown still navigates, without a chip.
    *  Omitted = this caller cannot say, so no local jump is claimed. */
   hasAgent?: (id: string) => boolean
+  /** this org's nodes for the rows' "View in …" entries only (a list that does not draw names as links): an agent, a
+   *  project, or not on the canvas (retired). Falls back to hasAgent/tierOf. */
+  nodeKind?: (id: string) => 'agent' | 'project' | undefined
   /** canonical references (`@item:org/slug`) inside the READING PANE's body.
    *  A body is rendered markdown, not React children, so this is the DOM pass
    *  in refmd.tsx rather than the ordinary renderer.
@@ -248,6 +254,8 @@ export interface MailRowMenuActions {
   remove?: () => void
   /** a mail between the user and an agent or project: that chat, with it flashed (mailboxpref viewMailIn) */
   viewInChat?: () => void
+  /** THE MAIL'S OTHER PLACES (mailboxviews.ts), where the surface knows them: replaces viewInChat */
+  views?: MenuItem[]
 }
 
 /** Where the copy entries copy from and to. */
@@ -276,7 +284,7 @@ export function mailRowMenuEntries(m: MailRow, a: MailRowMenuActions, c: MailRow
   const { el, toast, lookup } = c
   const entries: MenuEntry[] = [
     a.selected ? { label: 'Close', onSelect: a.close } : { label: 'Open', onSelect: a.open },
-    ...(a.viewInChat && m.id && !m._ask ? [{ label: VIEW_IN_CHAT, onSelect: a.viewInChat }] : []),
+    ...(m.id && !m._ask ? a.views ?? (a.viewInChat ? [{ label: VIEW_IN_CHAT, onSelect: a.viewInChat }] : []) : []),
   ]
   if (a.reply && !m._ask) entries.push({ label: 'Reply', onSelect: a.reply })
   if (a.markRead && m._wait && m.id && !m._ask) entries.push({ label: 'Mark as read', onSelect: a.markRead })
@@ -328,7 +336,7 @@ export function MailList({ org, pending = [], delivered = [], waitLabel, sender,
   compoundHeader,
   outgoing, onRead, onReply, onAckJob, replyConversation, canReply: canReplyTo, onRetract, onDeleteUserMail, jumpTo, jumpSeq, selectOldestUnread, restoreSelectionId, onOpenMail, lookup, onFound,
   askState, onAskRetry, fileHref, mdBase, renderBody, rowMark,
-  onFocusAgent, tierOf, hasAgent, refs, refOf, toast, collapsible, tagFilter, onLoadMore, hasMore, loadingMore, hideMailReplyKind,selectionRequest,hiddenUnread,
+  onFocusAgent, tierOf, hasAgent, nodeKind, refs, refOf, toast, collapsible, tagFilter, onLoadMore, hasMore, loadingMore, hideMailReplyKind,selectionRequest,hiddenUnread,
   projectMail, filterRequest, userBox, boxOwner }: MailListProps) {
   // ONE order, by send time, always — never grouped, never re-grouped.
   //
@@ -660,6 +668,48 @@ export function MailList({ org, pending = [], delivered = [], waitLabel, sender,
     rootRef.current?.querySelector<HTMLTextAreaElement>('.mailer-read .mail-reply textarea')
       ?.focus()
   }, [replyFocus, cur])
+  const listOrg = org ?? refs?.world.org ?? ''
+  const holder = { box: userBox ? 'user' as const : boxOwner ? 'node' as const : 'org' as const, node: boxOwner }
+  /** which names are this org's nodes, and which of those are projects (MailListProps.nodeKind) */
+  const known = nodeKind ?? (hasAgent ? (id: string) => hasAgent(id) ? (tierOf?.(id) === 'project' ? 'project' as const : 'agent' as const) : undefined : undefined)
+  const rowViews = (m: MailRow): MenuItem[] => {
+    if (!m.id) return []
+    const id = m.id, row = m as { from?: unknown; to?: unknown }
+    const peer = isChatMail(row, userBox) ? chatPeerOf(row, userBox, boxOwner) : null
+    return mailboxViewEntries({ row: m, holder, here: { ...holder, folder: outgoing ? 'sent' : 'inbox' },
+      chat: peer ? { peer, open: () => { viewMailIn('chat', listOrg, id, peer) } } : undefined,
+      // `mid`: the mail's id in that place (an org row and its holders' copies differ; mailboxviews.ts)
+      view: (side, mid) => {
+        if (side.box === 'user') { viewMailIn('classic', listOrg, mid); return }
+        if (!refs?.onOpen) return
+        const target = resolveRef({ kind: 'mail', org: listOrg, box: side.box, node: side.node, id: mid }, refs.world)
+        // the mailbox itself, not the chat the mail-link router picks for the user's mail while the chats are on
+        if (target.outcome === 'ready') { askForMailbox(mid); refs.onOpen?.(target) }
+      },
+      // a listed org row carries no copies: its holders' copies are read when one of their entries is chosen
+      lookupCopies: holder.box === 'org' ? () => getMailById(listOrg, 'org', id)
+        .then(r => (r.found ? (r.mail as { copies?: { agent: string; id: string }[] } | null)?.copies : undefined) ?? []) : undefined,
+      missing: () => toast?.([MAIL_COPY_UNLINKED]),
+      // a retired agent's mailbox does not open (the canvas routes only its own nodes) and it has no transcript
+      mailbox: known ? { has: name => !!known(name) } : undefined,
+      transcript: onFocusAgent ? { has: name => known?.(name) === 'agent',
+        open: (name, mid) => { requestTranscriptMail(listOrg, name, mid, m.at ?? undefined); onFocusAgent(name) } } : undefined })
+      // an agent's or the org's mailbox only where this list has the route there
+      .filter(v => refs?.onOpen || !isMailboxViewLabel(v.label))
+  }
+  /** AN ORG ROW'S COPIES, read when its menu opens: a listed inbound row does not carry which holders read their copy, and
+   *  a reader's transcript entry needs that, as a link to the same mail has it (@coordinator-opus m304bad3acdc4). The menu
+   *  is the row's own (not an agent's or an object's under the press) and still the one open. */
+  const readOrgCopies = (e: { target: EventTarget | null; currentTarget: Element }, m: MailRow, opened: number | undefined) => {
+    const delivered = (m as { _delivered?: unknown })._delivered
+    if (opened == null || holder.box !== 'org' || !onFocusAgent || !m.id || Array.isArray((m as { copies?: unknown }).copies)
+      || !Array.isArray(delivered) || !delivered.length) return
+    if (agentNavElementAt(e.target, e.currentTarget) || objectNavElementAt(e.target, e.currentTarget)) return
+    void getMailById(listOrg, 'org', m.id).then(r => {
+      const copies = r.found ? (r.mail as { copies?: { read?: unknown }[] } | null)?.copies : undefined
+      if (Array.isArray(copies) && copies.some(c => c.read === true)) menu.replace(rowMenu({ ...m, copies } as MailRow), opened)
+    }).catch(() => {})
+  }
   const rowMenu = (m: MailRow): MenuEntry[] => {
     const isCur = Boolean(cur && keyOf(m) === keyOf(cur))
     const select = () => {
@@ -677,9 +727,9 @@ export function MailList({ org, pending = [], delivered = [], waitLabel, sender,
       markRead: onRead ? () => { void Promise.resolve(onRead(m)).catch(() => {}) } : undefined,
       retract: onRetract ? () => onRetract(m) : undefined,
       remove: !outgoing && onDeleteUserMail ? () => onDeleteUserMail(m) : undefined,
-      // View in chat (USER 2026-11-25 m70e86c04946e): the user's classic mailbox, an agent's mailbox and a desk's Mail tab
-      viewInChat: m.id && isChatMail(m as { from?: unknown; to?: unknown }, userBox)
-        ? () => { viewMailIn('chat', org ?? refs?.world.org ?? '', m.id!, chatPeerOf(m as { from?: unknown; to?: unknown }, userBox, boxOwner)) } : undefined,
+      // THE MAIL'S OTHER PLACES (USER 2026-11-28, mailboxviews.ts): View in chat (USER 2026-11-25 m70e86c04946e), the
+      // mail's other mailboxes and its agents' transcripts; this list's own folder is where it is shown
+      views: rowViews(m),
     }, { el: rootRef.current, org: org ?? refs?.world.org ?? '', lookup, toast, reference: refOf?.(m) ?? null })
   }
   const custom = cur ? renderBody?.(cur) ?? null : null
@@ -799,7 +849,7 @@ export function MailList({ org, pending = [], delivered = [], waitLabel, sender,
                 setSelId(keyOf(m))
               }
             }}
-            onContextMenu={(e) => menu.open(e, () => rowMenu(m))} />
+            onContextMenu={(e) => { const opened = menu.open(e, () => rowMenu(m)); readOrgCopies(e, m, opened) }} />
           </MailItemBoundary>
           )
         })}
@@ -1862,7 +1912,9 @@ interface InboxViewProps {
 export interface InboxExtraFolder {
   id: string
   count?: number
-  render: (rows: MailRow[]) => ReactNode
+  /** `rows`: the waiting mail first (marked `_wait`, oldest first, as the engine hands it out), then the delivered;
+   *  `waiting`: the inbox tab's own count of waiting mail, which may pass the loaded window */
+  render: (rows: MailRow[], waiting: number) => ReactNode
 }
 
 // Only a plain delivery uses the compact marker. Ack/release/dead-letter
@@ -2017,7 +2069,9 @@ export function InboxView({ slug, nid, unreadCount, onRetract, jumpTo, jumpSeq, 
       .then((m) => {
         if (askKey.current !== req) return
         setJumpAsk(null)
-        if (m) setFolder('inbox')
+        // the node read answers for mail this box SENT as well as received (sender OR recipient): mail it sent to
+        // someone else is in its Sent folder (View in @agent's outbox on an older row, bounce m782724ff17a3)
+        if (m) setFolder(m.from === nid && m.to !== nid ? 'sent' : 'inbox')
       })
       .catch(() => {
         if (askKey.current !== req) return
@@ -2031,12 +2085,14 @@ export function InboxView({ slug, nid, unreadCount, onRetract, jumpTo, jumpSeq, 
     if (!box) return
     setDropped((d) => d.filter((id) => box.pending.some((m) => m.id === id)))
   }, [box])
+  // the inbox tab's count; a host folder (the project's listeners) shows the same number
+  const unread = unreadCount === undefined ? pending.length : Math.max(0, unreadCount
+    - (box?.pending ?? []).filter(m => dropped.includes(m.id ?? '')).length)
   return (
     <div className="mailwrap" ref={mailbox.ref} onFocusCapture={mailbox.onFocus}>
       <MailFolders folder={onTransfers ? 'transfers' : folder}
         setFolder={(f) => { setFolder(f); if (f !== 'transfers') onFolderPick?.(f) }}
-        unread={unreadCount === undefined ? pending.length : Math.max(0, unreadCount
-          - (box?.pending ?? []).filter(m => dropped.includes(m.id ?? '')).length)} tier={tier}
+        unread={unread} tier={tier}
         folders={extraFolders?.length || transfers.total > 0 || onTransfers
           ? ['inbox', 'sent', ...(extraFolders ?? []).map((f) => f.id),
             ...(transfers.total > 0 || onTransfers ? ['transfers'] : [])] : undefined}
@@ -2047,7 +2103,7 @@ export function InboxView({ slug, nid, unreadCount, onRetract, jumpTo, jumpSeq, 
         <TransferPanel slug={slug} agent={nid} tab={{ visible: onTransfers }} onSummary={setTransfers} />
       </div>
       <div className="mailpane" hidden={onTransfers}>
-        {extra ? extra.render([...pending, ...(box?.delivered ?? [])]) : <>
+        {extra ? extra.render([...pending.map((m) => ({ ...m, _wait: true })), ...(box?.delivered ?? [])], unread) : <>
         {history.error&&<div role="alert">Could not load older mail. <button onClick={history.retry}>Retry</button></div>}
         {mailbox.error ? <div className="dim pad" role="alert">Could not load mailbox. <button onClick={mailbox.retry}>Retry</button></div> : box == null
           ? <div className="dim pad">loading…</div>
@@ -2214,6 +2270,8 @@ const entryFolder = (e: OrgInboxEntry) => e.dir === 'out' ? 'sent' : 'inbox'
 function orgInboxRow(e: OrgInboxEntry, slug: string, unread: boolean): MailRow {
   return {
     id: e.id, at: e.at, body: e.body, from: e.peer, to: e.peer, _by: e.by, _delivered: e.dir === 'in' ? e.delivered_to : undefined,
+    // read by id, an inbound row names its holders' copies and which were read (mailboxviews.ts)
+    ...((e as { copies?: unknown }).copies ? { copies: (e as { copies?: unknown }).copies } : {}),
     kind: e.dir === 'in' ? 'message' : 'reply', _wait0: unread,
     _state: e.state, _state_at: e.state_at, _tries: e.tries, _err: e.last_err,
     attachments: e.attachments?.map((a) => ({ ...a, path: a.name })),
@@ -2288,6 +2346,9 @@ export function OrgInboxModal({ inbox, net, map, slug, toast, close, jumpTo,
   const focusAgent = onFocusAgent
     ? (id: string) => { closeIfCentred('org-inbox', close, slug); onFocusAgent(id) }
     : undefined
+  // the rows' transcript entries: this org's agents, not its projects (MailList rowViews)
+  const hasOrgAgent = (id: string) => map.has(id)
+  const orgTier = (id: string) => map.get(id)?.tier
   // ⚠ THE TREE'S `entries` IS A PREVIEW — the newest few, for the canvas's
   // one-line summary. The real log is fetched HERE, when the panel opens,
   // because it was 105,310 B of an 844 KB tree payload on every 6 s poll for
@@ -2531,6 +2592,7 @@ export function OrgInboxModal({ inbox, net, map, slug, toast, close, jumpTo,
                     delivered={inn.filter((r) => !r._wait0)}
                     waitLabel="unread" onRead={markRead} jumpTo={listJump}
                     jumpSeq={listJumpSeq} filterRequest={partyFilter} refs={refs} lookup={orgLookup} onFound={onFound} toast={toast}
+                    onFocusAgent={focusAgent} hasAgent={hasOrgAgent} tierOf={orgTier}
                     refOf={(m) => m.id ? refToken({ kind: 'mail', org: slug, box: 'org', id: m.id }) : null}
                     /* ⚠ AN INCOMING ORG-MAILBOX SENDER IS EXTERNAL BY
                        PROVENANCE, AND A NAME MATCH IS NOT EVIDENCE OTHERWISE.
@@ -2552,6 +2614,7 @@ export function OrgInboxModal({ inbox, net, map, slug, toast, close, jumpTo,
                 : <MailList org={slug} delivered={out} outgoing compoundHeader jumpTo={listJump}
                     collapsible
                     jumpSeq={listJumpSeq} filterRequest={partyFilter} refs={refs} lookup={orgLookup} onFound={onFound} toast={toast}
+                    onFocusAgent={focusAgent} hasAgent={hasOrgAgent} tierOf={orgTier}
                     rowMark={glyph}
                     /* the list row names the RECIPIENT only — the pane's
                        "@agent as @org → @recipient" line is three identities

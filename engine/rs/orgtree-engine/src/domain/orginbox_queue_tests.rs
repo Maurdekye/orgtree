@@ -1062,3 +1062,126 @@ async fn u4_the_users_follow_up_is_bundled_while_the_job_waits_and_a_new_job_aft
     let direct: i64 = w2.c.query_one("SELECT count(*) FROM ot.mail WHERE org_id=$1 AND recipient_agent_id=$2 AND body='later' AND extra->'via_project'->>'followup'='true'", &[&w2.org, &worker2]).await.unwrap().get(0);
     assert_eq!(direct, 0, "not sent to the former holder as a follow-up");
 }
+
+/// Each holder copy names the org mailbox row it came from, and the row finds its copies, so a mail link can open the same
+/// mail on the other side (docket mail-link-context-menus-open-in-recipient-s-inbo; @coordinator-opus me123cd3dfa03 option a,
+/// no migration): an agent copy by `extra.org_inbox_source`, a project job by its existing `extra.org_inbox.uid`.
+#[tokio::test]
+#[ignore = "requires an isolated orginbox_queue_fixture database"]
+#[nolog]
+async fn ml1_an_inbound_rows_copies_name_it_and_it_finds_them() {
+    let mut w = world(true).await;
+    w.agent("front", None).await;
+    w.grant("front").await;
+    w.project("intake", true).await;
+    w.grant("intake").await;
+    let (uid, p) = w.arrive("ml1", "@net:bob.1", "hello", json!([])).await;
+    let copy = p.copies[0].2.clone();
+    assert_eq!(w.job_extra(&copy).await["org_inbox_source"], json!(uid), "the agent copy names its row");
+    let row: Value = w.c.query_one("SELECT to_jsonb(i) FROM ot.org_inbox i WHERE uid=$1", &[&uid]).await.unwrap().get(0);
+    let found = row_copies(&w.c, w.org, &row).await.unwrap();
+    assert_eq!(found, json!([{ "agent": "front", "id": copy, "read": false }, { "agent": "intake", "id": p.jobs[0].mail, "read": false }]), "in delivery order");
+    // a holder that read its copy says so (its transcript has the delivery row; rig-sol-b m54a67753d15a)
+    w.c.execute("UPDATE ot.mail SET state='read' WHERE uid=$1", &[&copy]).await.unwrap();
+    assert_eq!(row_copies(&w.c, w.org, &row).await.unwrap()[0]["read"], json!(true));
+    // a row from before the stamp, or one nobody got, finds none
+    w.c.execute("UPDATE ot.mail SET extra = extra - 'org_inbox_source' WHERE uid=$1", &[&copy]).await.unwrap();
+    let found = row_copies(&w.c, w.org, &row).await.unwrap();
+    assert_eq!(found, json!([{ "agent": "intake", "id": p.jobs[0].mail, "read": false }]));
+}
+
+/// AN AGENT'S MAIL TO AN OUTSIDE PARTY IS IN ITS SENT (USER 2026-11-28 m3b0568389632 "agent mail sent to the org outbox
+/// should be in its sent"; docket mail-link-context-menus-open-in-recipient-s-inbo): the org mailbox's own 'out' row,
+/// read by its sender (no copy, no migration), with the org row's id, so "View in @agent's outbox" and "View in org
+/// outbox" open the same message. The window, every page (the cursor names its last row: 2*id for a mail, 2*id+1 for an org
+/// row, mail_history::agent_sent_page), and the exact read.
+#[tokio::test]
+#[ignore = "requires an isolated orginbox_queue_fixture database"]
+#[nolog]
+async fn ml2_an_agents_mail_to_an_outside_party_is_in_its_sent() {
+    let w = world(true).await;
+    let writer = w.agent("writer", None).await;
+    let other = w.agent("other", None).await;
+    let mail = |uid: &'static str, at: &'static str| {
+        let c = &w.c; let org = w.org;
+        async move {
+            c.query_one("INSERT INTO ot.mail(uid,org_id,sender,sender_agent_id,recipient_kind,recipient_agent_id,recipient_name,body,state,created_at)
+                         VALUES($1,$2,'writer',$3,'agent',$4,'other','b','read',$5::text::timestamptz) RETURNING id",
+                &[&uid, &org, &writer, &other, &at]).await.unwrap().get::<_, i64>(0)
+        }
+    };
+    let older = mail("m-old", "2026-11-28T09:00:00Z").await;
+    let newer = mail("m-new", "2026-11-28T11:00:00Z").await;
+    w.c.execute("INSERT INTO ot.org_inbox (uid, org_id, dir, peer, body, by_name, state, at, sender_agent_id)
+                 VALUES ('x-out', $1, 'out', '@net:bob.1', 'to bob', 'writer', 'delivered', '2026-11-28T10:00:00Z', $2)",
+        &[&w.org, &writer]).await.unwrap();
+    // someone else's outside mail is not in writer's Sent
+    w.c.execute("INSERT INTO ot.org_inbox (uid, org_id, dir, peer, body, by_name, state, at, sender_agent_id)
+                 VALUES ('x-other', $1, 'out', '@net:bob.1', 'not writer', 'other', 'delivered', '2026-11-28T10:30:00Z', $2)",
+        &[&w.org, &other]).await.unwrap();
+    let window = crate::feed::compute::agent_mailbox(&w.c, writer).await.unwrap();
+    let sent: Vec<&Value> = window.iter().filter(|(_, r)| r["folder"] == "sent").map(|(_, r)| &r["mail"]).collect();
+    let row = sent.iter().find(|m| m["id"] == "x-out").expect("the window's Sent lists the org row");
+    assert_eq!((row["from"].clone(), row["to"].clone(), row["org_row"].clone()), (json!("writer"), json!("@net:bob.1"), json!("x-out")), "{row}");
+    assert_eq!(sent.len(), 3, "two mails and the one org row: {sent:?}");
+    let page = crate::domain::mail_history::agent_page(&w.c, w.org, writer, "sent", None).await.unwrap();
+    assert!(page["sent"].as_array().unwrap().iter().any(|m| m["id"] == "x-out"), "the first page: {page}");
+    let page = crate::domain::mail_history::agent_page(&w.c, w.org, writer, "sent", Some(newer * 2)).await.unwrap();
+    assert!(page["sent"].as_array().unwrap().iter().any(|m| m["id"] == "x-out"), "the page before the newer mail holds it: {page}");
+    let page = crate::domain::mail_history::agent_page(&w.c, w.org, writer, "sent", Some(older * 2)).await.unwrap();
+    assert!(!page["sent"].as_array().unwrap().iter().any(|m| m["id"] == "x-out"), "and the page before the older mail does not: {page}");
+    let found = agent_sent_by_id(&w.c, w.org, "x-out", "writer").await.unwrap().expect("the exact read finds it in writer's box");
+    assert_eq!(found["to"], "@net:bob.1");
+    assert!(agent_sent_by_id(&w.c, w.org, "x-out", "other").await.unwrap().is_none(), "never in another agent's box");
+}
+
+/// AN AGENT'S SENT PAGES AND REFRESHES ITS OUTSIDE MAIL ON ITS OWN (bounce mb41f6f93a568, integ-sol-d): with outside mail
+/// only, every row is reached through next_cursor, once; with mail of both kinds (one at the very time of an org row), the
+/// same; and an exact refresh of retained ids returns the org rows too, so a refresh never drops an older outside mail.
+#[tokio::test]
+#[ignore = "requires an isolated orginbox_queue_fixture database"]
+#[nolog]
+async fn ml3_sent_pages_and_refreshes_outside_mail_on_its_own() {
+    let w = world(true).await;
+    let writer = w.agent("writer", None).await;
+    let other = w.agent("other", None).await;
+    w.c.execute("INSERT INTO ot.org_inbox (uid, org_id, dir, peer, body, by_name, state, at, sender_agent_id)
+                 SELECT 'o' || lpad(g::text, 3, '0'), $1, 'out', '@net:bob.1', 'b', 'writer', 'delivered',
+                        '2026-11-01T00:00:00Z'::timestamptz + g * interval '1 minute', $2 FROM generate_series(0, 159) g",
+        &[&w.org, &writer]).await.unwrap();
+    let ids = walk_sent(&w.c, w.org, writer).await;
+    assert_eq!(ids.len(), 160, "outside mail only: all 160 rows are reached");
+    assert_eq!(ids.iter().collect::<std::collections::HashSet<_>>().len(), 160, "each once");
+    assert_eq!((ids[0].as_str(), ids[159].as_str()), ("o159", "o000"), "newest first");
+    // five mails among them; m0 at the very time of o020
+    w.c.execute("INSERT INTO ot.mail(uid,org_id,sender,sender_agent_id,recipient_kind,recipient_agent_id,recipient_name,body,state,created_at)
+                 SELECT 'm' || g, $1, 'writer', $2, 'agent', $3, 'other', 'b', 'read',
+                        '2026-11-01T00:20:00Z'::timestamptz + g * interval '37 minutes' FROM generate_series(0, 4) g",
+        &[&w.org, &writer, &other]).await.unwrap();
+    let ids = walk_sent(&w.c, w.org, writer).await;
+    assert_eq!(ids.len(), 165, "both kinds: {ids:?}");
+    assert_eq!(ids.iter().collect::<std::collections::HashSet<_>>().len(), 165, "each once");
+    let at = |id: &str| ids.iter().position(|x| x == id).unwrap();
+    assert!(at("o021") < at("m0") && at("m0") < at("o019"), "in time order");
+    // a refresh of retained ids, older outside mail among them
+    let page = crate::domain::mail_history::selected_page(&w.c, w.org, Some(writer), "sent", r#"["o000","o159","m4"]"#).await.unwrap();
+    let mut got: Vec<&str> = page["sent"].as_array().unwrap().iter().map(|m| m["id"].as_str().unwrap()).collect();
+    got.sort();
+    assert_eq!(got, ["m4", "o000", "o159"], "the refresh returns the org rows too: {page}");
+    assert_eq!(page["sent"].as_array().unwrap().iter().find(|m| m["id"] == "o000").unwrap()["org_row"], "o000");
+    // never another agent's
+    let page = crate::domain::mail_history::selected_page(&w.c, w.org, Some(other), "sent", r#"["o000"]"#).await.unwrap();
+    assert!(page["sent"].as_array().unwrap().is_empty(), "{page}");
+}
+
+/// Every row of an agent's Sent, page by page through next_cursor.
+#[nolog]
+async fn walk_sent(c: &tokio_postgres::Client, org: i64, agent: i64) -> Vec<String> {
+    let (mut ids, mut cursor) = (Vec::<String>::new(), None::<i64>);
+    for _ in 0..20 {
+        let page = crate::domain::mail_history::agent_page(c, org, agent, "sent", cursor).await.unwrap();
+        ids.extend(page["sent"].as_array().unwrap().iter().map(|m| m["id"].as_str().unwrap().to_string()));
+        match page["next_cursor"].as_str() { Some(n) => cursor = Some(n.parse().unwrap()), None => return ids }
+    }
+    panic!("the pages end")
+}

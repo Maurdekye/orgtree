@@ -254,14 +254,15 @@ test('§2 relay (R10): a relay holder shows as "project … (relay)" and a relay
 test('§2 ack mode: Working, Line, the Dead Letter Line while a dead-letter listener reaches the project, Recently Finished (user 06:22Z, 06:41Z)', async (t) => {
   const { view, ops } = await mailFolder(t, ackHistory(), true)
   assert.deepEqual(ops, [{ op: 'mail_queue_history', node: 'sync' }])
-  assert.deepEqual(sections(view.el, T), ['Working', 'Line', 'Dead Letter Line', 'Recently Finished'])
+  assert.deepEqual(sections(view.el, T), ['Working', 'Line', 'Dead Letter Line', 'Waiting mail', 'Recently Finished'])
   const dead = [...view.el.querySelectorAll<HTMLTableRowElement>(`${T} .mail-dead-line tr.listener-row`)]
   assert.equal(dead.length, 1, "boss's dead-letter dog: carol reaches no part of the project, and a count dog is no dead-letter listener")
   assert.equal(dead[0]!.querySelector('[data-copy-agent-name]')?.getAttribute('data-copy-agent-name'), 'boss')
   assert.ok(dead[0]!.querySelector('.watchdog-link')?.classList.contains('dead-letter'), 'its chip in the dead-letter sepia-maroon')
   const work = view.el.querySelector<HTMLTableRowElement>(`${T} .mail-working tr.listener-row`)!
   const w = cells(work)
-  assert.equal(w[2], '1h 0m', 'waited from its arming to the hand-out')
+  assert.equal(w[3], '1h 0m', 'Agent waited: from its arming to the hand-out')
+  assert.equal(w[2], '', 'Mail waited: this job carries no mail wait')
   assert.ok(work.querySelector('.slot-held .slot-time.live'), 'held, counting up')
   assert.equal(work.querySelector('.listener-mail-link button.ref-chip.ref-mail.ref-message')?.textContent, 'build it', 'a link to the delivered mail')
   assert.equal(work.querySelector('[data-action="take-back"]')?.textContent, 'take back')
@@ -287,15 +288,15 @@ test('§2 Recently Finished: the job, its ack, the three times, and each ending 
   assert.deepEqual(rows.map((r) => r.classList.contains('ending-failed')), [false, true, true, false], 'failed without an ack: one highlight')
   assert.deepEqual(rows.map((r) => r.classList.contains('ending-dead')), [false, false, false, true], 'a dead letter: another')
   const acked = cells(rows[0]!)
-  assert.equal(acked[2], '10m', 'Waited: from its last end to the hand-out')
-  assert.equal(acked[3], '30m', 'Held: from the hand-out to the ack')
-  assert.match(acked[4]!, /ago$/, 'Acked: how long ago')
+  assert.equal(acked[3], '10m', 'Agent waited: from its last end to the hand-out')
+  assert.equal(acked[4], '30m', 'Held: from the hand-out to the ack')
+  assert.match(acked[5]!, /ago$/, 'Acked: how long ago')
   const ackLink = rows[0]!.querySelector<HTMLButtonElement>('.listener-ack .listener-mail-link button.ref-chip.ref-mail.ref-message')!
   assert.equal(ackLink.textContent, 'tested, all green', 'a link to the ack mail')
   await inAct(async () => { ackLink.click(); await flush(2) })
   await inAct(async () => { rows[0]!.querySelector<HTMLButtonElement>('.listener-mail .listener-mail-link button.ref-chip.ref-mail.ref-message')!.click(); await flush(2) })
   assert.deepEqual(openedMail, ['a4', 'm40'], 'the ack and the job open in the project inbox')
-  assert.deepEqual(rows.slice(1).map((r) => cells(r)[6]), ['failed', 'taken back', 'dead letter'], 'the ending in a word where the ack would be')
+  assert.deepEqual(rows.slice(1).map((r) => cells(r)[7]), ['failed', 'taken back', 'dead letter'], 'the ending in a word where the ack would be')
   assert.match(rows[1]!.querySelector<HTMLElement>('.ending-word')!.title, /sb was halted \(attempt 1 of 3\)/)
 })
 
@@ -329,15 +330,15 @@ test('§3 round-robin: Line and Recently Delivered, with when each was delivered
   const { view, ops } = await mailFolder(t, (req: OpRequest) => req.history_before === 'c2'
     ? { project: 'sync', ack: false, history: [delivered(1)], history_next: null }
     : { project: 'sync', ack: false, history: [delivered(3), delivered(2)], history_next: 'c2' }, false)
-  assert.deepEqual(heads(view.el, T), ['Position', 'Agent', 'Waited', 'Delivered', 'Mail', 'Batch', 'Handed', 'Watchdog'])
-  assert.deepEqual(sections(view.el, T), ['Line', 'Dead Letter Line', 'Recently Delivered'], 'no Working in round-robin')
+  assert.deepEqual(heads(view.el, T), ['Position', 'Agent', 'Mail waited', 'Agent waited', 'Delivered', 'Mail', 'Batch', 'Handed', 'Watchdog'])
+  assert.deepEqual(sections(view.el, T), ['Line', 'Dead Letter Line', 'Waiting mail', 'Recently Delivered'], 'no Working in round-robin')
   const rows = () => [...view.el.querySelectorAll<HTMLTableRowElement>(`${T} .mail-history tr.listener-row`)]
-  assert.deepEqual(rows().map((r) => cells(r)[4]), ['mail 3', 'mail 2'])
-  assert.equal(cells(rows()[0]!)[2], '2m', 'Waited: from its last hand-out to this one')
-  assert.match(cells(rows()[0]!)[3]!, /ago$/, 'Delivered: how long ago (user 06:36Z)')
+  assert.deepEqual(rows().map((r) => cells(r)[5]), ['mail 3', 'mail 2'])
+  assert.equal(cells(rows()[0]!)[3], '2m', 'Agent waited: from its last hand-out to this one')
+  assert.match(cells(rows()[0]!)[4]!, /ago$/, 'Delivered: how long ago (user 06:36Z)')
   await bottom(view.el)
   assert.deepEqual(ops.at(-1), { op: 'mail_queue_history', node: 'sync', history_before: 'c2' })
-  assert.deepEqual(rows().map((r) => cells(r)[4]), ['mail 3', 'mail 2', 'mail 1'], 'the older page appended')
+  assert.deepEqual(rows().map((r) => cells(r)[5]), ['mail 3', 'mail 2', 'mail 1'], 'the older page appended')
 })
 
 /* ─── §4 Slots ─────────────────────────────────────────────────────────── */

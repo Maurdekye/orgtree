@@ -87,7 +87,7 @@ import { SenderChip } from '../canvas/senderchip'
 import { HubContactChip, isHubAddress, requestTranscriptMail } from '../canvas/agentmentions'
 import { isCurrentOrgAddress } from '../canvas/netmentions'
 import { agentCopyEntry, contextMenuBelongsTo, copyToClipboard, useContextMenu, useContextMenuOpen } from '../canvas/contextmenu'
-import type { MenuEntry } from '../canvas/contextmenu'
+import type { MenuEntry, MenuItem } from '../canvas/contextmenu'
 import { mailMenuEntries } from '../canvas/mailidentity'
 import { mailRowCopyText } from '../canvas/copytext'
 import type { CopyableMailRow } from '../canvas/copytext'
@@ -112,6 +112,7 @@ import {
 import { fmtDay, fmtFull, fmtHm, fmtStamp, isToday } from '../timefmt'
 import { useSurfaceDocument } from '../popout'
 import { askForMailbox, CHATS_TITLE, setShownChat } from '../mailboxpref'
+import { mailboxViewEntries, VIEW_WORDS } from '../canvas/mailboxviews'
 import { dmAudienceLoss, dmChats, dmClose, dmNodes, dmReceipt, dmWaiting, dmWriting } from './model'
 import type { DmChat, DmEntry, DmNode } from './model'
 import './dm.css'
@@ -1432,29 +1433,34 @@ function DmConversation({ slug, tree, chat, nodes, toast, refs, onFocusAgent, fl
   }
   const senderChip = (id: string) => <SenderChip id={id} nodes={nodes} onFocusAgent={onFocusAgent} />
 
-  /** WHOSE MAILBOX HOLDS THIS MESSAGE TOO, and the way there (USER 2026-11-24
-   *  m107404c86d5a: "a context menu entry for view in @agent's inbox"): the
-   *  agent this bubble is from or to, through the panel's own route for a
-   *  mail of a node's box. Not for Orgtree's own mail or an outside sender. */
-  const inboxOf = (e: DmEntry, m: MailRow): { agent: string; open: () => void } | undefined => {
-    const agent = e.via ?? (chat.kind === 'agent' || chat.kind === 'project' ? peer : '')
-    if (!agent || !m.id || !nodes.has(agent)) return undefined
-    const target = resolveRef({ kind: 'mail', org: slug, box: 'node', node: agent, id: m.id }, refs.world)
-    // the mailbox itself, not the chat the mail-link router would choose while the chats are on (mailboxpref askForMailbox)
-    return target.outcome === 'ready' ? { agent, open: () => { askForMailbox(m.id!); refs.onOpen(target) } } : undefined
-  }
   const canReplyTo = (e: DmEntry, m: MailRow): boolean =>
     !!m.id && chat.live && (!e.out || chat.kind === 'agent' || (chat.kind === 'project' && !!e.job))
-  /** "View in transcript" (USER 2026-11-24 m3c9cf622c450, m3a9dde56818f "but only if they've been
-   *  delivered and unqueued"): the agent's desk, at this mail's row. The agent's own mail always has
-   *  one; the user's mail has one once the agent's CLI has taken it (the check mark's state), and
-   *  the entry is absent, not greyed, until then. */
-  const transcriptOf = (e: DmEntry, m: MailRow): (() => void) | undefined => {
-    const agent = e.via ?? (chat.kind === 'agent' ? peer : '')
-    const there = nodes.get(agent)
-    if (!agent || !m.id || !onFocusAgent || !there || there.kind === 'project') return undefined
-    if (e.out && (m as MailEntry).delivered !== true) return undefined
-    return () => { requestTranscriptMail(slug, agent, m.id!, m.at ?? undefined); onFocusAgent(agent) }
+  /** THE MESSAGE'S OTHER PLACES (USER 2026-11-28, docket mail-link-context-menus-open-in-recipient-s-inbo; the shared
+   *  builder canvas/mailboxviews.ts): the agent's inbox or outbox and the user's ("View in @agent's inbox", USER
+   *  2026-11-24 m107404c86d5a; "View in your inbox"/"your outbox" take the place of "View in classic inbox", USER
+   *  2026-11-25 ma79665bf7f2e, through the same classic jump), and the agent's transcript (USER 2026-11-24
+   *  m3c9cf622c450, m3a9dde56818f "but only if they've been delivered and unqueued", 2026-11-28 mab64f2c27c76 "View
+   *  in @sender's transcript"): the agent's own mail always has one, the user's once its CLI has taken it (the check
+   *  mark). This chat is where it is shown, so no View in chat. */
+  const viewsOf = (e: DmEntry, m: MailRow): MenuItem[] => {
+    if (!m.id) return []
+    const id = m.id
+    const agent = e.via ?? (chat.kind === 'agent' || chat.kind === 'project' ? peer : '')
+    const row = e.out ? { from: '@user', to: (m as { to?: string }).to ?? (agent || undefined), delivered: (m as MailEntry).delivered === true }
+      : { from: e.via ?? m.from }
+    return mailboxViewEntries({ row: { ...row, id }, holder: { box: 'user' }, here: { chat: peer },
+      view: (side, mid) => {
+        if (side.box === 'user') { onViewClassic?.(mid); return }
+        const target = resolveRef({ kind: 'mail', org: slug, box: side.box, node: side.node, id: mid }, refs.world)
+        // the mailbox itself, not the chat the mail-link router would choose while the chats are on (mailboxpref askForMailbox)
+        if (target.outcome === 'ready') { askForMailbox(mid); refs.onOpen(target) }
+      },
+      // a retired agent's mailbox does not open and it has no transcript
+      mailbox: { has: name => !!nodes.get(name) },
+      transcript: onFocusAgent ? { has: name => !!nodes.get(name) && nodes.get(name)!.kind !== 'project',
+        open: (name, mid) => { requestTranscriptMail(slug, name, mid, m.at ?? undefined); onFocusAgent(name) } } : undefined })
+      // the user's own box only where the panel has its classic jump
+      .filter(v => onViewClassic || (v.label !== VIEW_WORDS.userInbox && v.label !== VIEW_WORDS.userOutbox))
   }
   /** the desk's × on the user's own mail (USER 2026-11-25 m88681ac17bfd "have an x for unread mail like in
    *  the desk which takes it back, but thats it"): exactly while the desk would offer it (PendingMailRow:
@@ -1489,8 +1495,7 @@ function DmConversation({ slug, tree, chat, nodes, toast, refs, onFocusAgent, fl
         flash={flash?.key === e.key ? flash.seq : null}
         replying={replyIds.includes(e.key)} system={chat.kind === 'system'}
         sender={senderChip} fileHref={fileHref} mdBase={mdBase} locateMail={locateMail} describeMail={describeMail}
-        inbox={inboxOf(e, m)} onTranscript={transcriptOf(e, m)}
-        onClassic={onViewClassic && m.id ? () => onViewClassic(m.id!) : undefined} transfer={m.id ? transfers.get(m.id) : undefined}
+        views={viewsOf(e, m)} transfer={m.id ? transfers.get(m.id) : undefined}
         /* the user's own message can be answered too (USER 2026-11-24 mf2cbc358ad35 "need to be able to
            reply to myself"): in an agent's chat the reply goes to that agent with the user's earlier mail
            as its target; in a project's chat it follows up on that job */
@@ -1571,7 +1576,8 @@ function DmConversation({ slug, tree, chat, nodes, toast, refs, onFocusAgent, fl
         tabIndex={-1} onKeyDown={(e) => { userMoves(); walkKeys(e) }} onMouseDown={() => { userMoves(); if (hlRef.current) leaveHl() }} onTouchStart={userMoves}
         onBlur={(e) => { if (hlRef.current && e.currentTarget.ownerDocument.hasFocus() && !e.currentTarget.contains(e.relatedTarget as Node | null)) leaveHl() }}
         onWheel={(e) => { userMoves(); if (e.deltaY < 0 && (scroller.current?.scrollTop ?? 1) <= 0) older(true) }}>
-        <div className="dm-timeline-inner">
+        {/* where a mail link in it is shown: this chat (canvas/mailboxviews.ts mailPlaceAt) */}
+        <div className="dm-timeline-inner" data-mail-place={`chat:${peer}`}>
           {/* no button: older messages load as the top comes near (`older`) */}
           {loadingOlder && fills && <div className="dm-older" role="status">loading older messages…</div>}
           {historyError && <div role="alert" className="dm-history-error">Could not load older mail. <button onClick={onRetryHistory}>Retry</button></div>}
@@ -1654,7 +1660,7 @@ interface DmLocal {
 }
 
 function DmBubble({ entry, m, first, slug, refs, toast, flash, replying, system, sender, fileHref, mdBase,
-  locateMail, describeMail, inbox, onTranscript, onClassic, onReply, onRead, onDelete, onRetract, onAckJob, highlighted, local, transfer }: {
+  locateMail, describeMail, views, onReply, onRead, onDelete, onRetract, onAckJob, highlighted, local, transfer }: {
   entry: DmEntry; m: MailRow; first: boolean; slug: string; refs: RefRoutes; toast: ToastFn
   /** the transfer carrying this message's files, while it is unfinished */
   transfer?: MailTransfer
@@ -1662,12 +1668,8 @@ function DmBubble({ entry, m, first, slug, refs, toast, flash, replying, system,
   local?: { state: 'sending' | 'failed' | 'sent'; error?: string; retry: () => void; discard: () => void }
   locateMail: LocateMail
   describeMail?: (id: string) => string
-  /** the agent whose mailbox holds this message too, and the way to it there */
-  inbox?: { agent: string; open: () => void }
-  /** this message's row in the agent's transcript; absent while it has none (the user's mail not yet delivered) */
-  onTranscript?: () => void
-  /** this message in the classic mailbox, selected (USER 2026-11-25 ma79665bf7f2e); none on a message still sending */
-  onClassic?: () => void
+  /** the message's other places (viewsOf, the shared builder canvas/mailboxviews.ts) */
+  views?: MenuItem[]
   /** the keyboard walk stands on this message */
   highlighted?: boolean
   /** a message the system sent: tagged S (USER 2026-11-23 mf47548121ae5) */
@@ -1735,10 +1737,8 @@ function DmBubble({ entry, m, first, slug, refs, toast, flash, replying, system,
       ...(onRead ? [{ label: 'Mark as read', onSelect: onRead }] : []),
       ...(onDelete ? [{ label: 'Delete', onSelect: onDelete }] : []),
       ...(onRetract ? [{ label: 'Retract (undelivered)', onSelect: onRetract }] : []),
-      ...(inbox ? [{ label: `View in @${inbox.agent}\u2019s inbox`, onSelect: inbox.open }] : []),
-      ...(onTranscript ? [{ label: 'View in transcript', onSelect: onTranscript }] : []),
+      ...(views ?? []),
       ...(senderEntry ? [senderEntry] : []),
-      ...(onClassic ? [{ label: 'View in classic inbox', onSelect: onClassic }] : []),
     ],
     copy, canCopy: mailRowCopyText(m as CopyableMailRow, PROFILE).trim() !== '', reference,
     copyReference: () => { if (reference) void copyToClipboard(ref.current, reference).then(ok => toast([ok ? `copied the reference ${reference}` : 'could not copy the reference — clipboard unavailable'])) },

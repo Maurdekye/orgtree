@@ -43,7 +43,7 @@ Choose **Project settings > Mail queue**:
 
 Start with a batch of one. Larger batches (up to 20) suit small independent tasks but do not justify acknowledging before completion. In ACK mode an agent replies to the project with the handed job's exact reference and a completion record. Reading the project's original message, or the worker merely receiving it, is not that acknowledgment.
 
-**Mail > listeners** separates Working, Line and Recently Finished in ACK mode, or Line and Recently Delivered in round-robin. Inspect the job, holder, wait/hold age, batch and watchdog. Paused/unavailable listeners differ from ready workers. **Dead Letter Line** lists notification subscribers, not failed jobs.
+**Mail > listeners** separates Working, Line, Waiting mail and Recently Finished in ACK mode, or Line, Waiting mail and Recently Delivered in round-robin. Waiting mail lists the mail no listener has taken yet, next out first. Every section has two wait columns: **Mail waited** (how long the mail sat in the queue before a listener took it) and **Agent waited** (how long the listener sat in line before it got the job). Inspect the job, holder, wait/hold age, batch and watchdog. Paused/unavailable listeners differ from ready workers. **Dead Letter Line** lists notification subscribers, not failed jobs.
 
 ### Replying about a job
 

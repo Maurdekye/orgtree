@@ -776,6 +776,10 @@ main {
    canvas (USER 2026-11-25 m70add47eb0b6 "much longer dashes": was 2 5) */
 .edge.aud-line.weak { stroke-dasharray: 10 8; stroke-linecap: round; }
 .badge.weak-link { border-style: dotted; }
+.badge .aud-via-link { display: inline-flex; align-items: center; gap: 3px; padding: 0; border: 0; background: none;
+  color: inherit; font: inherit; cursor: pointer; }
+.badge .aud-via-link:hover { text-decoration: underline; }
+.badge .aud-via-count { margin-left: 2px; padding: 0 5px; border-radius: 8px; background: color-mix(in srgb, currentColor 14%, transparent); font-size: 0.9em; }
 /* failover (USER 2026-11-25 m872c7d4f0973): the weak link acting as the holder; its line as bright as a holder's,
    still dashed (the link stays weak), and its mailbox badge tagged */
 .edge.aud-line.weak.acting { opacity: .9; stroke-width: 2.2px; }
@@ -3741,6 +3745,8 @@ button.project-slots-badge, button.project-listeners-badge, button.project-queue
    as its one button, take back, and in a narrow pane a narrower Agent (the
    other tables keep theirs: their names have the room) */
 .slots-table.mail-listeners-table.ack { min-width: 660px; }
+/* the two waits, Mail waited and Agent waited, side by side in every section (USER 2026-11-27 m74c2267e6f07) */
+.mail-listeners-table .listener-col-wait { width: 84px; }
 .mail-listeners-table .slot-col-action { width: 82px; }
 .mail-listeners-table .listener-user-actions { display:inline-flex; flex-wrap:nowrap; gap:4px; white-space:nowrap; }
 .mail-listeners-table .slot-action .listener-action { display:inline-flex; align-items:center; justify-content:center;

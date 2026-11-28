@@ -241,6 +241,10 @@ pub fn mail_entry(m: &Value) -> Value {
     if let Some(tags)=m.get("tags").filter(|t|t.as_array().is_some_and(|a|!a.is_empty())) { o.insert("tags".into(),tags.clone()); }
     o.insert("id".into(), m["uid"].clone());
     o.insert("from".into(), m["sender"].clone());
+    // a holder's copy of org mailbox mail: the org row it came from (docket mail-link-context-menus-open-in-recipient-s-inbo)
+    if let Some(row) = m["extra"]["org_inbox_source"].as_str().or(m["extra"]["org_inbox"]["uid"].as_str()) {
+        o.insert("org_row".into(), json!(row));
+    }
     // which computer the user's mail came through (`caller`); a row without one reads as before
     if let Some(via) = m.get("via").filter(|v| !v.is_null()) {
         o.insert("via".into(), via.clone());
@@ -288,6 +292,13 @@ pub fn mail_entry(m: &Value) -> Value {
     // Legacy UI field means an explicit content read, including outside DND.
     if m["extra"]["dnd_read"] == true || m["extra"]["manual_read"] == true { o.insert("dnd_read".into(),json!(true)); }
     let state = m["state"].as_str().unwrap_or("");
+    // a project mail back in its queue (taken back, released, retried) waits again from then: the listeners folder's
+    // Mail waited counts from it, while `at` stays its arrival (docket mail-queues-store-and-show-the-mail-s-own-wait-s)
+    if state == "pending" {
+        if let Some(q) = m["extra"].get("queued_at").filter(|v| v.is_string()) {
+            o.insert("queued_at".into(), q.clone());
+        }
+    }
     if state == "delivering" {
         o.insert("delivering".into(), json!(true));
     }
@@ -459,7 +470,13 @@ pub async fn agent_mailbox(client: &Client, agent_id: i64) -> Result<Vec<(String
             &[&agent_id, &MAILBOX_WINDOW],
         )
         .await?;
+    // its mail to outside parties, in the same span of time as the Sent mails the window holds (orginbox::sent_entry)
+    let from = if sent.len() as i64 >= MAILBOX_WINDOW { sent.last().map(|r| r.get::<_, i64>(0)) } else { None };
+    let outside = crate::domain::orginbox::agent_sent(client, agent_id, from, MAILBOX_WINDOW).await?;
     let mut out = Vec::new();
+    for (id, mail) in outside {
+        out.push((format!("sent:org:{id}"), json!({ "folder": "sent", "order": [id], "mail": mail })));
+    }
     for (folder, rows) in [("pending", pending), ("delivered", delivered), ("sent", sent)] {
         for r in rows {
             let id: i64 = r.get(0);
@@ -552,8 +569,42 @@ mod delivered_tests {
 mod via_tests {
     use super::*;
 
+    /// A holder's copy of inbound org mail names the org mailbox row it came from, so its menu can offer "View in org
+    /// inbox" at that row (docket mail-link-context-menus-open-in-recipient-s-inbo): an agent's copy by
+    /// `extra.org_inbox_source`, a project's job by `extra.org_inbox.uid`. Other mail names none.
+    #[test]
+    fn an_org_mailbox_copy_names_its_org_row() {
+        let base = json!({ "uid": "m1", "sender": "@net:bob.1", "kind": "message", "body": "hi", "created_at": "2026-11-28T10:00:00+00:00" });
+        let mut copy = base.clone();
+        copy["extra"] = json!({ "org_inbox_source": "x-row" });
+        assert_eq!(mail_entry(&copy)["org_row"], "x-row");
+        let mut job = base.clone();
+        job["extra"] = json!({ "org_inbox": { "uid": "x-job-row", "peer": "@net:bob.1" } });
+        assert_eq!(mail_entry(&job)["org_row"], "x-job-row");
+        assert!(mail_entry(&base).get("org_row").is_none());
+    }
+
     fn sam() -> Value {
         json!({ "id": "c-1", "name": "Sam", "on": "Orgtree desktop (PC2)" })
+    }
+
+    /// A project mail that went back in the queue (taken back, released, retried) says since when it has waited there
+    /// again, so the listeners folder's Mail waited counts from then; its inbox date stays its arrival. Only while it
+    /// waits: a handed mail's `queued_at` is history (docket mail-queues-store-and-show-the-mail-s-own-wait-s, bounce
+    /// me43c972cb1c6).
+    #[test]
+    fn a_requeued_waiting_mail_says_since_when_it_waits_again() {
+        let mail = json!({ "uid": "m1", "sender": "@user", "kind": "message", "body": "hi", "recipient_kind": "agent", "state": "pending",
+                           "created_at": "2026-11-27T10:00:00+00:00", "extra": { "queued_at": "2026-11-27T10:10:00+00:00" } });
+        let row = mail_entry(&mail);
+        assert_eq!(row["queued_at"], "2026-11-27T10:10:00+00:00", "{row}");
+        assert_eq!(row["at"], mail_entry(&json!({ "created_at": "2026-11-27T10:00:00+00:00" }))["at"], "the inbox date stays its arrival");
+        let mut handed = mail.clone();
+        handed["state"] = json!("read");
+        assert!(mail_entry(&handed).get("queued_at").is_none(), "a handed mail no longer waits");
+        let mut fresh = mail.clone();
+        fresh["extra"] = json!({});
+        assert!(mail_entry(&fresh).get("queued_at").is_none(), "a mail never requeued waits from its arrival");
     }
 
     #[test]

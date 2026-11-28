@@ -108,6 +108,8 @@ pub(super) async fn hand(tx: &impl GenericClient, org_id: i64, project: i64, pna
     let q = w.owner.unwrap_or_default();
     let job_uid: String = m.get(1);
     let mail_id: i64 = m.get(0);
+    // the mail's own queue wait (the waiting query's last column), stored apart from the relay's
+    let mail_waited_from: DateTime<Utc> = m.get(22);
     let relayed_from: Option<Value> = m.get(20);
     let org_inbox: Option<Value> = m.get(21);
     let mut chain = relayed_from.as_ref().and_then(|v| v["chain"].as_array().cloned()).unwrap_or_default();
@@ -128,14 +130,16 @@ pub(super) async fn hand(tx: &impl GenericClient, org_id: i64, project: i64, pna
     tx.execute(
         "UPDATE ot.mail SET state = 'read', read_at = now(), delivered_at = coalesce(delivered_at, now()),
                 extra = extra || jsonb_build_object('claimed', jsonb_build_object('by', $2::text, 'by_project', $3::bigint, 'by_user', false,
-                        'dog', $4::text, 'copy', $5::text, 'at', now(), 'ack', $6::boolean, 'wakes', 0, 'waited_from', $7::timestamptz),
+                        'dog', $4::text, 'copy', $5::text, 'at', now(), 'ack', $6::boolean, 'wakes', 0, 'waited_from', $7::timestamptz,
+                        'mail_waited_from', $8::timestamptz),
                         'relayed_to', jsonb_build_object('project', $3::bigint, 'job', $5::text),
                         'attempts', coalesce((extra->>'attempts')::int, 0) + 1,
                         'attempt_log', coalesce(extra->'attempt_log', '[]'::jsonb) || jsonb_build_array(jsonb_build_object(
                             'n', coalesce((extra->>'attempts')::int, 0) + 1, 'by', $2::text, 'by_project', $3::bigint,
-                            'copy', $5::text, 'at', now(), 'waited_from', $7::timestamptz, 'dog', $4::text)))
+                            'copy', $5::text, 'at', now(), 'waited_from', $7::timestamptz, 'mail_waited_from', $8::timestamptz,
+                            'dog', $4::text)))
           WHERE id = $1",
-        &[&mail_id, &w.owner_name, &q, &w.uid, &j2, &ack, &waited_from],
+        &[&mail_id, &w.owner_name, &q, &w.uid, &j2, &ack, &waited_from, &mail_waited_from],
     )
     .await?;
     // follow-ups bundled with J travel with the child (R4)
@@ -282,7 +286,8 @@ pub async fn take_back(tx: &impl GenericClient, org_id: i64, project: i64, row: 
     tx.execute(
         &format!("UPDATE ot.mail m SET state = 'pending', read_at = NULL,
                 extra = (({ended}) - 'claimed' - 'relayed_to')
-                    || jsonb_build_object('released', jsonb_build_object('by', $2::text, 'why', $3::text, 'copy', $5::text, 'at', now()))
+                    || jsonb_build_object('released', jsonb_build_object('by', $2::text, 'why', $3::text, 'copy', $5::text, 'at', now()),
+                                          'queued_at', now())
           WHERE m.id = $1"),
         &[&row, &format!("relay {qname}"), &why, &"released", &child],
     )

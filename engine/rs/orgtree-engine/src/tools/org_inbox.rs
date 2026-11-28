@@ -82,7 +82,7 @@ pub async fn read(engine:&Arc<Engine>,caller:&Caller,args:&Value)->Result<Done> 
         if bytes>budget {break;} budget-=bytes;
         let copies=orginbox::publish_copies(&tx,who.org_id,&[who.name.clone()],row["peer"].as_str().unwrap(),body,
             row["kind"].as_str().unwrap(),&row["attachments"],&crate::domain::replies::snapshots(row.get("reply_to"),row.get("replies")),
-            row["net_id"].as_str(),row["hub"].as_str()).await?;
+            row["net_id"].as_str(),row["hub"].as_str(),row["uid"].as_str().unwrap_or("")).await?;
         let uid=&copies[0].2;
         receipts.extend(tx.query("UPDATE ot.mail SET state='read',read_at=now(),delivered_at=now(),extra=extra || jsonb_build_object('manual_read',true,'org_inbox_source',$2::text) WHERE uid=$1 RETURNING uid,kind,org_id,net_id,net_hub",&[uid,&row["uid"].as_str().unwrap()]).await?);
         tx.execute("UPDATE ot.org_inbox SET dnd_held=false,pulled_by=$2,read=true,delivered_to=$3 WHERE uid=$1",

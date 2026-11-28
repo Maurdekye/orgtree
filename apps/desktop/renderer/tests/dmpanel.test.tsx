@@ -1457,10 +1457,11 @@ test('alpha.1 point 15: a bubble\'s menu has "View in @agent\'s inbox", for mail
     await inAct(async () => { bubble.dispatchEvent(new W.MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 10, clientY: 10 })); await flush(6) })
     return [...document.querySelectorAll<HTMLElement>('.ctx-menu [role="menuitem"], .ctxmenu [role="menuitem"], [role="menu"] [role="menuitem"]')]
   }
-  for (const entry of ['m1', 's1']) {
-    const item = (await menuOf(entry)).find(i => /View in @worker\u2019s inbox/.test(i.textContent ?? ''))
+  // the agent's mail is in its outbox, the user's mail to it in its inbox (USER 2026-11-28, mailboxviews.ts)
+  for (const [entry, folder] of [['m1', 'outbox'], ['s1', 'inbox']] as const) {
+    const item = (await menuOf(entry)).find(i => i.textContent?.trim() === `View in @worker\u2019s ${folder}`)
     assert.ok(item, `${entry}: the entry is in the bubble's menu`)
-    await s.click(item, 'View in @worker\'s inbox')
+    await s.click(item, `View in @worker's ${folder}`)
   }
   assert.deepEqual(s.state.opened, [{ kind: 'mail', org: 'mine', box: 'node', node: 'worker', id: 'm1' }, { kind: 'mail', org: 'mine', box: 'node', node: 'worker', id: 's1' }],
     'the agent\'s mailbox, at that message')
@@ -1699,6 +1700,8 @@ test('alpha.1 point 15: a bubble\u2019s menu has "View in transcript" for the ag
     byId: { in1: { ...mail('in1', 'worker', '2026-11-20T10:00:00Z'), to: USER }, done: sent('done', 'worker', '2026-11-20T11:00:00Z') },
   }
   const s = await setup(t, world, { active: false })
+  // View in @<sender>'s transcript (USER 2026-11-28 mab64f2c27c76)
+  const T = 'View in @worker\u2019s transcript'
   await s.openChat('worker')
   const menuOf = async (id: string) => {
     const bubble = s.all<HTMLElement>('.dm-msg').find(m => m.dataset.dmEntry === id)?.querySelector<HTMLElement>('.dm-bubble')
@@ -1711,21 +1714,21 @@ test('alpha.1 point 15: a bubble\u2019s menu has "View in transcript" for the ag
   const closeMenu = async () => inAct(async () => { document.dispatchEvent(new W.KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); await flush(3) })
   // the agent's own mail: always
   let menu = await menuOf('in1')
-  assert.equal(menu.labels.includes('View in transcript'), true, `the agent\u2019s mail has it (${menu.labels.join(' | ')})`)
-  assert.equal(menu.labels.indexOf('View in transcript') + 1, menu.labels.findIndex(l => l.startsWith('View in @worker')), 'next to "View in @worker\u2019s inbox" (the View in group, USER 2026-11-25 md7da554ce837)')
-  await s.click(menu.item('View in transcript'), 'View in transcript')
+  assert.equal(menu.labels.includes(T), true, `the agent\u2019s mail has it (${menu.labels.join(' | ')})`)
+  assert.equal(menu.labels.indexOf(T) - 1, menu.labels.indexOf('View in @worker\u2019s outbox'), 'right after the agent\u2019s outbox (the View in group, USER 2026-11-25 md7da554ce837)')
+  await s.click(menu.item(T), T)
   assert.deepEqual([mentionHighlightOf('mine', 'worker')?.mailId, mentionHighlightOf('mine', 'worker')?.at], ['in1', '2026-11-20T10:00:00Z'], 'the desk of that agent is asked for that mail\u2019s row')
   assert.deepEqual(s.state.focused, ['worker'], 'and its desk is shown')
   // the user's own mail: only once it is delivered
   menu = await menuOf('done')
-  assert.equal(menu.labels.includes('View in transcript'), true, 'a delivered message has it')
+  assert.equal(menu.labels.includes(T), true, 'a delivered message has it')
   await closeMenu()
   menu = await menuOf('wait')
-  assert.equal(menu.labels.includes('View in transcript'), false, `a waiting message has no such entry, not a greyed one (${menu.labels.join(' | ')})`)
+  assert.equal(menu.labels.includes(T), false, `a waiting message has no such entry, not a greyed one (${menu.labels.join(' | ')})`)
   assert.equal(menu.labels.some(l => l.startsWith('View in @worker')), true, 'POSITIVE CONTROL: its menu is the bubble menu')
   await closeMenu()
   menu = await menuOf('old')
-  assert.equal(menu.labels.includes('View in transcript'), false, 'nor one the engine says nothing about')
+  assert.equal(menu.labels.includes(T), false, 'nor one the engine says nothing about')
   await closeMenu()
   // it appears live when the mail is delivered
   ;(world.sent as Record<string, unknown>[]).find(m => m.id === 'wait')!.delivered = true
@@ -1733,7 +1736,7 @@ test('alpha.1 point 15: a bubble\u2019s menu has "View in transcript" for the ag
     await inAct(async () => { await new Promise(resolve => setTimeout(resolve, 100)); await flush(4) })
   }
   menu = await menuOf('wait')
-  assert.equal(menu.labels.includes('View in transcript'), true, 'the entry is there once the mail is delivered, with no reopening')
+  assert.equal(menu.labels.includes(T), true, 'the entry is there once the mail is delivered, with no reopening')
 })
 
 test('alpha.1 point 20: the user\u2019s own message has Reply; the reply goes to the chat\u2019s agent with that message as its target, and its quote shows in the chat', async (t) => {
@@ -2811,8 +2814,8 @@ test('View in @agent\'s inbox reaches the agent\'s mailbox through the mail-link
     const bubble = s.all<HTMLElement>('.dm-msg').find(m => m.dataset.dmEntry === entry)!.querySelector('.dm-bubble')!
     await inAct(async () => { bubble.dispatchEvent(new W.MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 10, clientY: 10 })); await flush(6) })
     const item = [...document.querySelectorAll<HTMLElement>('.ctxmenu [role="menuitem"], [role="menu"] [role="menuitem"]')]
-      .find(i => /View in @worker’s inbox/.test(i.textContent ?? ''))
-    await s.click(item, `View in @worker's inbox on ${entry}`)
+      .find(i => /View in @worker’s (inbox|outbox)/.test(i.textContent ?? ''))
+    await s.click(item, `View in @worker's mailbox on ${entry}`)
     assert.deepEqual(s.state.opened.at(-1), { kind: 'mail', org: 'mine', box: 'node', node: 'worker', id: entry }, 'POSITIVE CONTROL: the panel asks for that mail in worker\'s mailbox')
     assert.equal(await route(entry), 1, `${entry}: the router opens worker's mailbox, as the entry says`)
     assert.deepEqual(views, [], `${entry}: and does not send it back to the chat`)

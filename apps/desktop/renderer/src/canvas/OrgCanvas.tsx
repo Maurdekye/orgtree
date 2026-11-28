@@ -4772,7 +4772,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
     <TeamListOrder.Provider value={canvasTrayCompare()}>
     <TeamListNavigation.Provider value={goToAgent}>
     <DeskDogsProvider value={deskDogs}>
-    <ObjectNavHost org={slug} dogs={tree.watchdogs ?? []} isProject={id=>map.get(id)?.kind==='project'} openDog={(id) => routeDog(id, true)}
+    <ObjectNavHost org={slug} dogs={tree.watchdogs ?? []} isProject={id=>map.get(id)?.kind==='project'} isNode={id=>map.has(id)} openDog={(id) => routeDog(id, true)}
       openTicket={onWorkItem} openDocument={openDocView} openMail={openMail} focusAgent={goToAgent} toast={toast} />
     <DeskHosts map={map} slug={slug} treeSlug={tree.slug} popoutDesk={node => ({
       node, map, op, slug, toast, compactAt: tree.compact_at,

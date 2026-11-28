@@ -369,7 +369,13 @@ test('agent and project mentions share the rich tooltip and shared NodeLink base
     assert.equal(el.title,el.hasAttribute('data-agent-tooltip-name-first')?'worker-project\n0/2 held':'0/2 held','project mention and ProjectLink show rich project tooltip on hover')
     const svg=el.querySelector('.project-mark svg')
     assert.ok(svg,'project link renders folder SVG')
-    assert.equal(svg.getAttribute('fill'),'currentColor','project folder SVG uses currentColor for org theme tint')
+    // the React mark is the theme's MUI glyph since 56b1315, which fills through its own class style rather than an attribute
+    // (jsdom does not resolve currentColor in computed style, so read the attribute or the rule that matches the glyph)
+    const ruleFill=()=>[...svg.ownerDocument.styleSheets].flatMap(sh=>{try{return [...sh.cssRules]}catch{return []}})
+      .filter((r):r is CSSStyleRule=>'selectorText' in r&&!!(r as CSSStyleRule).style?.fill).filter(r=>{try{return svg.matches(r.selectorText)}catch{return false}})
+      .map(r=>r.style.fill).pop()??''
+    const fill=svg.getAttribute('fill')??ruleFill()
+    assert.match(fill,/^currentcolor$/i,'project folder SVG uses currentColor for org theme tint')
   }
 
   const domNode=createNodeLinkEl(document,{id:'worker-alpha',tier:'sol',label:'@worker-alpha',className:'ref-chip ref-agent',live:true})

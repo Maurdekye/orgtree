@@ -632,8 +632,8 @@ export function ProjectInbox({ node, slug, tree, map, op, toast, refs, onJump, r
       jumpTo={jumpTo ?? null} jumpSeq={jumpSeq ?? null}
       onFolderPick={onPickFolder} folderTools={folderTools}
       extraFolders={[{ id: 'listeners', count: mailListeners.armed.length,
-        render: (rows) => <MailListenersView node={node} state={mailListeners} map={map} onJump={onJump}
-          rows={rows} ack={queueAckMode(node)} onOpenMail={onOpenMail} op={op} toast={toast} dogs={tree.watchdogs ?? []} refs={refs} /> }]}
+        render: (rows, waiting) => <MailListenersView node={node} state={mailListeners} map={map} onJump={onJump}
+          rows={rows} waiting={waiting} ack={queueAckMode(node)} onOpenMail={onOpenMail} op={op} toast={toast} dogs={tree.watchdogs ?? []} refs={refs} /> }]}
       folderAsk={folderAsk} />
     {purging && createPortal(
       <ConfirmModal title={`purge project ${node.id}'s waiting mail?`}
@@ -836,7 +836,7 @@ export function ProjectDesk({ node, slug, tree, map, op, toast, refs, bare, focu
             title={'open the Concurrency slots tab' + (slots.held.length ? ` — held by ${slots.held.map(h => h.agent).join(', ')}` : '')} onClick={() => setView('slots')}>{slotHeaderText(slots)}</button>}
           {/* no holder links here (user 2026-10-19 17:12Z): the holders are on the slots tab */}
           {/* the audiences it holds, as on the agent desk's header (G15) */}
-          <HeldAudienceChips node={node} map={map} slug={slug} toast={toast} />
+          <HeldAudienceChips node={node} map={map} slug={slug} toast={toast} onJump={onJump ? (id) => onJump(id) : undefined} />
         </DeskMetaRow>} />
       {upRow}
       {/* Own-only header chips (user 2026-10-20 18:58Z), matching its Presented tab. */}

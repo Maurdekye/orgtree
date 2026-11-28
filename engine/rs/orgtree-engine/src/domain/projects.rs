@@ -681,7 +681,9 @@ async fn hand_batch_in(tx: &impl GenericClient, org_id: i64, project: i64, limit
         .query(
             "SELECT id, uid, sender, sender_agent_id, sender_generation, kind, notice, body, attachments, reply_to, ev,
                     urgent, urgent_reason, net_id, net_hub, replies, client_op, extra->'taken_from', extra->'one_time', extra ? 'org_inbox',
-                    extra->'relayed_from', extra->'org_inbox'
+                    extra->'relayed_from', extra->'org_inbox',
+                    -- the mail's own wait starts at its arrival, or when it last went back in the queue
+                    coalesce((extra->>'queued_at')::timestamptz, created_at)
                FROM ot.mail WHERE recipient_agent_id = $1 AND state = 'pending'
                  AND (NOT $2 OR EXISTS (SELECT 1 FROM unnest($3::bigint[]) AS o(id) WHERE sender_agent_id IS DISTINCT FROM o.id)
                       OR ($4 AND sender <> '@user'))
@@ -708,8 +710,10 @@ async fn hand_batch_in(tx: &impl GenericClient, org_id: i64, project: i64, limit
         let body: String = m.get(7);
         let notice = m.get::<_, bool>(6) || w.notice;
         let copy = uid("m");
-        // since when this listener waited for it (its Waited on the desk)
+        // since when this listener waited for it (the desk's Agent waited), and since when the mail itself
+        // waited in the queue (Mail waited; USER 2026-11-27 m74c2267e6f07): stored apart, per hand-out
         let waited_from = w.waiting_since();
+        let mail_waited_from: DateTime<Utc> = m.get(22);
         if w.relay {
             // R4: the child job goes into the relaying project's own queue; this is not a hand-out to an agent
             let child = relay::hand(tx, org_id, project, &pname, ack, &w, m, waited_from).await?;
@@ -734,7 +738,7 @@ async fn hand_batch_in(tx: &impl GenericClient, org_id: i64, project: i64, limit
             continue;
         }
         let mut via = json!({ "via_project": { "id": project, "name": pname, "mail": mail_uid, "dog": w.uid, "ack": ack,
-                                            "waited_from": iso(waited_from) } });
+                                            "waited_from": iso(waited_from), "mail_waited_from": iso(mail_waited_from) } });
         if m.get::<_,Option<Value>>(18).is_some_and(|v|v==true) { via["one_time"]=json!(true); }
         if outside {
             // D8: the copy names its job, so the worker may reply to the sender until the ACK (D10)
@@ -764,13 +768,14 @@ async fn hand_batch_in(tx: &impl GenericClient, org_id: i64, project: i64, limit
                     extra = extra || jsonb_build_object('claimed', jsonb_build_object('by', $2::text, 'by_id', $3::bigint,
                             'by_user', $3::bigint IS NULL,
                             'dog', $4::text, 'copy', $5::text, 'at', now(), 'ack', $6::boolean, 'wakes', 0,
-                            'waited_from', $7::timestamptz),
+                            'waited_from', $7::timestamptz, 'mail_waited_from', $8::timestamptz),
                             'attempts', coalesce((extra->>'attempts')::int, 0) + 1,
                             'attempt_log', coalesce(extra->'attempt_log', '[]'::jsonb) || jsonb_build_array(jsonb_build_object(
                                 'n', coalesce((extra->>'attempts')::int, 0) + 1, 'by', $2::text, 'by_id', $3::bigint,
-                                'copy', $5::text, 'at', now(), 'waited_from', $7::timestamptz, 'dog', $4::text)))
+                                'copy', $5::text, 'at', now(), 'waited_from', $7::timestamptz, 'mail_waited_from', $8::timestamptz,
+                                'dog', $4::text)))
               WHERE id = $1",
-            &[&mail_id, &w.owner_name, &w.owner, &w.uid, &copy, &ack, &waited_from],
+            &[&mail_id, &w.owner_name, &w.owner, &w.uid, &copy, &ack, &waited_from, &mail_waited_from],
         )
         .await?;
         {
@@ -783,7 +788,7 @@ async fn hand_batch_in(tx: &impl GenericClient, org_id: i64, project: i64, limit
                 let b_copy = uid("m");
                 // a follow-up never asks for its own ack: the worker acks the JOB, which closes its follow-ups
                 let mut b_via = json!({ "via_project": { "id": project, "name": pname, "mail": b.get::<_, String>(1), "dog": w.uid, "ack": false,
-                                    "waited_from": iso(waited_from), "bundled": true, "job": mail_uid } });
+                                    "waited_from": iso(waited_from), "mail_waited_from": iso(mail_waited_from), "bundled": true, "job": mail_uid } });
                 if outside { b_via["via_project"]["outside"] = json!(true); b_via["outside_job"] = json!(mail_uid); }
                 tx.execute(
                     "INSERT INTO ot.mail (uid, org_id, sender, recipient_kind, recipient_agent_id, recipient_name, kind, notice, body,
@@ -1162,7 +1167,7 @@ pub async fn reclaim_in(tx: &impl GenericClient, org_id: i64, project: i64, row:
         tx.execute(
             &format!("UPDATE ot.mail m SET state = 'pending', read_at = NULL,
                     extra = (({ended}) - 'claimed') || jsonb_build_object('released', jsonb_build_object(
-                        'by', $2::text, 'by_id', $3::bigint, 'why', $4::text, 'copy', $5::text, 'at', now()))
+                        'by', $2::text, 'by_id', $3::bigint, 'why', $4::text, 'copy', $5::text, 'at', now()), 'queued_at', now())
               WHERE m.id = $1"),
             &[&row, &by, &holder, &why, &copy, &how],
         )
@@ -1235,10 +1240,10 @@ pub async fn record_ending(tx: &impl GenericClient, org_id: i64, project: i64, m
     let at = |k: &str| claimed[k].as_str().and_then(|t| DateTime::parse_from_rfc3339(t).ok()).map(|t| t.with_timezone(&Utc));
     tx.execute(
         "INSERT INTO ot.project_mail_endings (org_id, project_id, mail_uid, copy_uid, agent_id, agent_name, dog_uid, how, why,
-                                              attempt, waited_from, held_at, ended_at, ack_uid)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, now(), $13)",
+                                              attempt, waited_from, held_at, ended_at, ack_uid, mail_waited_from)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, now(), $13, $14)",
         &[&org_id, &project, &mail, &claimed["copy"].as_str(), &agent, &agent_name, &claimed["dog"].as_str(), &how, &why,
-          &(attempt as i32), &at("waited_from"), &at("at"), &ack],
+          &(attempt as i32), &at("waited_from"), &at("at"), &ack, &at("mail_waited_from")],
     )
     .await?;
     Ok(())
@@ -1993,7 +1998,8 @@ pub async fn queue_history(client: &impl GenericClient, project: i64, name: &str
             let agent = c["by"].as_str().unwrap_or("?");
             let mut v = json!({ "mail": r.get::<_, String>(0), "gist": first_line(r.get(1)), "copy": c["copy"], "agent": agent,
                     "dog": row_dog(r, agent, c["dog"].as_str(), 4, "fair_queue"), "attempts": r.get::<_, i64>(3),
-                    "waited_from": when(json_time(&c["waited_from"])), "held_at": when(json_time(&c["at"])) });
+                    "waited_from": when(json_time(&c["waited_from"])), "mail_waited_from": when(json_time(&c["mail_waited_from"])),
+                    "held_at": when(json_time(&c["at"])) });
             // R10: a relay holds it (the holder is a project), and a relayed job says where it came from
             if c["by_project"].as_i64().is_some() { v["relay"] = json!(true); v["holder_project"] = json!(agent); }
             if let Some(from) = r.get::<_, Option<String>>(8) { v["relayed_from"] = json!(from); }
@@ -2003,7 +2009,7 @@ pub async fn queue_history(client: &impl GenericClient, project: i64, name: &str
     let (rows, history): (usize, Vec<Value>) = if ack {
         let sql = |page: &str| format!(
             "SELECT e.id, e.mail_uid, e.copy_uid, e.agent_name, e.dog_uid, e.how, e.why, e.attempt, e.waited_from, e.held_at,
-                    e.ended_at, e.ack_uid, j.body, k.body, w.name, w.kind, w.once, w.state
+                    e.ended_at, e.ack_uid, j.body, k.body, w.name, w.kind, w.once, w.state, e.mail_waited_from
                FROM ot.project_mail_endings e
                LEFT JOIN ot.mail j ON j.uid = e.mail_uid
                LEFT JOIN ot.mail k ON k.uid = e.ack_uid {}
@@ -2021,7 +2027,7 @@ pub async fn queue_history(client: &impl GenericClient, project: i64, name: &str
                     "why": r.get::<_, Option<String>>(6), "attempt": r.get::<_, Option<i32>>(7),
                     "waited_from": when(r.get(8)), "held_at": when(r.get(9)), "ended_at": iso(r.get(10)),
                     "ack": r.get::<_, Option<String>>(11), "gist": r.get::<_, Option<&str>>(12).map(first_line),
-                    "ack_gist": r.get::<_, Option<&str>>(13).map(first_line) })
+                    "ack_gist": r.get::<_, Option<&str>>(13).map(first_line), "mail_waited_from": when(r.get(18)) })
         }).collect())
     } else {
         let sql = |page: &str| format!(
@@ -2040,7 +2046,8 @@ pub async fn queue_history(client: &impl GenericClient, project: i64, name: &str
             let via: Value = r.get(5);
             json!({ "id": r.get::<_, i64>(0), "copy": r.get::<_, String>(1), "agent": agent, "mail": via["mail"],
                     "dog": row_dog(r, &agent, via["dog"].as_str(), 6, "fair_queue"), "gist": first_line(r.get(4)),
-                    "held_at": iso(r.get(3)), "waited_from": when(json_time(&via["waited_from"])) })
+                    "held_at": iso(r.get(3)), "waited_from": when(json_time(&via["waited_from"])),
+                    "mail_waited_from": when(json_time(&via["mail_waited_from"])) })
         }).collect())
     };
     // R10 (spec 1.6b): in round-robin a relay hand-out has no worker copy, so it is listed from the job itself (its claim's
@@ -2061,7 +2068,8 @@ pub async fn queue_history(client: &impl GenericClient, project: i64, name: &str
             all.push(json!({ "id": r.get::<_, i64>(0), "copy": c["copy"], "agent": q, "mail": r.get::<_, String>(1),
                 "relay": true, "holder_project": q,
                 "dog": crate::domain::watchdogs::identity(&q, c["dog"].as_str().unwrap_or(""), None, "fair_queue", Some(false), Some("armed")),
-                "gist": first_line(&r.get::<_, String>(2)), "held_at": when(json_time(&c["at"])), "waited_from": when(json_time(&c["waited_from"])) }));
+                "gist": first_line(&r.get::<_, String>(2)), "held_at": when(json_time(&c["at"])), "waited_from": when(json_time(&c["waited_from"])),
+                "mail_waited_from": when(json_time(&c["mail_waited_from"])) }));
         }
         all.sort_by_key(|v| std::cmp::Reverse(v["id"].as_i64().unwrap_or(0)));
         let total = rows + more.len();
@@ -2114,6 +2122,7 @@ pub async fn held_jobs(client: &impl GenericClient, project: i64, under: Option<
                 .collect();
             let mut v = json!({ "mail": r.get::<_, String>(0), "copy": c["copy"], "holder": by, "relay": c["by_project"].as_i64().is_some(),
                 "attempts": r.get::<_, i64>(4), "held_at": when(held_at), "waited_from": when(json_time(&c["waited_from"])),
+                "mail_waited_from": when(json_time(&c["mail_waited_from"])),
                 "held_for_s": held_at.map(|t| now.signed_duration_since(t).num_seconds().max(0)),
                 "text": text, "truncated": truncated, "attachments": attachments });
             if let Some(from) = r.get::<_, Option<String>>(5) { v["relayed_from"] = json!(from); }

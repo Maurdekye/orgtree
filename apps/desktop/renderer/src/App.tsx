@@ -3465,7 +3465,7 @@ export function InboxPanel({ slug, tree, toast, refresh, close, jumpTo, jumpSeq,
           {box == null
             ? <div className="dim">loading…</div>
             : folder === 'inbox'
-              ? <MailList userBox hideMailReplyKind pending={withAcks([...unreadMail, ...askPending] as MailEntry[])}
+              ? <MailList userBox hideMailReplyKind nodeKind={(id: string) => { const n = nodes.get(id); return n ? n.kind === 'project' ? 'project' : 'agent' : undefined }} pending={withAcks([...unreadMail, ...askPending] as MailEntry[])}
                   tagFilter={{selected:mailTag,choices:tagChoices.labels,onChange:setMailTag,onSearch:setTagQuery,
                     onLoadMore:tagChoices.loadMore,hasMore:!!tagChoices.cursor,loading:tagChoices.loading,error:tagChoices.error,onRetry:tagChoices.retry}}
                   hasMore={mailTag.length?!!taggedMail.box.next_cursor:history.hasMore} loadingMore={mailTag.length?taggedMail.loading:history.loading}
@@ -3544,7 +3544,7 @@ export function InboxPanel({ slug, tree, toast, refresh, close, jumpTo, jumpSeq,
                  folder — the panel above asks and opens the one that does. It
                  hands down the OUTCOME of that question (`askState`) so this
                  list does not read an unfinished or failed one as an absence. */
-              : <MailList userBox org={slug} delivered={box.sent ?? []} outgoing refs={mailRefs} toast={toast}
+              : <MailList userBox org={slug} delivered={box.sent ?? []} outgoing nodeKind={(id: string) => { const n = nodes.get(id); return n ? n.kind === 'project' ? 'project' : 'agent' : undefined }} refs={mailRefs} toast={toast}
                   hasMore={history.hasMore} loadingMore={history.loading} onLoadMore={history.loadMore}
                   collapsible
                   jumpTo={jumpTo} jumpSeq={jumpSeq}

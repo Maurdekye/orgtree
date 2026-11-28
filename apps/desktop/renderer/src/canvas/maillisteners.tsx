@@ -8,13 +8,27 @@
 //
 //   ack mode     Working (one row per held job, with its take back), Line,
 //                Dead Letter Line (while a dead-letter listener reaches the
-//                project), Recently Finished (acked, failed, taken back and
-//                dead-lettered jobs, each ending marked by kind)
-//   round-robin  Line, Dead Letter Line, Recently Delivered
+//                project), Waiting mail, Recently Finished (acked, failed,
+//                taken back and dead-lettered jobs, each ending marked by kind)
+//   round-robin  Line, Dead Letter Line, Waiting mail, Recently Delivered
 //
-// The columns keep the desk tables' one order (Position · Agent · Waited ·
-// Held · Acked/Delivered · Mail · Ack · Batch · Handed · Watchdog · Action)
-// and the slots table's widths; times wear the shared slot time colours.
+// WAITING MAIL (docket project-mail-listeners-tab-waiting-mail-section-a; USER
+// 2026-11-27 15:59:52Z m7472b6f3a603 "yes please, above recently finished"):
+// the mail no listener has taken yet, one row each in the engine's hand-out
+// order (`pick` takes `state = 'pending' ORDER BY id`: the oldest first, as the
+// mailbox lists it). They are the inbox's own waiting rows and the count is the
+// inbox tab's, so the two agree; past the loaded window a line says how many more.
+//
+// The columns keep the desk tables' one order (Position · Agent · Mail waited
+// · Agent waited · Held · Acked/Delivered · Mail · Ack · Batch · Handed ·
+// Watchdog · Action) and the slots table's widths; times wear the shared slot
+// time colours. TWO WAITS, ALIGNED IN EVERY SECTION (docket
+// mail-queues-store-and-show-the-mail-s-own-wait-s; USER 2026-11-27 16:26:13Z
+// m74c2267e6f07): Mail waited is how long the MAIL sat in the queue before a
+// listener took it (the engine's `mail_waited_from` per hand-out, live on
+// Waiting mail); Agent waited is how long the LISTENER sat in Line before it
+// was handed a job (`waited_from`, live on the Line). A value a row lacks
+// (an older ending, a Line row's mail) leaves its cell empty.
 // The table fits the desk at its normal widths, and a name, gist or ending
 // word it shortens keeps its whole text in a tooltip (user 2026-10-20
 // 09:00Z; styles.css, desktablelayout.test.tsx).
@@ -74,6 +88,8 @@ export interface Stretch { from: string; to?: string }
 export interface WorkingJob {
   mail: string; gist?: string; copy?: string | null; agent: string; dog?: DogIdentity | null
   attempts?: number; waited_from?: string | null; held_at?: string | null
+  /** since when the mail itself waited in the queue before this hand-out (absent on rows older than the field) */
+  mail_waited_from?: string | null
   /** a relay project holds it (`agent` is that project; relay spec R10) */
   relay?: boolean; holder_project?: string
   /** the project this job was relayed from */
@@ -84,11 +100,12 @@ export interface FinishedJob {
   id: number; mail: string; gist?: string | null; copy?: string | null; agent: string; dog?: DogIdentity | null
   how: 'acked' | 'failed' | 'taken_back' | 'dead_letter' | string; why?: string | null; attempt?: number | null
   waited_from?: string | null; held_at?: string | null; ended_at: string; ack?: string | null; ack_gist?: string | null
+  mail_waited_from?: string | null
 }
 /** A hand-out (Recently Delivered, round-robin). */
 export interface DeliveredJob {
   id: number; copy: string; agent: string; mail: string; gist?: string; dog?: DogIdentity | null
-  held_at: string; waited_from?: string | null
+  held_at: string; waited_from?: string | null; mail_waited_from?: string | null
   /** a relay project took it (`agent` is that project; no worker copy exists) */
   relay?: boolean; holder_project?: string
 }
@@ -158,6 +175,12 @@ export function mailListenerRows(state: MailListenerState, map: Map<string, Canv
   return ordered
 }
 
+/** the two wait columns' header tooltips: which wait each one is */
+const WAIT_TITLE: Record<string, string> = {
+  'Mail waited': 'how long the mail sat in the queue before a listener took it (live while it is still waiting)',
+  'Agent waited': 'how long the listener sat in line before it was handed a job (live while it is still in line)',
+}
+
 const OUT_LABEL: Record<NonNullable<MailListenerRow['out']>, string> = {
   paused: 'paused', gone: 'not live', holding: '', halted: 'halted',
 }
@@ -195,13 +218,15 @@ function uniqueRows<T extends { id: number }>(rows: T[]): T[] {
   return rows.filter((r) => !seen.has(r.id) && !!seen.add(r.id))
 }
 
-export function MailListenersView({ node, state, map, onJump, rows, ack, onOpenMail, op, toast, dogs, refs }: {
+export function MailListenersView({ node, state, map, onJump, rows, waiting: waitingCount, ack, onOpenMail, op, toast, dogs, refs }: {
   node: CanvasNode
   state: MailListenerState
   map: Map<string, CanvasNode>
   onJump?: (id: string) => void
-  /** the project mailbox's loaded rows, waiting and delivered */
+  /** the project mailbox's loaded rows, waiting (`_wait`, oldest first) and delivered */
   rows: MailRow[]
+  /** the inbox tab's count of waiting mail (else the waiting rows'): Waiting mail says how many pass the loaded window */
+  waiting?: number
   /** the project's mail queue is in ack mode */
   ack: boolean
   /** open one of the project's mails in its inbox */
@@ -225,7 +250,8 @@ export function MailListenersView({ node, state, map, onJump, rows, ack, onOpenM
   const [failed, setFailed] = useState(false)
   const [asking, setAsking] = useState<WorkingJob | null>(null)
   const [shown, setShown] = useState(HISTORY_FOLD)
-  useEffect(() => { setShown(HISTORY_FOLD) }, [node.id, ack])
+  const [shownWaiting, setShownWaiting] = useState(HISTORY_FOLD)
+  useEffect(() => { setShown(HISTORY_FOLD); setShownWaiting(HISTORY_FOLD) }, [node.id, ack])
   const generation = useRef(0), busy = useRef(false)
   // the host may hand a new `op` each render: read through a ref, so only
   // the queue's own moves re-read
@@ -296,7 +322,7 @@ export function MailListenersView({ node, state, map, onJump, rows, ack, onOpenM
   // the user's own place in the queue, with its leave: an Action column (always there in ack mode, for take back)
   const myDog = state.listeners.find((w) => isUserName(w.owner))
   const actions = ack || !!myDog
-  const cols = ['Position', 'Agent', 'Waited', ...(ack ? ['Held', 'Acked'] : ['Delivered']), 'Mail', ...(ack ? ['Ack'] : []),
+  const cols = ['Position', 'Agent', 'Mail waited', 'Agent waited', ...(ack ? ['Held', 'Acked'] : ['Delivered']), 'Mail', ...(ack ? ['Ack'] : []),
     'Batch', 'Handed', 'Watchdog', ...(actions ? ['Action'] : [])]
   const n = cols.length
   const dogOf = (agent: string) => state.listeners.find((w) => w.owner === agent)
@@ -347,16 +373,22 @@ export function MailListenersView({ node, state, map, onJump, rows, ack, onOpenM
       .catch(() => {})
   }
   const maxAttempts = hist?.max_attempts ?? 3
+  const queued = rows.filter((m) => m._wait && m.id && !m._ask)
+  const beyond = Math.max(0, (waitingCount ?? queued.length) - queued.length)
+  const hiddenWaiting = Math.max(0, queued.length - shownWaiting)
+  const sender = (from: string) => isUserName(from) ? <UserMention refs={refs} />
+    : map.has(from) ? agentLink(from) : <span>{from}</span>
   return (
     <div className="project-mail-listeners" onScroll={onScroll}>
       <div className="slots-table-scroll" role="region" aria-label={`Mail listeners of project ${node.id}`} tabIndex={0} onScroll={onScroll}>
         <table className={'slots-table mail-listeners-table' + (ack ? ' ack' : ' round-robin')}>
-          <colgroup><col className="slot-col-position"/><col className="slot-col-agent"/><col className="slot-col-time"/>
+          <colgroup><col className="slot-col-position"/><col className="slot-col-agent"/><col className="listener-col-wait"/><col className="listener-col-wait"/>
             {ack && <col className="slot-col-time"/>}<col className="slot-col-ended"/>
             <col className="listener-col-mail"/>{ack && <col className="listener-col-mail"/>}
             <col className="slot-col-quantity"/><col className="listener-col-fired"/><col className="listener-col-dog"/>
             {actions && <col className="slot-col-action"/>}</colgroup>
-          <thead><tr>{cols.map((label) => <th key={label} scope="col" className={label === 'Action' ? 'slot-action' : undefined}>{label}</th>)}</tr></thead>
+          <thead><tr>{cols.map((label) => <th key={label} scope="col" className={label === 'Action' ? 'slot-action' : undefined}
+            title={WAIT_TITLE[label]}>{label}</th>)}</tr></thead>
           {ack && section('Working', 'mail-working', <>
             {working.length === 0 && empty('Nobody is working on a mail of this project.')}
             {working.map((j) => {
@@ -365,6 +397,7 @@ export function MailListenersView({ node, state, map, onJump, rows, ack, onOpenM
                 <tr key={j.mail} className="slot-row listener-row held-job">
                   <td className="slot-position"/>
                   <th scope="row" className="slot-agent">{j.relay ? <>project {agentLink(j.agent)} (relay)</> : agentLink(j.agent)}</th>
+                  <td className="listener-mail-wait">{j.mail_waited_from && j.held_at && <ListenerTime from={j.mail_waited_from} to={j.held_at} />}</td>
                   <td className="slot-wait">{j.waited_from && j.held_at && <ListenerTime from={j.waited_from} to={j.held_at} />}</td>
                   <td className="slot-held">{j.held_at && <ListenerTime from={j.held_at} />}</td>
                   <td className="slot-ended"/>
@@ -402,6 +435,7 @@ export function MailListenersView({ node, state, map, onJump, rows, ack, onOpenM
                   {r.position ? <span className="slot-no">{ordinal(r.position)}</span>
                     : r.out ? <span className="dim">{OUT_LABEL[r.out]}</span> : null}</td>
                 <th scope="row" className="slot-agent">{agentLink(r.dog.owner)}</th>
+                <td className="listener-mail-wait"/>
                 <td className="slot-wait">{r.waited && <ListenerTime {...r.waited} />}</td>
                 {ack && <td className="slot-held"/>}
                 <td className="slot-ended"/>
@@ -423,6 +457,7 @@ export function MailListenersView({ node, state, map, onJump, rows, ack, onOpenM
               <td className="slot-position" title={w.state === 'paused' ? 'its dead-letter watchdog is paused: it is told of nothing until resumed' : undefined}>
                 {w.state === 'paused' ? <span className="dim">paused</span> : null}</td>
               <th scope="row" className="slot-agent">{agentLink(w.owner)}</th>
+              <td className="listener-mail-wait"/>
               <td className="slot-wait">{w.state === 'armed' && <ListenerTime from={latest(w.at, w.last_fired) ?? w.at} />}</td>
               {ack && <td className="slot-held"/>}
               <td className="slot-ended" title={!w.once && w.last_fired ? `last told of a dead letter ${fmtFull(w.last_fired)}` : undefined}>
@@ -435,12 +470,42 @@ export function MailListenersView({ node, state, map, onJump, rows, ack, onOpenM
               {actions && <td className="slot-action"/>}
             </WatchdogRow>
           )))}
+          {section('Waiting mail', 'mail-waiting', <>
+            {queued.length === 0 && beyond === 0 && empty('No mail is waiting.')}
+            {queued.slice(0, shownWaiting).map((m, i) => (
+              <tr key={m.id} className="slot-row listener-row waiting-mail">
+                <td className="slot-position"><span className="slot-no">{ordinal(i + 1)}</span></td>
+                <th scope="row" className="slot-agent"/>
+                <td className="listener-mail-wait">{m.at && <ListenerTime from={m.queued_at ?? m.at} />}</td>
+                <td className="slot-wait"/>
+                {ack && <td className="slot-held"/>}
+                <td className="slot-ended"/>
+                <td className="listener-mail">{mailLink(m.id, typeof m.body === 'string' ? m.body : null,
+                  i === 0 ? 'the next mail a listener is handed; click to read it in the inbox' : 'waiting for a listener; click to read it in the inbox')}
+                  {m.from && <div className="listener-via">from {sender(m.from)}</div>}</td>
+                {ack && <td className="listener-ack"/>}
+                <td className="listener-batch"/>
+                <td className="listener-handed"/>
+                <td className="listener-dog-cell"/>
+                {actions && <td className="slot-action"/>}
+              </tr>
+            ))}
+            {(hiddenWaiting > 0 || shownWaiting > HISTORY_FOLD) && <tr><td colSpan={n} className="history-fold">
+              {hiddenWaiting > 0 && <button type="button" data-action="show-more"
+                onClick={() => setShownWaiting((v) => v + HISTORY_STEP)}>Show {Math.min(HISTORY_STEP, hiddenWaiting)} more</button>}
+              {shownWaiting > HISTORY_FOLD && <button type="button" data-action="show-fewer"
+                onClick={() => setShownWaiting(HISTORY_FOLD)}>Show fewer</button>}
+            </td></tr>}
+            {beyond > 0 && <tr><td colSpan={n} className="dim slot-empty waiting-more">
+              {beyond} more waiting mail{beyond === 1 ? '' : 's'} past the loaded window</td></tr>}
+          </>)}
           {section(ack ? 'Recently Finished' : 'Recently Delivered', 'mail-history', <>
             {history.length === 0 && empty(ack ? 'No mail of this project has finished yet.' : 'No mail of this project has been delivered yet.')}
             {ack ? (history as FinishedJob[]).slice(0, shown).map((h) => (
               <tr key={h.id} className={'slot-row listener-row finished' + endingClass(h.how)} data-ending={h.how}>
                 <td className="slot-position"/>
                 <th scope="row" className="slot-agent">{h.agent.startsWith('relay ') ? <>project {agentLink(h.agent.slice(6))} (relay)</> : agentLink(h.agent)}</th>
+                <td className="listener-mail-wait">{h.mail_waited_from && h.held_at && <ListenerTime from={h.mail_waited_from} to={h.held_at} />}</td>
                 <td className="slot-wait">{h.waited_from && h.held_at && <ListenerTime from={h.waited_from} to={h.held_at} />}</td>
                 <td className="slot-held">{h.held_at && <ListenerTime from={h.held_at} to={h.ended_at} />}</td>
                 <td className="slot-ended"><Ago at={h.ended_at} what={h.how === 'acked' ? 'acked' : 'ended'} /></td>
@@ -458,6 +523,7 @@ export function MailListenersView({ node, state, map, onJump, rows, ack, onOpenM
               <tr key={h.id} className="slot-row listener-row delivered">
                 <td className="slot-position"/>
                 <th scope="row" className="slot-agent">{h.relay ? <>project {agentLink(h.agent)} (relay)</> : agentLink(h.agent)}</th>
+                <td className="listener-mail-wait">{h.mail_waited_from && <ListenerTime from={h.mail_waited_from} to={h.held_at} />}</td>
                 <td className="slot-wait">{h.waited_from && <ListenerTime from={h.waited_from} to={h.held_at} />}</td>
                 <td className="slot-ended"><Ago at={h.held_at} what="delivered" /></td>
                 <td className="listener-mail">{mailLink(h.mail, h.gist, `the mail ${h.agent} was handed; click to read it in the inbox`)}</td>

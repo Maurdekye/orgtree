@@ -268,6 +268,73 @@ pub fn entry(r: &Value) -> Value {
     Value::Object(o)
 }
 
+/// AN AGENT'S MAIL TO AN OUTSIDE PARTY, as its Sent folder lists it (USER 2026-11-28 m3b0568389632 "agent mail sent to
+/// the org outbox should be in its sent"; @coordinator-opus m2ab730bb9a8e): the org mailbox's own 'out' row, read by
+/// its sender where it is (no copy, no migration), as a sent mail row with the org row's id and `org_row`, so its
+/// "View in @agent's outbox" and "View in org outbox" open the same message.
+pub fn sent_entry(r: &Value) -> Value {
+    let mut o = Map::new();
+    o.insert("id".into(), r["uid"].clone());
+    o.insert("from".into(), r["by_name"].clone());
+    o.insert("to".into(), r["peer"].clone());
+    o.insert("kind".into(), r.get("kind").filter(|v| !v.is_null()).cloned().unwrap_or(json!("message")));
+    o.insert("body".into(), r["body"].clone());
+    o.insert("at".into(), ts(&r["at"]));
+    o.insert("org_row".into(), r["uid"].clone());
+    if let Some(s) = r.get("state").filter(|v| !v.is_null()) { o.insert("state".into(), s.clone()); }
+    let att = Value::Array(r["attachments"].as_array().into_iter().flatten()
+        .filter(|a| a["transfer_removed"] != true).cloned().collect());
+    if att.as_array().is_some_and(|a| !a.is_empty()) { o.insert("attachments".into(), att); }
+    if let Some(q) = r.get("reply_to").filter(|v| v.is_object()) { o.insert("reply_to".into(), q.clone()); }
+    let all = super::replies::value(r.get("reply_to"), r.get("replies"));
+    if all.as_array().is_some_and(|a| !a.is_empty()) { o.insert("replies".into(), all); }
+    Value::Object(o)
+}
+
+/// The agent's org 'out' rows in its Sent window, newest first: from the time of mail `from` on (inclusive; none = all).
+/// Its history pages are mail_history::agent_sent_page.
+#[logged]
+pub(crate) async fn agent_sent(client: &impl tokio_postgres::GenericClient, agent_id: i64, from: Option<i64>, limit: i64)
+    -> Result<Vec<(i64, Value)>> {
+    let rows = client.query(
+        "SELECT i.id, to_jsonb(i) FROM ot.org_inbox i
+          WHERE i.sender_agent_id = $1 AND i.dir = 'out'
+            AND ($2::bigint IS NULL OR i.at >= (SELECT m.created_at FROM ot.mail m WHERE m.id = $2))
+          ORDER BY i.at DESC, i.id DESC LIMIT $3",
+        &[&agent_id, &from, &limit]).await?;
+    Ok(rows.iter().map(|r| (r.get::<_, i64>(0), sent_entry(&r.get::<_, Value>(1)))).collect())
+}
+
+/// The exact read of one such row in the box of the agent that sent it (`name`), for a link or a jump outside the window.
+#[logged]
+pub(crate) async fn agent_sent_by_id(client: &impl tokio_postgres::GenericClient, org_id: i64, uid: &str, name: &str) -> Result<Option<Value>> {
+    let row = client.query_opt(
+        "SELECT to_jsonb(i) FROM ot.org_inbox i JOIN ot.agents a ON a.id = i.sender_agent_id
+          WHERE i.org_id = $1 AND i.uid = $2 AND i.dir = 'out' AND a.name = $3",
+        &[&org_id, &uid, &name]).await?;
+    Ok(row.map(|r| sent_entry(&r.get::<_, Value>(0))))
+}
+
+/// THE LOCAL COPIES OF AN INBOUND ROW, for a mail link's "View in @agent's inbox" at that agent's own copy (docket
+/// mail-link-context-menus-open-in-recipient-s-inbo; @coordinator-opus me123cd3dfa03): each holder's ot.mail row, an
+/// agent's copy by `extra.org_inbox_source`, a project's job by `extra.org_inbox.uid`, in delivery order. Only the
+/// holders the row names are searched. A copy made before the stamp is not found, so it gets no entry.
+#[logged]
+pub(crate) async fn row_copies(client: &impl tokio_postgres::GenericClient, org_id: i64, row: &Value) -> Result<Value> {
+    let uid = row["uid"].as_str().unwrap_or("");
+    let names = row["delivered_to"].clone();
+    if row["dir"] != "in" || !names.as_array().is_some_and(|a| !a.is_empty()) { return Ok(json!([])); }
+    let rows = client.query(
+        "SELECT m.recipient_name, m.uid, m.state IN ('delivered', 'read') FROM ot.mail m
+          WHERE m.org_id = $1 AND (m.extra->>'org_inbox_source' = $2 OR m.extra->'org_inbox'->>'uid' = $2)
+            AND m.recipient_agent_id IN (SELECT a.id FROM ot.agents a WHERE a.org_id = $1
+                                          AND a.name IN (SELECT jsonb_array_elements_text($3::jsonb)))
+          ORDER BY m.id",
+        &[&org_id, &uid, &names]).await?;
+    // `read`: the holder took its copy, so its transcript has the delivery row
+    Ok(Value::Array(rows.iter().map(|r| json!({ "agent": r.get::<_, String>(0), "id": r.get::<_, String>(1), "read": r.get::<_, bool>(2) })).collect()))
+}
+
 /// The columns a reply's quote is made from (`inbox_quote`).
 const QUOTE_COLS: &str = "uid, dir, peer, by_name, at, body, net_id";
 
@@ -401,7 +468,10 @@ pub async fn send_extern(engine: &Arc<Engine>, org_id: i64, out: &Outgoing) -> R
         // there), so the peer's answer can route back into the worker's thread (D13)
         let job_reply = match (&via_job, &out.from) { (Some(job), From::Agent { id, .. }) => Some(JobReply { agent: *id, job: job.as_str(), out }), _ => None };
         let (uid, to, transfer_ids) = crate::net::queue(engine, org_id, peer, &out.body, &by, sender, &out.kind, &out.attachments, out.reply_to.as_ref(), &out.replies, job_reply.as_ref(), via_weak).await?;
-        changes::notify(engine, &src, vec![Change::OrgInbox, Change::Spark { from: out.from.spark(), to: "org_inbox".into() }]);
+        let mut ch = vec![Change::OrgInbox, Change::Spark { from: out.from.spark(), to: "org_inbox".into() }];
+        // it is in the sender's Sent too (sent_entry)
+        if let From::Agent { id, .. } = &out.from { ch.push(Change::Mailbox(*id)); }
+        changes::notify(engine, &src, ch);
         return Ok(Sent { dnd_held: false,
             transfer_ids,
             uid,
@@ -486,7 +556,10 @@ pub async fn send_extern(engine: &Arc<Engine>, org_id: i64, out: &Outgoing) -> R
     drop(client);
     if via_weak { crate::net::kick(engine); }
     // the spark rides from the sender to the mailbox here, and from the mailbox to each holder there
-    changes::notify(engine, &src, vec![Change::OrgInbox, Change::Spark { from: out.from.spark(), to: "org_inbox".into() }]);
+    let mut ch = vec![Change::OrgInbox, Change::Spark { from: out.from.spark(), to: "org_inbox".into() }];
+    // it is in the sender's Sent too (sent_entry)
+    if let From::Agent { id, .. } = &out.from { ch.push(Change::Mailbox(*id)); }
+    changes::notify(engine, &src, ch);
     changes::notify(engine, &dst, vec![Change::OrgInbox]);
     if audience_changed { changes::notify(engine,&dst,vec![Change::Audiences,Change::Events]); }
     wake_copies(engine, dst.id, delivered);
@@ -1130,7 +1203,7 @@ async fn publish_row(tx:&tokio_postgres::Transaction<'_>,org:i64,holders:&[Strin
     let quotes=super::replies::snapshots(row.get("reply_to"),row.get("replies"));
     let copies=publish_copies(tx,org,holders,row["peer"].as_str().unwrap_or(""),row["body"].as_str().unwrap_or(""),
         row["kind"].as_str().unwrap_or("message"),&row["attachments"],&quotes,
-        row["net_id"].as_str(),row["hub"].as_str()).await?;
+        row["net_id"].as_str(),row["hub"].as_str(),row["uid"].as_str().unwrap_or("")).await?;
     let names:Vec<&str>=copies.iter().map(|c|c.1.as_str()).collect();
     record_delivered(tx,row,&names).await?;
     Ok(copies)
@@ -1232,7 +1305,7 @@ pub async fn resume_pending(engine:&Arc<Engine>,org:i64) {
 #[logged]
 pub(crate) async fn publish_copies(tx: &tokio_postgres::Transaction<'_>, org_id: i64, holders: &[String],
     peer: &str, body: &str, kind: &str, attachments: &Value, quotes: &[Value],
-    net_id: Option<&str>, hub: Option<&str>) -> Result<Vec<(i64, String, String, bool)>> {
+    net_id: Option<&str>, hub: Option<&str>, org_row: &str) -> Result<Vec<(i64, String, String, bool)>> {
     let mut delivered = Vec::new();
     for h in holders {
         let target = tx.query_opt(
@@ -1253,11 +1326,13 @@ pub(crate) async fn publish_copies(tx: &tokio_postgres::Transaction<'_>, org_id:
         let reply=replies.first().cloned();
         let ev = crate::events::ordinary(peer, kind, false, body);
         tx.execute(
-            "INSERT INTO ot.mail(uid,org_id,sender,recipient_kind,recipient_agent_id,recipient_name,kind,body,attachments,reply_to,ev,state,net_id,net_hub,replies)
-             VALUES($1,$2,$3,'agent',$4,$5,$12,$6,$7,$8,$9,'pending',$10,$11,$13)",
+            // `org_inbox_source`: the org mailbox row this copy came from, so the two can open each other (docket
+            // mail-link-context-menus-open-in-recipient-s-inbo; the same key a pulled copy already carried)
+            "INSERT INTO ot.mail(uid,org_id,sender,recipient_kind,recipient_agent_id,recipient_name,kind,body,attachments,reply_to,ev,state,net_id,net_hub,replies,extra)
+             VALUES($1,$2,$3,'agent',$4,$5,$12,$6,$7,$8,$9,'pending',$10,$11,$13,jsonb_build_object('org_inbox_source',$14::text))",
             &[&mail_uid,&org_id,&peer,&target_id,h,&crate::util::pg_text(body).as_ref(),
               &crate::util::pg_json(attachments).as_ref(),
-              &crate::util::pg_json_option(&reply).as_ref(),&crate::util::pg_json(&ev).as_ref(),&net_id,&hub,&kind,&json!(replies)],
+              &crate::util::pg_json_option(&reply).as_ref(),&crate::util::pg_json(&ev).as_ref(),&net_id,&hub,&kind,&json!(replies),&org_row],
         ).await?;
         if state == "live" && !halted {
             // Keep the transactional outside-mail reset identical to recovery::forget_hard_fail.

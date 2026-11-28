@@ -32,9 +32,11 @@ test('listener fire and queue mail links use message identity hovers and menus',
     await inAct(() => link.dispatchEvent(new MouseEvent('pointerover', { bubbles: true }))); await flush(2)
     assert.equal(link.title, `${mail.from} · ${fmtFull(mail.at)} · ${mail.id}`)
     await inAct(() => link.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true }))); await flush(2)
-    // the user's held copy is the user's mail with an agent: both views (USER 2026-11-25 m2fb0c88ab8f8; viewinchat.test.tsx)
-    const views = link.getAttribute('data-mail-box') === 'user' ? ['View in chat', 'View in classic inbox'] : []
-    assert.deepEqual([...document.querySelectorAll('.ctxmenu [role="menuitem"]')].map(el => el.textContent), ['Open', ...views, 'Copy message text', 'Copy reference'])
+    // the mail's other places take the link's Open slot (USER 2026-11-28, mailboxviews.test.tsx): the user's held copy is
+    // the user's mail with an agent (View in chat, View in classic inbox); the others are in a listener's or the project's box
+    const views = link.getAttribute('data-mail-box') === 'user' ? ['View in chat', 'View in classic inbox', 'View in @writer’s outbox']
+      : [`View in @${link.getAttribute('data-mail-node')}’s inbox`, 'View in @writer’s outbox']
+    assert.deepEqual([...document.querySelectorAll('.ctxmenu [role="menuitem"]')].map(el => el.textContent), [...views, 'Copy message text', 'Copy reference'])
   }
   assert.ok(requests.some(url => url.includes('/mail/user/user-copy')), 'held user job resolves its copy in the user inbox')
   assert.ok(requests.some(url => url.includes('/mail/node/original?node=project')), 'queue original resolves project mailbox')
