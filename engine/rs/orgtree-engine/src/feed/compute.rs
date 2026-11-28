@@ -472,7 +472,7 @@ pub async fn agent_mailbox(client: &Client, agent_id: i64) -> Result<Vec<(String
         .await?;
     // its mail to outside parties, in the same span of time as the Sent mails the window holds (orginbox::sent_entry)
     let from = if sent.len() as i64 >= MAILBOX_WINDOW { sent.last().map(|r| r.get::<_, i64>(0)) } else { None };
-    let outside = crate::domain::orginbox::agent_sent(client, agent_id, None, from, MAILBOX_WINDOW).await?;
+    let outside = crate::domain::orginbox::agent_sent(client, agent_id, from, MAILBOX_WINDOW).await?;
     let mut out = Vec::new();
     for (id, mail) in outside {
         out.push((format!("sent:org:{id}"), json!({ "folder": "sent", "order": [id], "mail": mail })));

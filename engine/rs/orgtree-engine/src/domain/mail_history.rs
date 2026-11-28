@@ -39,6 +39,16 @@ pub async fn selected_page(client: &Client, org: i64, agent: Option<i64>, folder
         ORDER BY m.id DESC LIMIT 200");
     let rows = client.query(&sql, &[&org, &ids, &agent]).await?;
     let mut page = project(rows, Some(sent), 200);
+    if let (true, Some(agent)) = (sent, agent) {
+        // the agent's mail to outside parties is in its Sent as the org rows (agent_sent_page); a refresh that left them
+        // out would drop an older one from a reader's history (bounce mb41f6f93a568)
+        let rows = client.query("SELECT to_jsonb(i) FROM ot.org_inbox i
+            WHERE i.org_id=$1 AND i.uid=ANY($2) AND i.sender_agent_id=$3 AND i.dir='out' ORDER BY i.id DESC",
+            &[&org, &ids, &agent]).await?;
+        if let Some(list) = page["sent"].as_array_mut() {
+            list.extend(rows.iter().map(|r| crate::domain::orginbox::sent_entry(&r.get::<_, Value>(0))));
+        }
+    }
     page["refreshed_ids"] = json!(ids);
     Ok(page)
 }
@@ -92,27 +102,61 @@ pub async fn user_page(client: &Client, org: i64, folder: &str, before: Option<i
 #[nolog]
 pub async fn agent_page(client: &Client, org: i64, agent: i64, folder: &str, before: Option<i64>) -> Result<Value> {
     let before = before_id(before)?;
-    let sent = sent_folder(folder)?;
-    let predicate = if sent { "m.sender_agent_id=$3".to_string() }
-        else { format!("m.recipient_agent_id=$3 AND m.recipient_kind='agent' AND (m.state IN {} OR m.state IN ('delivered','read','retracted'))", crate::domain::mail::UNREAD_STATES) };
+    if sent_folder(folder)? { return agent_sent_page(client, org, agent, before).await; }
+    let predicate = format!("m.recipient_agent_id=$3 AND m.recipient_kind='agent' AND (m.state IN {} OR m.state IN ('delivered','read','retracted'))", crate::domain::mail::UNREAD_STATES);
     let sql = format!("SELECT m.id,to_jsonb(m) FROM ot.mail m
-        WHERE m.org_id=$1 AND {predicate} AND m.id<$2
-        AND ((m.sender NOT LIKE '@org:%' AND m.sender NOT LIKE '@net:%'
-          AND COALESCE(m.ev->>'variant','') <> 'runtime.external_unroutable'
-          AND m.extra->>'transfer_failure' IS NULL)
-          OR NOT EXISTS (SELECT 1 FROM ot.orgs o WHERE o.id=m.org_id AND o.settings->'org_inbox_enabled'='false'::jsonb))
+        WHERE m.org_id=$1 AND {predicate} AND m.id<$2 AND {ADMITTED}
         ORDER BY m.id DESC LIMIT 151");
     let rows = client.query(&sql, &[&org, &before, &agent]).await?;
-    // the slice's first and last mail, before the page is projected (`project` takes the lookahead row off)
-    let from = (rows.len() > 150).then(|| rows[149].get::<_, i64>(0));
-    let mut page = project(rows, Some(sent), 150);
-    if sent {
-        // its mail to outside parties in the same span of time (orginbox::sent_entry; USER 2026-11-28 m3b0568389632)
-        let upper = (before < i64::MAX).then_some(before);
-        let outside = crate::domain::orginbox::agent_sent(client, agent, upper, from, 1000).await?;
-        if let Some(list) = page["sent"].as_array_mut() { list.extend(outside.into_iter().map(|(_, m)| m)); }
+    Ok(project(rows, Some(false), 150))
+}
+
+/// Mail a mailbox lists: outside mail only where the org mailbox is off (it is the org mailbox's then).
+const ADMITTED: &str = "((m.sender NOT LIKE '@org:%' AND m.sender NOT LIKE '@net:%'
+          AND COALESCE(m.ev->>'variant','') <> 'runtime.external_unroutable'
+          AND m.extra->>'transfer_failure' IS NULL)
+          OR NOT EXISTS (SELECT 1 FROM ot.orgs o WHERE o.id=m.org_id AND o.settings->'org_inbox_enabled'='false'::jsonb))";
+
+/// The page's size of an agent's Sent folder.
+const SENT_PAGE: usize = 150;
+
+/// AN AGENT'S SENT FOLDER: its mail and its mail to outside parties, which is the org mailbox's 'out' rows
+/// (orginbox::sent_entry; USER 2026-11-28 m3b0568389632), in ONE order, newest first: (time, kind, id), kind 0 a mail,
+/// 1 an org row. The cursor names the page's last row in one positive integer, 2*id for a mail and 2*id+1 for an org
+/// row, and the next page is what comes after that row in this order. So an agent with outside mail only pages it all,
+/// and a mail and an org row of the same moment are never both skipped or both repeated (bounce mb41f6f93a568).
+#[nolog]
+async fn agent_sent_page(client: &Client, org: i64, agent: i64, before: i64) -> Result<Value> {
+    // the row the cursor names: its (time, kind, id); i64::MAX is the head
+    const BOUND: &str = "WITH b AS (
+          SELECT m.created_at t, 0 k, m.id i FROM ot.mail m WHERE $2 < 9223372036854775807 AND $2 % 2 = 0 AND m.id = $2 / 2 AND m.org_id = $1 AND m.sender_agent_id = $3
+          UNION ALL
+          SELECT o.at, 1, o.id FROM ot.org_inbox o WHERE $2 < 9223372036854775807 AND $2 % 2 = 1 AND o.id = $2 / 2 AND o.org_id = $1 AND o.sender_agent_id = $3)";
+    let head = before == i64::MAX;
+    if !head && client.query_opt(&format!("{BOUND} SELECT 1 FROM b"), &[&org, &before, &agent]).await?.is_none() {
+        crate::refuse!(BadRequest, "mail cursor is not a row of this Sent folder");
     }
-    Ok(page)
+    let after = |t: &str, k: u8, i: &str| if head { String::new() } else { format!("AND ({t}, {k}, {i}) < (SELECT t, k, i FROM b)") };
+    let limit = SENT_PAGE as i64 + 1;
+    let mail = client.query(&format!("{BOUND} SELECT m.id, (extract(epoch FROM m.created_at) * 1000000)::bigint, to_jsonb(m) FROM ot.mail m
+        WHERE m.org_id=$1 AND m.sender_agent_id=$3 AND {ADMITTED} {}
+        ORDER BY m.created_at DESC, m.id DESC LIMIT $4", after("m.created_at", 0, "m.id")), &[&org, &before, &agent, &limit]).await?;
+    let outside = client.query(&format!("{BOUND} SELECT o.id, (extract(epoch FROM o.at) * 1000000)::bigint, to_jsonb(o) FROM ot.org_inbox o
+        WHERE o.org_id=$1 AND o.sender_agent_id=$3 AND o.dir='out' {}
+        ORDER BY o.at DESC, o.id DESC LIMIT $4", after("o.at", 1, "o.id")), &[&org, &before, &agent, &limit]).await?;
+    // (time, kind, id, entry), merged newest first
+    let mut rows: Vec<(i64, i64, i64, Value)> = mail.iter().map(|r| {
+        let raw: Value = r.get(2);
+        let mut entry = crate::feed::compute::mail_entry(&raw);
+        entry["to"] = raw["recipient_name"].clone();
+        (r.get::<_, i64>(1), 0, r.get::<_, i64>(0), entry)
+    }).chain(outside.iter().map(|r| (r.get::<_, i64>(1), 1, r.get::<_, i64>(0), crate::domain::orginbox::sent_entry(&r.get::<_, Value>(2)))))
+      .collect();
+    rows.sort_by(|a, b| (b.0, b.1, b.2).cmp(&(a.0, a.1, a.2)));
+    let more = rows.len() > SENT_PAGE;
+    rows.truncate(SENT_PAGE);
+    let cursor = if more { rows.last().map(|(_, k, i, _)| (i * 2 + k).to_string()) } else { None };
+    Ok(json!({"pending": [], "delivered": [], "sent": rows.into_iter().map(|r| r.3).collect::<Vec<_>>(), "next_cursor": cursor}))
 }
 
 /// `sent`: the folder every row is of; `None` for a chat page, where a row is

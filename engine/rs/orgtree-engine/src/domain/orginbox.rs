@@ -291,18 +291,17 @@ pub fn sent_entry(r: &Value) -> Value {
     Value::Object(o)
 }
 
-/// The agent's org 'out' rows in one slice of its Sent folder, newest first. The folder pages by ot.mail id, so a slice
-/// is a span of time between two of its mails: before `before` (exclusive) and from `from` on (inclusive); none = open.
+/// The agent's org 'out' rows in its Sent window, newest first: from the time of mail `from` on (inclusive; none = all).
+/// Its history pages are mail_history::agent_sent_page.
 #[logged]
-pub(crate) async fn agent_sent(client: &impl tokio_postgres::GenericClient, agent_id: i64, before: Option<i64>, from: Option<i64>, limit: i64)
+pub(crate) async fn agent_sent(client: &impl tokio_postgres::GenericClient, agent_id: i64, from: Option<i64>, limit: i64)
     -> Result<Vec<(i64, Value)>> {
     let rows = client.query(
         "SELECT i.id, to_jsonb(i) FROM ot.org_inbox i
           WHERE i.sender_agent_id = $1 AND i.dir = 'out'
-            AND ($2::bigint IS NULL OR i.at < (SELECT m.created_at FROM ot.mail m WHERE m.id = $2))
-            AND ($3::bigint IS NULL OR i.at >= (SELECT m.created_at FROM ot.mail m WHERE m.id = $3))
-          ORDER BY i.id DESC LIMIT $4",
-        &[&agent_id, &before, &from, &limit]).await?;
+            AND ($2::bigint IS NULL OR i.at >= (SELECT m.created_at FROM ot.mail m WHERE m.id = $2))
+          ORDER BY i.at DESC, i.id DESC LIMIT $3",
+        &[&agent_id, &from, &limit]).await?;
     Ok(rows.iter().map(|r| (r.get::<_, i64>(0), sent_entry(&r.get::<_, Value>(1)))).collect())
 }
 
