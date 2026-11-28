@@ -396,3 +396,50 @@ test('org mailbox rows offer transcripts as a link to the same mail does: the se
   await right(v.el.querySelector('.mailrow')!)
   assert.equal(menuLabels().includes('View in @writer’s transcript'), true, `the outbox row: ${menuLabels()}`)
 })
+
+test('a retired agent (not on the canvas): no entry for its mailbox, which does not open, and none for its transcript', async (t) => {
+  // @coordinator-opus m304bad3acdc4 "keep the retired-agent entries if the mailbox opens": the canvas's mail router opens
+  // only its own nodes' mailboxes (OrgCanvas openMailRef), so a retired agent's entries would do nothing
+  const view = () => {}
+  const live = new Set(['writer', 'reader'])
+  const row = { id: 'mR', from: 'gone', to: 'reader', delivered: true }
+  assert.deepEqual(labels(mailboxViewEntries({ row, holder: { box: 'node', node: 'reader' }, view, mailbox: { has: n => live.has(n) },
+    transcript: { has: n => live.has(n), open: () => {} } })), ['View in @reader’s inbox', 'View in @reader’s transcript'])
+  // the classic inbox: its sender's outbox and transcript, gone for a retired sender; projects have no transcript
+  const nodeKind = (id: string) => id === 'writer' ? 'agent' as const : id === 'desk' ? 'project' as const : undefined
+  const rows = [{ id: 'u1', from: 'writer', at: '2026-11-20T10:00:00Z', kind: 'message', body: 'from writer' }]
+  const refs = { world: { org: 'mine', agents: new Map([['writer', 'writer']]) }, onOpen: () => {} }
+  const open = async (list: typeof rows) => {
+    const v = await mountView(<ObjectMenuBoundary><MailList userBox org="mine" delivered={list} refs={refs as never} toast={() => {}}
+      onFocusAgent={() => {}} nodeKind={nodeKind} /></ObjectMenuBoundary>, el => el)
+    t.after(() => v.unmount())
+    await inAct(async () => { await flush(4) })
+    await right(v.el.querySelector('.mailrow')!)
+    const got = menuLabels(); await dismiss(); return got
+  }
+  const a = await open(rows)
+  assert.equal(a.includes('View in @writer’s transcript'), true, `the classic inbox offers the sender's transcript: ${a}`)
+  assert.equal(a.includes('View in @writer’s outbox'), true, `${a}`)
+  const b = await open([{ ...rows[0], from: 'gone' }])
+  assert.equal(b.some(l => l.includes('@gone')), false, `a retired sender: ${b}`)
+  const c = await open([{ ...rows[0], from: 'desk' }])
+  assert.equal(c.includes('View in @desk’s outbox'), true, `${c}`)
+  assert.equal(c.includes('View in @desk’s transcript'), false, `a project has no transcript: ${c}`)
+})
+
+test('a link names no retired agent\'s mailbox or transcript where its host knows the canvas (isNode)', async (t) => {
+  const saved = fetch
+  const mail = { id: 'mR', at: '2026-11-20T10:00:00Z', kind: 'message', body: 'b', from: 'writer', to: 'gone', delivered: true }
+  globalThis.fetch = (async () => new Response(JSON.stringify({ found: true, mail }), { status: 200 })) as typeof fetch
+  t.after(() => { globalThis.fetch = saved })
+  const world = { org: 'org', agents: new Map([['writer', 'writer'], ['gone', 'gone']]) }
+  const v = await mountView(<ObjectNavProvider><ObjectNavHost org="org" dogs={[]} openDog={() => {}} toast={() => {}} openMail={() => {}}
+    focusAgent={() => {}} isNode={id => id === 'writer'} />
+    <ObjectMenuBoundary>
+      <RefChip r={resolveRef({ kind: 'mail', org: 'org', box: 'node', node: 'gone', id: 'mR' }, world)} onOpen={() => {}} />
+    </ObjectMenuBoundary></ObjectNavProvider>, el => el)
+  t.after(() => v.unmount())
+  await inAct(async () => { await flush(4) })
+  await right(v.el.querySelector('.ref-mail')!)
+  assert.deepEqual(menuLabels().filter(l => l.startsWith('View in')), ['View in @writer’s outbox', 'View in @writer’s transcript'])
+})
