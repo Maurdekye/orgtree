@@ -30,6 +30,7 @@ export const VIEW_WORDS = {
   node: (name: string, folder: 'inbox' | 'sent') => `View in @${name}’s ${folder === 'inbox' ? 'inbox' : 'outbox'}`,
   transcript: (name: string) => `View in @${name}’s transcript`,
   recipients: 'View in a recipient’s inbox',
+  recipientTranscripts: 'View in a recipient’s transcript',
 } as const
 /** an org row's holder copy that was made before the two were linked (the engine finds no copy to open) */
 export const MAIL_COPY_UNLINKED = 'That agent\u2019s copy of this message is older than the link between the mailboxes, so it can\u2019t be opened from here'
@@ -45,6 +46,7 @@ export const isMailboxViewLabel = (label: string): boolean =>
   /^View in org (inbox|outbox)$/.test(label) || /^View in @\S+’s (inbox|outbox)$/.test(label)
   || label === VIEW_WORDS.recipients
 export const isTranscriptViewLabel = (label: string): boolean => /^View in @\S+’s transcript$/.test(label)
+  || label === VIEW_WORDS.recipientTranscripts
 
 const OUTSIDE = /^@(net|org|ext|mcp):/
 const isUser = (v: unknown) => v === '@user' || v === 'user_inbox'
@@ -61,7 +63,10 @@ export function mailSides(row: Row, holder: Holder): { sender: MailboxSide | nul
   const named = (v: unknown): unknown[] => Array.isArray(v) ? v : v != null && v !== '' ? [v] : []
   const dir = row.dir === 'in' || row.dir === 'out' ? row.dir : null
   const from = dir === 'in' ? row.peer : dir === 'out' ? agentName(row.by) : agentName(row._by) ?? row.from
-  const sender: MailboxSide | null = isUser(from) ? { box: 'user', folder: 'sent' }
+  // the user's own mail to an outside party: the org row's by is "user", and the user's box holds no copy of it
+  // (@coordinator-opus m304bad3acdc4), so it has no sender side
+  const byUser = (dir === 'out' ? row.by : row._by) === 'user'
+  const sender: MailboxSide | null = byUser ? null : isUser(from) ? { box: 'user', folder: 'sent' }
     : typeof from === 'string' && OUTSIDE.test(from) ? { box: 'org', folder: 'inbox' }
       : agentName(from) ? { box: 'node', node: from as string, folder: 'sent' } : null
   const delivered = named(dir === 'in' ? row.delivered_to : row._delivered)
@@ -110,6 +115,8 @@ export function mailboxViewEntries(o: {
   lookupCopies?: () => Promise<{ agent: string; id: string }[]>
   /** an agent's copy was not found (made before the link was recorded) */
   missing?: () => void
+  /** the agents and projects whose mailbox opens from here (on the canvas: a retired one's does not); absent, all */
+  mailbox?: { has: (name: string) => boolean }
 }): MenuItem[] {
   const { sender, recipients } = mailSides(o.row, o.holder)
   const here = o.here ?? null
@@ -130,7 +137,10 @@ export function mailboxViewEntries(o: {
   }
   const out: MenuItem[] = []
   if (o.chat && !(here && 'chat' in here && here.chat === o.chat.peer)) out.push({ label: VIEW_IN_CHAT, onSelect: o.chat.open })
-  const item = (s: MailboxSide): MenuItem | null => { const act = go(s); return act ? { label: mailboxViewLabel(s), onSelect: act } : null }
+  const item = (s: MailboxSide): MenuItem | null => {
+    if (s.box === 'node' && o.mailbox && !o.mailbox.has(s.node ?? '')) return null
+    const act = go(s); return act ? { label: mailboxViewLabel(s), onSelect: act } : null
+  }
   const inboxes = recipients.filter(s => !isHere(s, here)).map(item).filter((e): e is MenuItem => !!e)
   if (inboxes.length > FLAT_RECIPIENTS) out.push({ label: VIEW_WORDS.recipients, onSelect: () => {}, actionDisabled: true, children: inboxes })
   else out.push(...inboxes)
@@ -146,12 +156,15 @@ export function mailboxViewEntries(o: {
         const id = !fromOrg ? (readByRecipient(o.row) ? rowId : null) : readCopy(r.node!)
         return id ? [[r.node!, id]] : []
       })]
-    const done = new Set<string>()
+    const done = new Set<string>(), own: MenuItem[] = [], theirs: MenuItem[] = []
     for (const [name, id] of agents) {
       if (done.has(name) || !t.has(name) || (here && 'transcript' in here && here.transcript === name)) continue
-      done.add(name)
-      out.push({ label: VIEW_WORDS.transcript(name), onSelect: () => t.open(name, id) })
+      done.add(name);
+      (sender?.box === 'node' && name === sender.node ? own : theirs).push({ label: VIEW_WORDS.transcript(name), onSelect: () => t.open(name, id) })
     }
+    // the recipients' transcripts in one submenu past three, as their inboxes (USER 2026-11-28 mcc3039b5cc7c)
+    out.push(...own, ...(theirs.length > FLAT_RECIPIENTS
+      ? [{ label: VIEW_WORDS.recipientTranscripts, onSelect: () => {}, actionDisabled: true, children: theirs }] : theirs))
   }
   return out
 }

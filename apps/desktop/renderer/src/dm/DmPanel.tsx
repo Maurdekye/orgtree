@@ -1455,6 +1455,8 @@ function DmConversation({ slug, tree, chat, nodes, toast, refs, onFocusAgent, fl
         // the mailbox itself, not the chat the mail-link router would choose while the chats are on (mailboxpref askForMailbox)
         if (target.outcome === 'ready') { askForMailbox(mid); refs.onOpen(target) }
       },
+      // a retired agent's mailbox does not open and it has no transcript
+      mailbox: { has: name => !!nodes.get(name) },
       transcript: onFocusAgent ? { has: name => !!nodes.get(name) && nodes.get(name)!.kind !== 'project',
         open: (name, mid) => { requestTranscriptMail(slug, name, mid, m.at ?? undefined); onFocusAgent(name) } } : undefined })
       // the user's own box only where the panel has its classic jump

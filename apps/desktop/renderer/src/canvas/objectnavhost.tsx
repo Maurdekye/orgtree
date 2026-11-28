@@ -22,10 +22,12 @@ import { isMailboxViewLabel, mailboxViewEntries, mailPlaceAt } from './mailboxvi
 import { requestTranscriptMail } from './agentmentions'
 
 /** The current org's existing routes, shared by links and direct object menus. */
-export function ObjectNavHost({ org, dogs, openDog, openTicket, openDocument, openMail, focusAgent, toast, isProject }:
+export function ObjectNavHost({ org, dogs, openDog, openTicket, openDocument, openMail, focusAgent, toast, isProject, isNode }:
   { org: string; dogs: Watchdog[]; openDog: (id: string) => void;
     openTicket?: (id: string) => void; openDocument?: (id: string) => void; openMail?: (mail: { id: string; to: string }) => void;
-    focusAgent?: (id: string) => void; toast: ToastFn; isProject?: (id:string)=>boolean }) {
+    focusAgent?: (id: string) => void; toast: ToastFn; isProject?: (id:string)=>boolean
+    /** a node on this canvas: a retired agent's mailbox does not open and it has no transcript */
+    isNode?: (id: string) => boolean }) {
   const agents = useAgentNavRegistry()
   useProvideObjectNav((kind, id, targetOrg, anchor) => {
     if (targetOrg !== org) return []
@@ -54,7 +56,8 @@ export function ObjectNavHost({ org, dogs, openDog, openTicket, openDocument, op
             askForMailbox(mid)
             openMail?.({ id: mid, to: side.box === 'org' ? `@org:${org}` : side.node! })
           },
-          transcript: focusAgent ? { has: name => !isProject?.(name),
+          mailbox: isNode ? { has: isNode } : undefined,
+          transcript: focusAgent ? { has: name => !isProject?.(name) && (isNode ? isNode(name) : true),
             open: (name, mid) => { requestTranscriptMail(org, name, mid, row.at ?? undefined); focusAgent(name) } } : undefined })
           // an agent's or the org's mailbox only where this host has the open-mail route
           .filter(v => openMail || !isMailboxViewLabel(v.label))
