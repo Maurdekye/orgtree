@@ -4547,7 +4547,8 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
               // seq = the server's pre-slice ordinal: index keys over the
               // sliding CHAT_WINDOW-row window remounted every row (and collapsed
               // every open ToolChip) each time one message scrolled off
-              <div data-transcript-row key={key}
+              // data-mail-place: a mail link in this row is in this agent's transcript (mailboxviews.ts mailPlaceAt)
+              <div data-transcript-row key={key} data-mail-place={`transcript:${node.id}`}
                 data-assistant-id={m.assistant_id} data-assistant-state={m.assistant_state}
                 data-reply-event={first ? m.event_id : undefined} data-reply-quote={m.reply_quote ?? (m.text || m.cmd_out || '')} onContextMenu={e => openReply(e, m)}
                 // the durable anchor a reply falls back to when the exact

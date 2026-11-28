@@ -2,6 +2,7 @@ import { objectNavProps } from './objectnav'
 import { objectTooltipProps } from './objecttooltip'
 import type { MenuEntry, MenuItem } from './contextmenu'
 import { VIEW_IN_CHAT, VIEW_IN_CLASSIC } from '../mailboxpref'
+import { isMailboxViewLabel, isTranscriptViewLabel } from './mailboxviews'
 
 export type MailIdentity = { org: string; id: string; box: 'user' | 'org' | 'node'; node?: string }
 export function mailIdentityAt(anchor: Element, org: string, id: string): MailIdentity | null {
@@ -27,7 +28,13 @@ export function mailTargetIdentity(org: string, mail: { id: string; to: string }
  *  as one separated section, in this order, then any other "View in …" in the order given. */
 export const VIEW_IN_ORDER: readonly string[] = [VIEW_IN_CHAT, VIEW_IN_CLASSIC, 'View in transcript']
 const isViewIn = (e: MenuEntry): e is MenuItem => e !== 'sep' && e.label.startsWith('View in ')
-const viewRank = (e: MenuItem) => { const i = VIEW_IN_ORDER.indexOf(e.label); return i < 0 ? VIEW_IN_ORDER.length : i }
+// the mail's agent and org mailboxes come right after the classic inbox, its agents' transcripts in the transcript's
+// place (mailboxviews.ts)
+const viewRank = (e: MenuItem) => {
+  if (isMailboxViewLabel(e.label)) return VIEW_IN_ORDER.indexOf(VIEW_IN_CLASSIC) + 0.5
+  const i = VIEW_IN_ORDER.indexOf(isTranscriptViewLabel(e.label) ? 'View in transcript' : e.label)
+  return i < 0 ? VIEW_IN_ORDER.length : i
+}
 export function mailMenuEntries(actions: { leading: MenuEntry[]; copy: () => void; canCopy: boolean;
   reference?: string | null; copyReference?: () => void }): MenuEntry[] {
   const own = actions.leading.filter(e => !isViewIn(e))

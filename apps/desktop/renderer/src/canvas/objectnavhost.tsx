@@ -17,7 +17,9 @@ import { useProvideObjectNav } from './objectnav'
 import { appRefRow, panelRefRow } from './apprefs'
 import { appLinkMenu, panelLinkMenu } from './apps/links'
 import { refNames } from './refnames'
-import { chatPeerOf, isChatMail, viewMailIn, VIEW_IN_CHAT, VIEW_IN_CLASSIC } from '../mailboxpref'
+import { askForMailbox, chatPeerOf, isChatMail, viewMailIn } from '../mailboxpref'
+import { isMailboxViewLabel, mailboxViewEntries, mailPlaceAt } from './mailboxviews'
+import { requestTranscriptMail } from './agentmentions'
 
 /** The current org's existing routes, shared by links and direct object menus. */
 export function ObjectNavHost({ org, dogs, openDog, openTicket, openDocument, openMail, focusAgent, toast, isProject }:
@@ -41,10 +43,23 @@ export function ObjectNavHost({ org, dogs, openDog, openTicket, openDocument, op
         // m2fb0c88ab8f8); a node box's row names its recipient in `to`, the user's own box carries none on received mail
         const chat = ref.box !== 'org' && isChatMail(row as { from?: unknown; to?: unknown }, ref.box === 'user')
         const peer = ref.box === 'node' && row.from === '@user' ? ref.node : chatPeerOf(row as { from?: unknown; to?: unknown }, ref.box === 'user')
-        const views = chat ? [{ label: VIEW_IN_CHAT, onSelect: () => { viewMailIn('chat', org, id, peer) } },
-          { label: VIEW_IN_CLASSIC, onSelect: () => { viewMailIn('classic', org, id) } }] : []
-        return mailMenuEntries({ leading: [...(openMail ? [{ label: 'Open', onSelect: () => openMail({ id,
-          to: ref.box === 'user' ? 'user_inbox' : ref.box === 'org' ? `@org:${org}` : ref.node! }) }] : []), ...views],
+        // THE MAIL'S OTHER PLACES take the generic Open's slot (USER 2026-11-28 mde95b23fb23d; mailboxviews.ts); Open
+        // stays only for a mail with none of them to offer
+        const views = mailboxViewEntries({ row, holder: ref, here: mailPlaceAt(anchor),
+          chat: chat && peer ? { peer, open: () => { viewMailIn('chat', org, id, peer) } } : undefined,
+          view: side => {
+            if (side.box === 'user') { viewMailIn('classic', org, id); return }
+            // the mailbox itself, not the chat the mail-link router picks for the user's mail while the chats are on
+            askForMailbox(id)
+            openMail?.({ id, to: side.box === 'org' ? `@org:${org}` : side.node! })
+          },
+          transcript: focusAgent ? { has: name => !isProject?.(name),
+            open: name => { requestTranscriptMail(org, name, id, row.at ?? undefined); focusAgent(name) } } : undefined })
+          // an agent's or the org's mailbox only where this host has the open-mail route
+          .filter(v => openMail || !isMailboxViewLabel(v.label))
+        const open = openMail && !views.length ? [{ label: 'Open', onSelect: () => openMail({ id,
+          to: ref.box === 'user' ? 'user_inbox' : ref.box === 'org' ? `@org:${org}` : ref.node! }) }] : []
+        return mailMenuEntries({ leading: [...open, ...views],
           canCopy: Boolean(immediate.trim() || needsFetch), reference, copyReference: () => copy(reference),
           copy: () => {
             const done = (text: string) => text.trim() ? copy(text) : toast(['could not copy — message is empty'])
