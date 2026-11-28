@@ -241,6 +241,10 @@ pub fn mail_entry(m: &Value) -> Value {
     if let Some(tags)=m.get("tags").filter(|t|t.as_array().is_some_and(|a|!a.is_empty())) { o.insert("tags".into(),tags.clone()); }
     o.insert("id".into(), m["uid"].clone());
     o.insert("from".into(), m["sender"].clone());
+    // a holder's copy of org mailbox mail: the org row it came from (docket mail-link-context-menus-open-in-recipient-s-inbo)
+    if let Some(row) = m["extra"]["org_inbox_source"].as_str().or(m["extra"]["org_inbox"]["uid"].as_str()) {
+        o.insert("org_row".into(), json!(row));
+    }
     // which computer the user's mail came through (`caller`); a row without one reads as before
     if let Some(via) = m.get("via").filter(|v| !v.is_null()) {
         o.insert("via".into(), via.clone());

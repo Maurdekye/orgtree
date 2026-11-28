@@ -268,6 +268,25 @@ pub fn entry(r: &Value) -> Value {
     Value::Object(o)
 }
 
+/// THE LOCAL COPIES OF AN INBOUND ROW, for a mail link's "View in @agent's inbox" at that agent's own copy (docket
+/// mail-link-context-menus-open-in-recipient-s-inbo; @coordinator-opus me123cd3dfa03): each holder's ot.mail row, an
+/// agent's copy by `extra.org_inbox_source`, a project's job by `extra.org_inbox.uid`, in delivery order. Only the
+/// holders the row names are searched. A copy made before the stamp is not found, so it gets no entry.
+#[logged]
+pub(crate) async fn row_copies(client: &impl tokio_postgres::GenericClient, org_id: i64, row: &Value) -> Result<Value> {
+    let uid = row["uid"].as_str().unwrap_or("");
+    let names = row["delivered_to"].clone();
+    if row["dir"] != "in" || !names.as_array().is_some_and(|a| !a.is_empty()) { return Ok(json!([])); }
+    let rows = client.query(
+        "SELECT m.recipient_name, m.uid FROM ot.mail m
+          WHERE m.org_id = $1 AND (m.extra->>'org_inbox_source' = $2 OR m.extra->'org_inbox'->>'uid' = $2)
+            AND m.recipient_agent_id IN (SELECT a.id FROM ot.agents a WHERE a.org_id = $1
+                                          AND a.name IN (SELECT jsonb_array_elements_text($3::jsonb)))
+          ORDER BY m.id",
+        &[&org_id, &uid, &names]).await?;
+    Ok(Value::Array(rows.iter().map(|r| json!({ "agent": r.get::<_, String>(0), "id": r.get::<_, String>(1) })).collect()))
+}
+
 /// The columns a reply's quote is made from (`inbox_quote`).
 const QUOTE_COLS: &str = "uid, dir, peer, by_name, at, body, net_id";
 
@@ -1130,7 +1149,7 @@ async fn publish_row(tx:&tokio_postgres::Transaction<'_>,org:i64,holders:&[Strin
     let quotes=super::replies::snapshots(row.get("reply_to"),row.get("replies"));
     let copies=publish_copies(tx,org,holders,row["peer"].as_str().unwrap_or(""),row["body"].as_str().unwrap_or(""),
         row["kind"].as_str().unwrap_or("message"),&row["attachments"],&quotes,
-        row["net_id"].as_str(),row["hub"].as_str()).await?;
+        row["net_id"].as_str(),row["hub"].as_str(),row["uid"].as_str().unwrap_or("")).await?;
     let names:Vec<&str>=copies.iter().map(|c|c.1.as_str()).collect();
     record_delivered(tx,row,&names).await?;
     Ok(copies)
@@ -1232,7 +1251,7 @@ pub async fn resume_pending(engine:&Arc<Engine>,org:i64) {
 #[logged]
 pub(crate) async fn publish_copies(tx: &tokio_postgres::Transaction<'_>, org_id: i64, holders: &[String],
     peer: &str, body: &str, kind: &str, attachments: &Value, quotes: &[Value],
-    net_id: Option<&str>, hub: Option<&str>) -> Result<Vec<(i64, String, String, bool)>> {
+    net_id: Option<&str>, hub: Option<&str>, org_row: &str) -> Result<Vec<(i64, String, String, bool)>> {
     let mut delivered = Vec::new();
     for h in holders {
         let target = tx.query_opt(
@@ -1253,11 +1272,13 @@ pub(crate) async fn publish_copies(tx: &tokio_postgres::Transaction<'_>, org_id:
         let reply=replies.first().cloned();
         let ev = crate::events::ordinary(peer, kind, false, body);
         tx.execute(
-            "INSERT INTO ot.mail(uid,org_id,sender,recipient_kind,recipient_agent_id,recipient_name,kind,body,attachments,reply_to,ev,state,net_id,net_hub,replies)
-             VALUES($1,$2,$3,'agent',$4,$5,$12,$6,$7,$8,$9,'pending',$10,$11,$13)",
+            // `org_inbox_source`: the org mailbox row this copy came from, so the two can open each other (docket
+            // mail-link-context-menus-open-in-recipient-s-inbo; the same key a pulled copy already carried)
+            "INSERT INTO ot.mail(uid,org_id,sender,recipient_kind,recipient_agent_id,recipient_name,kind,body,attachments,reply_to,ev,state,net_id,net_hub,replies,extra)
+             VALUES($1,$2,$3,'agent',$4,$5,$12,$6,$7,$8,$9,'pending',$10,$11,$13,jsonb_build_object('org_inbox_source',$14::text))",
             &[&mail_uid,&org_id,&peer,&target_id,h,&crate::util::pg_text(body).as_ref(),
               &crate::util::pg_json(attachments).as_ref(),
-              &crate::util::pg_json_option(&reply).as_ref(),&crate::util::pg_json(&ev).as_ref(),&net_id,&hub,&kind,&json!(replies)],
+              &crate::util::pg_json_option(&reply).as_ref(),&crate::util::pg_json(&ev).as_ref(),&net_id,&hub,&kind,&json!(replies),&org_row],
         ).await?;
         if state == "live" && !halted {
             // Keep the transactional outside-mail reset identical to recovery::forget_hard_fail.

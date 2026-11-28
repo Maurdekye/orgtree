@@ -183,19 +183,14 @@ pub async fn mail_by_id(
         "org" => client
             .query_opt("SELECT to_jsonb(i) FROM ot.org_inbox i WHERE org_id = $1 AND uid = $2", &[&o.id, &id])
             .await?
-            .map(|r| crate::domain::orginbox::entry(&r.get::<_, Value>(0))),
+            .map(|r| r.get::<_, Value>(0)),
         "user" => client
             .query_opt(
                 "SELECT to_jsonb(m)||jsonb_build_object('tags',ot.mail_tag_labels(m.id)) FROM ot.mail m WHERE ((m.sender NOT LIKE '@org:%' AND m.sender NOT LIKE '@net:%' AND COALESCE(m.ev->>'variant','') <> 'runtime.external_unroutable' AND m.extra->>'transfer_failure' IS NULL) OR NOT EXISTS (SELECT 1 FROM ot.orgs inbox_org WHERE inbox_org.id=m.org_id AND inbox_org.settings->'org_inbox_enabled'='false'::jsonb)) AND org_id = $1 AND uid = $2 AND (recipient_kind = 'user' OR sender = '@user')",
                 &[&o.id, &id],
             )
             .await?
-            .map(|r| {
-                let raw:Value=r.get(0);
-                let mut entry=compute::mail_entry(&raw);
-                entry["unread"]=json!(raw["state"]=="pending");
-                entry
-            }),
+            .map(|r| user_mail_entry(&r.get::<_, Value>(0))),
         "node" => {
             let name = q.node.unwrap_or_default();
             client
@@ -217,7 +212,27 @@ pub async fn mail_by_id(
         }
         other => return Err(ApiError::bad_request(format!("no mailbox {other}"))),
     };
+    // an org row: its entry, and an inbound row's holder copies (a mail link's "View in @agent's inbox")
+    let found = match (boxname.as_str(), found) {
+        ("org", Some(raw)) => {
+            let mut entry = crate::domain::orginbox::entry(&raw);
+            let copies = crate::domain::orginbox::row_copies(&**client, o.id, &raw).await?;
+            if copies.as_array().is_some_and(|a| !a.is_empty()) { entry["copies"] = copies; }
+            Some(entry)
+        }
+        (_, found) => found,
+    };
     Ok(Json(json!({ "found": found.is_some(), "mail": found })))
+}
+
+/// One message of the user's box read by id: the common row, whether it is still unread, and for the user's own mail its
+/// recipient, as the agent box's read names it (docket mail-link-context-menus-open-in-recipient-s-inbo).
+#[logged]
+fn user_mail_entry(raw: &Value) -> Value {
+    let mut entry = compute::mail_entry(raw);
+    entry["unread"] = json!(raw["state"] == "pending");
+    if raw["sender"] == "@user" { entry["to"] = raw["recipient_name"].clone(); }
+    entry
 }
 
 #[derive(Deserialize, Debug)]
