@@ -1448,15 +1448,15 @@ function DmConversation({ slug, tree, chat, nodes, toast, refs, onFocusAgent, fl
     const agent = e.via ?? (chat.kind === 'agent' || chat.kind === 'project' ? peer : '')
     const row = e.out ? { from: '@user', to: (m as { to?: string }).to ?? (agent || undefined), delivered: (m as MailEntry).delivered === true }
       : { from: e.via ?? m.from }
-    return mailboxViewEntries({ row, holder: { box: 'user' }, here: { chat: peer },
-      view: side => {
-        if (side.box === 'user') { onViewClassic?.(id); return }
-        const target = resolveRef({ kind: 'mail', org: slug, box: side.box, node: side.node, id }, refs.world)
+    return mailboxViewEntries({ row: { ...row, id }, holder: { box: 'user' }, here: { chat: peer },
+      view: (side, mid) => {
+        if (side.box === 'user') { onViewClassic?.(mid); return }
+        const target = resolveRef({ kind: 'mail', org: slug, box: side.box, node: side.node, id: mid }, refs.world)
         // the mailbox itself, not the chat the mail-link router would choose while the chats are on (mailboxpref askForMailbox)
-        if (target.outcome === 'ready') { askForMailbox(id); refs.onOpen(target) }
+        if (target.outcome === 'ready') { askForMailbox(mid); refs.onOpen(target) }
       },
       transcript: onFocusAgent ? { has: name => !!nodes.get(name) && nodes.get(name)!.kind !== 'project',
-        open: name => { requestTranscriptMail(slug, name, id, m.at ?? undefined); onFocusAgent(name) } } : undefined })
+        open: (name, mid) => { requestTranscriptMail(slug, name, mid, m.at ?? undefined); onFocusAgent(name) } } : undefined })
       // the user's own box only where the panel has its classic jump
       .filter(v => onViewClassic || (v.label !== VIEW_WORDS.userInbox && v.label !== VIEW_WORDS.userOutbox))
   }

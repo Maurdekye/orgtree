@@ -47,14 +47,15 @@ export function ObjectNavHost({ org, dogs, openDog, openTicket, openDocument, op
         // stays only for a mail with none of them to offer
         const views = mailboxViewEntries({ row, holder: ref, here: mailPlaceAt(anchor),
           chat: chat && peer ? { peer, open: () => { viewMailIn('chat', org, id, peer) } } : undefined,
-          view: side => {
-            if (side.box === 'user') { viewMailIn('classic', org, id); return }
+          // `mid`: the mail's id in that place (an org row and its holders' copies differ; mailboxviews.ts)
+          view: (side, mid) => {
+            if (side.box === 'user') { viewMailIn('classic', org, mid); return }
             // the mailbox itself, not the chat the mail-link router picks for the user's mail while the chats are on
-            askForMailbox(id)
-            openMail?.({ id, to: side.box === 'org' ? `@org:${org}` : side.node! })
+            askForMailbox(mid)
+            openMail?.({ id: mid, to: side.box === 'org' ? `@org:${org}` : side.node! })
           },
           transcript: focusAgent ? { has: name => !isProject?.(name),
-            open: name => { requestTranscriptMail(org, name, id, row.at ?? undefined); focusAgent(name) } } : undefined })
+            open: (name, mid) => { requestTranscriptMail(org, name, mid, row.at ?? undefined); focusAgent(name) } } : undefined })
           // an agent's or the org's mailbox only where this host has the open-mail route
           .filter(v => openMail || !isMailboxViewLabel(v.label))
         const open = openMail && !views.length ? [{ label: 'Open', onSelect: () => openMail({ id,

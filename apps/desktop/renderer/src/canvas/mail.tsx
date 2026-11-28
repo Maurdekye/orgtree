@@ -6,7 +6,7 @@ import type { SelectionDraft, SelectionTarget } from '../replySelection'
 import { MentionLanding } from './mentionlanding'
 import { hasMailAttention } from '../mailattention'
 import { askForMailbox, chatPeerOf, isChatMail, viewMailIn, VIEW_IN_CHAT } from '../mailboxpref'
-import { isMailboxViewLabel, mailboxViewEntries } from './mailboxviews'
+import { isMailboxViewLabel, MAIL_COPY_UNLINKED, mailboxViewEntries } from './mailboxviews'
 import { focusComposerBackground } from '../composerfocus'
 import { resizeComposer } from '../composerautosize'
 import { readComposerDraft, writeComposerDraft } from '../composerdrafts'
@@ -671,15 +671,20 @@ export function MailList({ org, pending = [], delivered = [], waitLabel, sender,
     const peer = isChatMail(row, userBox) ? chatPeerOf(row, userBox, boxOwner) : null
     return mailboxViewEntries({ row: m, holder, here: { ...holder, folder: outgoing ? 'sent' : 'inbox' },
       chat: peer ? { peer, open: () => { viewMailIn('chat', listOrg, id, peer) } } : undefined,
-      view: side => {
-        if (side.box === 'user') { viewMailIn('classic', listOrg, id); return }
+      // `mid`: the mail's id in that place (an org row and its holders' copies differ; mailboxviews.ts)
+      view: (side, mid) => {
+        if (side.box === 'user') { viewMailIn('classic', listOrg, mid); return }
         if (!refs?.onOpen) return
-        const target = resolveRef({ kind: 'mail', org: listOrg, box: side.box, node: side.node, id }, refs.world)
+        const target = resolveRef({ kind: 'mail', org: listOrg, box: side.box, node: side.node, id: mid }, refs.world)
         // the mailbox itself, not the chat the mail-link router picks for the user's mail while the chats are on
-        if (target.outcome === 'ready') { askForMailbox(id); refs.onOpen?.(target) }
+        if (target.outcome === 'ready') { askForMailbox(mid); refs.onOpen?.(target) }
       },
+      // a listed org row carries no copies: its holders' copies are read when one of their entries is chosen
+      lookupCopies: holder.box === 'org' ? () => getMailById(listOrg, 'org', id)
+        .then(r => (r.found ? (r.mail as { copies?: { agent: string; id: string }[] } | null)?.copies : undefined) ?? []) : undefined,
+      missing: () => toast?.([MAIL_COPY_UNLINKED]),
       transcript: onFocusAgent ? { has: name => !!hasAgent?.(name) && tierOf?.(name) !== 'project',
-        open: name => { requestTranscriptMail(listOrg, name, id, m.at ?? undefined); onFocusAgent(name) } } : undefined })
+        open: (name, mid) => { requestTranscriptMail(listOrg, name, mid, m.at ?? undefined); onFocusAgent(name) } } : undefined })
       // an agent's or the org's mailbox only where this list has the route there
       .filter(v => refs?.onOpen || !isMailboxViewLabel(v.label))
   }
@@ -2042,7 +2047,9 @@ export function InboxView({ slug, nid, unreadCount, onRetract, jumpTo, jumpSeq, 
       .then((m) => {
         if (askKey.current !== req) return
         setJumpAsk(null)
-        if (m) setFolder('inbox')
+        // the node read answers for mail this box SENT as well as received (sender OR recipient): mail it sent to
+        // someone else is in its Sent folder (View in @agent's outbox on an older row, bounce m782724ff17a3)
+        if (m) setFolder(m.from === nid && m.to !== nid ? 'sent' : 'inbox')
       })
       .catch(() => {
         if (askKey.current !== req) return
