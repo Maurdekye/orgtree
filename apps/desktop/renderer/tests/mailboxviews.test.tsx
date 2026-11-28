@@ -22,16 +22,16 @@ import { ObjectNavProvider } from '../src/canvas/objectnav'
 import { ObjectNavHost } from '../src/canvas/objectnavhost'
 import { ObjectMenuBoundary } from '../src/canvas/contextmenu'
 import type { MenuEntry, MenuItem } from '../src/canvas/contextmenu'
-import { MailList } from '../src/canvas/mail'
+import { InboxView, MailList } from '../src/canvas/mail'
 import { RefChip, resolveRef } from '../src/canvas/reflinks'
 import { CLASSIC_MAILBOX_KEY, VIEW_IN_CHAT, VIEW_IN_CLASSIC, classicMailbox, onMailViewRequest } from '../src/mailboxpref'
 
 const labels = (entries: MenuEntry[]) => entries.map(e => (e === 'sep' ? '-' : e.label))
-type Row = { from?: string; to?: string; _by?: string; _delivered?: string[] }
+type Row = Record<string, unknown>
 const build = (row: Row, holder: { box: 'user' | 'org' | 'node'; node?: string }, here: MailPlace | null = null,
   chat?: string) => {
   const opened: MailboxSide[] = []
-  const entries = mailboxViewEntries({ row, holder, here, view: s => { opened.push(s) },
+  const entries = mailboxViewEntries({ row: { id: 'm1', ...row }, holder, here, view: s => { opened.push(s) },
     chat: chat ? { peer: chat, open() {} } : undefined })
   return { entries, opened }
 }
@@ -73,26 +73,25 @@ test('the user\'s mail: View in chat, then both mailboxes, the user\'s side as V
 
 test('outside parties: the local agent\'s mailbox and the org mailbox', () => {
   // incoming: delivered to an agent; the org mailbox received it
-  assert.deepEqual(labels(build({ from: '@net:someone.abc', _delivered: ['reader'] }, { box: 'org' }).entries),
+  assert.deepEqual(labels(build({ from: '@net:someone.abc', _delivered: ['reader'], copies: [{ agent: 'reader', id: 'c1' }] }, { box: 'org' }).entries),
     ['View in @reader’s inbox', 'View in org inbox'])
-  assert.deepEqual(labels(build({ from: '@net:someone.abc' }, { box: 'node', node: 'reader' }).entries),
+  assert.deepEqual(labels(build({ from: '@net:someone.abc', org_row: 'o1' }, { box: 'node', node: 'reader' }).entries),
     ['View in @reader’s inbox', 'View in org inbox'])
   // outgoing: the agent sent it; the org mailbox sent it on
-  assert.deepEqual(labels(build({ from: 'writer', to: '@org:elsewhere' }, { box: 'node', node: 'writer' }).entries),
-    ['View in org outbox', 'View in @writer’s outbox'])
-  assert.deepEqual(labels(build({ from: '@org:mine', _by: 'writer', to: '@net:x.y' }, { box: 'org' }).entries),
-    ['View in org outbox', 'View in @writer’s outbox'])
+  // outgoing: only the org mailbox holds it (an agent's Sent lists no mail to an outside party)
+  assert.deepEqual(labels(build({ from: '@org:mine', _by: 'writer', to: '@net:x.y' }, { box: 'org' }).entries), ['View in org outbox'])
   // already in the org mailbox's inbox
-  assert.deepEqual(labels(build({ from: '@net:someone.abc', _delivered: ['reader'] }, { box: 'org' },
+  assert.deepEqual(labels(build({ from: '@net:someone.abc', _delivered: ['reader'], copies: [{ agent: 'reader', id: 'c1' }] }, { box: 'org' },
     { box: 'org', folder: 'inbox' }).entries), ['View in @reader’s inbox'])
   // Orgtree's own mail has no sender side
   assert.deepEqual(labels(build({ from: '@system' }, { box: 'node', node: 'reader' }).entries), ['View in @reader’s inbox'])
 })
 
 test('several recipients: one entry each, in order; more than three in one submenu', () => {
-  assert.deepEqual(labels(build({ from: '@net:a.b', _delivered: ['r1', 'r2', 'r3'] }, { box: 'org' }).entries),
+  const cs = (n: number) => Array.from({ length: n }, (_, i) => ({ agent: `r${i + 1}`, id: `c${i + 1}` }))
+  assert.deepEqual(labels(build({ from: '@net:a.b', _delivered: ['r1', 'r2', 'r3'], copies: cs(3) }, { box: 'org' }).entries),
     ['View in @r1’s inbox', 'View in @r2’s inbox', 'View in @r3’s inbox', 'View in org inbox'])
-  const { entries } = build({ from: '@net:a.b', _delivered: ['r1', 'r2', 'r3', 'r4'] }, { box: 'org' })
+  const { entries } = build({ from: '@net:a.b', _delivered: ['r1', 'r2', 'r3', 'r4'], copies: cs(4) }, { box: 'org' })
   assert.deepEqual(labels(entries), ['View in a recipient’s inbox', 'View in org inbox'])
   const { children: sub = [] } = entries[0] as MenuItem
   assert.deepEqual(labels(sub),
@@ -102,7 +101,7 @@ test('several recipients: one entry each, in order; more than three in one subme
 test('transcripts: the sender\'s always, each recipient\'s once it read the mail; agents only', () => {
   const opened: string[] = []
   const views = (row: Record<string, unknown>, holder: { box: 'user' | 'org' | 'node'; node?: string }, here: MailPlace | null = null) =>
-    labels(mailboxViewEntries({ row, holder, here, view() {},
+    labels(mailboxViewEntries({ row: { id: 'm1', ...row }, holder, here, view() {},
       transcript: { has: n => n !== 'proj', open: n => { opened.push(n) } } }))
   assert.deepEqual(views({ from: 'writer', delivered: true }, { box: 'node', node: 'reader' }),
     ['View in @reader’s inbox', 'View in @writer’s outbox', 'View in @writer’s transcript', 'View in @reader’s transcript'])
@@ -116,6 +115,59 @@ test('transcripts: the sender\'s always, each recipient\'s once it read the mail
     ['View in @writer’s transcript'], 'a project has no transcript')
   assert.deepEqual(views({ from: 'writer', delivered: true }, { box: 'node', node: 'reader' }, { transcript: 'writer' }).filter(l => l.endsWith('transcript')),
     ['View in @reader’s transcript'], 'already in the writer\'s transcript')
+})
+
+// ---- bounce m782724ff17a3: every shape the boxes give, and each place at its own copy ----
+
+test('the org mailbox row read by id (dir, peer, by, delivered_to): incoming opens each holder at its own copy', () => {
+  const opened: [MailboxSide, string][] = []
+  const view = (side: MailboxSide, id: string) => { opened.push([side, id]) }
+  const row = { id: 'org-in', dir: 'in', peer: '@net:external.demo', delivered_to: ['reader'], copies: [{ agent: 'reader', id: 'copy-r' }] }
+  const entries = mailboxViewEntries({ row, holder: { box: 'org' }, view })
+  assert.deepEqual(labels(entries), ['View in @reader’s inbox', 'View in org inbox'])
+  for (const e of entries) (e as MenuItem).onSelect()
+  assert.deepEqual(opened, [[{ box: 'node', node: 'reader', folder: 'inbox' }, 'copy-r'], [{ box: 'org', folder: 'inbox' }, 'org-in']],
+    'the agent at its copy, the org mailbox at its row')
+  // a copy made before the link (none found): no entry for that agent
+  assert.deepEqual(labels(mailboxViewEntries({ row: { ...row, copies: [] }, holder: { box: 'org' }, view })), ['View in org inbox'])
+})
+
+test('the org mailbox row read by id: outgoing is the org outbox and the sender\'s transcript, never an agent outbox', () => {
+  const row = { id: 'org-out', dir: 'out', peer: '@net:external.demo', by: 'writer' }
+  const opened: [string, string][] = []
+  const entries = mailboxViewEntries({ row, holder: { box: 'org' }, view() {},
+    transcript: { has: () => true, open: (n, id) => { opened.push([n, id]) } } })
+  assert.deepEqual(labels(entries), ['View in org outbox', 'View in @writer’s transcript'],
+    'an agent\'s Sent lists no mail to an outside party')
+  ;(entries[1] as MenuItem).onSelect()
+  assert.deepEqual(opened, [['writer', 'org-out']], 'its send call names the org row')
+})
+
+test('a listed org row (to repeats the peer, _delivered): the holder\'s inbox, its copy read on choosing', async () => {
+  const opened: [MailboxSide, string][] = []
+  let missing = 0
+  const row = { id: 'org-row', from: '@net:external.demo', to: '@net:external.demo', _delivered: ['reader'] }
+  const make = (copies: { agent: string; id: string }[], here: MailPlace | null = null) => mailboxViewEntries({ row, holder: { box: 'org' }, here,
+    view: (s, id) => { opened.push([s, id]) }, lookupCopies: async () => copies, missing: () => { missing++ } })
+  assert.deepEqual(labels(make([])), ['View in @reader’s inbox', 'View in org inbox'], 'never View in org outbox')
+  assert.deepEqual(labels(make([], { box: 'org', folder: 'inbox' })), ['View in @reader’s inbox'], 'already in the org inbox')
+  ;(make([{ agent: 'reader', id: 'copy-r' }])[0] as MenuItem).onSelect()
+  await new Promise(r => setTimeout(r, 0))
+  assert.deepEqual(opened, [[{ box: 'node', node: 'reader', folder: 'inbox' }, 'copy-r']])
+  ;(make([])[0] as MenuItem).onSelect()
+  await new Promise(r => setTimeout(r, 0))
+  assert.equal(missing, 1, 'an older copy says so')
+})
+
+test('a holder\'s copy of outside mail opens the org inbox at its row (org_row); without one, no org entry', () => {
+  const opened: [MailboxSide, string][] = []
+  const view = (s: MailboxSide, id: string) => { opened.push([s, id]) }
+  const entries = mailboxViewEntries({ row: { id: 'copy-r', from: '@net:external.demo', org_row: 'org-in' }, holder: { box: 'node', node: 'reader' }, view })
+  assert.deepEqual(labels(entries), ['View in @reader’s inbox', 'View in org inbox'])
+  ;(entries[1] as MenuItem).onSelect()
+  assert.deepEqual(opened, [[{ box: 'org', folder: 'inbox' }, 'org-in']])
+  assert.deepEqual(labels(mailboxViewEntries({ row: { id: 'copy-r', from: '@net:external.demo' }, holder: { box: 'node', node: 'reader' }, view })),
+    ['View in @reader’s inbox'])
 })
 
 test('mailSides names each side once', () => {
@@ -225,4 +277,36 @@ test('mail rows in an agent\'s mailbox: an inbox row offers the sender\'s outbox
   await inAct(async () => { await flush(4) })
   await right(x.el.querySelector('.mailrow')!)
   assert.equal(menuLabels().some(l => l.endsWith('box')), false, `${menuLabels()}`)
+})
+
+test('a link to the user\'s own sent mail (the user box read by id names its recipient): chat, the agent\'s inbox, classic', async (t) => {
+  const saved = fetch
+  const mail = { id: 'user-sent', at: '2026-11-20T10:00:00Z', kind: 'message', body: 'the body', from: '@user', to: 'reader', delivered: true, unread: false }
+  globalThis.fetch = (async () => new Response(JSON.stringify({ found: true, mail }), { status: 200 })) as typeof fetch
+  t.after(() => { globalThis.fetch = saved })
+  const world = { org: 'org', agents: new Map([['reader', 'reader']]) }
+  const v = await mountView(<ObjectNavProvider><ObjectNavHost org="org" dogs={[]} openDog={() => {}} toast={() => {}} openMail={() => {}} />
+    <ObjectMenuBoundary>
+      <RefChip r={resolveRef({ kind: 'mail', org: 'org', box: 'user', id: 'user-sent' }, world)} onOpen={() => {}} />
+    </ObjectMenuBoundary></ObjectNavProvider>, el => el)
+  t.after(() => v.unmount())
+  await inAct(async () => { await flush(4) })
+  await right(v.el.querySelector('.ref-mail')!)
+  assert.deepEqual(menuLabels().slice(0, 3), [VIEW_IN_CHAT, VIEW_IN_CLASSIC, 'View in @reader’s inbox'])
+})
+
+test('an agent mailbox asked for an older mail it SENT opens on Sent, not Inbox (the exact read answers for sent mail too)', async (t) => {
+  const saved = fetch
+  const old = { id: 'old-sent', from: 'me', to: 'other', at: '2026-10-01T10:00:00Z', kind: 'message', body: 'an old one' }
+  globalThis.fetch = (async (input: RequestInfo | URL) => {
+    const url = String(input)
+    const body = url.includes('/mail/node/old-sent') ? { found: true, mail: old } : url.includes('/inbox') ? { pending: [], delivered: [], sent: [] } : {}
+    return new Response(JSON.stringify(body), { status: 200 })
+  }) as typeof fetch
+  t.after(() => { globalThis.fetch = saved })
+  const v = await mountView(<InboxView slug="org" nid="me" tier={null} jumpTo="old-sent" jumpSeq={1} />, el => el)
+  t.after(() => v.unmount())
+  for (let i = 0; i < 20 && !v.el.querySelector('.mail-folders button.on'); i++) await inAct(async () => { await flush(4) })
+  await inAct(async () => { await flush(8) })
+  assert.equal(v.el.querySelector('.mail-folders button.on')?.textContent?.trim(), 'sent', v.el.querySelector('.mail-folders')?.textContent ?? '(no folders)')
 })
