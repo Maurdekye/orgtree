@@ -96,8 +96,9 @@ const readByRecipient = (row: Row): boolean =>
  *  me123cd3dfa03). So from an org row an agent's inbox opens at that agent's copy (`copies` of the row read by id, or
  *  `lookupCopies` for a listed row, asked on choosing), and from a holder's copy the org inbox opens at its row
  *  (`org_row`). A copy made before that link was recorded has none: no entry where that is known, a `missing` note
- *  where it is learned only on choosing. An agent's mail to an outside party lives only in the org mailbox (the agent's
- *  Sent lists ot.mail only), so it has no outbox entry; its transcript does (the send call names the org row's id). */
+ *  where it is learned only on choosing. An agent's mail to an outside party is the org mailbox's 'out' row, which the
+ *  agent's Sent lists as it is (USER 2026-11-28 m3b0568389632), so its outbox, the org outbox and its transcript all
+ *  open it by that one id. */
 export function mailboxViewEntries(o: {
   row: Row; holder: Holder; here?: MailPlace | null
   view: (side: MailboxSide, id: string) => void
@@ -116,9 +117,12 @@ export function mailboxViewEntries(o: {
   const fromOrg = o.holder.box === 'org'
   const copies = Array.isArray(o.row.copies) ? o.row.copies as { agent?: unknown; id?: unknown }[] : null
   const copyOf = (name: string) => { const c = copies?.find(c => c.agent === name); return typeof c?.id === 'string' ? c.id : null }
+  const toOutside = recipients.some(r => r.box === 'org' && r.folder === 'sent')
   /** the entry's action, or null where this mail has no copy to open there */
   const go = (s: MailboxSide): (() => void) | null => {
     if ((s.box === 'org') === fromOrg) return rowId ? () => o.view(s, rowId) : null
+    // an agent's mail to an outside party: its Sent lists the org mailbox's row itself, under that row's id
+    if (fromOrg && toOutside && s === sender) return rowId ? () => o.view(s, rowId) : null
     if (!fromOrg) return typeof o.row.org_row === 'string' && o.row.org_row ? () => o.view(s, o.row.org_row as string) : null
     if (copies) { const id = copyOf(s.node ?? ''); return id ? () => o.view(s, id) : null }
     const lookup = o.lookupCopies
@@ -130,16 +134,23 @@ export function mailboxViewEntries(o: {
   const inboxes = recipients.filter(s => !isHere(s, here)).map(item).filter((e): e is MenuItem => !!e)
   if (inboxes.length > FLAT_RECIPIENTS) out.push({ label: VIEW_WORDS.recipients, onSelect: () => {}, actionDisabled: true, children: inboxes })
   else out.push(...inboxes)
-  const toOutside = recipients.some(r => r.box === 'org' && r.folder === 'sent')
-  if (sender && !isHere(sender, here) && !(sender.box === 'node' && toOutside)) { const e = item(sender); if (e) out.push(e) }
+  if (sender && !isHere(sender, here)) { const e = item(sender); if (e) out.push(e) }
   if (o.transcript && rowId) {
     const t = o.transcript
-    // the sender's send call names this row's id; a recipient's delivery row its own copy's, known here only off the org box
-    const agents = [...(sender?.box === 'node' ? [sender.node!] : []),
-      ...(!fromOrg && readByRecipient(o.row) ? recipients.filter(r => r.box === 'node').map(r => r.node!) : [])]
-    for (const name of [...new Set(agents)]) {
-      if (!t.has(name) || (here && 'transcript' in here && here.transcript === name)) continue
-      out.push({ label: VIEW_WORDS.transcript(name), onSelect: () => t.open(name, rowId) })
+    // the sender's send call names this row's id; a recipient's delivery row names its own copy: this id off the org
+    // box, the copy's from an org row that lists it read (rig-sol-b m54a67753d15a)
+    const readCopy = (name: string) => { const c = copies?.find(c => c.agent === name) as { id?: unknown; read?: unknown } | undefined
+      return c?.read === true && typeof c.id === 'string' ? c.id : null }
+    const agents: [string, string][] = [...(sender?.box === 'node' ? [[sender.node!, rowId] as [string, string]] : []),
+      ...recipients.filter(r => r.box === 'node').flatMap((r): [string, string][] => {
+        const id = !fromOrg ? (readByRecipient(o.row) ? rowId : null) : readCopy(r.node!)
+        return id ? [[r.node!, id]] : []
+      })]
+    const done = new Set<string>()
+    for (const [name, id] of agents) {
+      if (done.has(name) || !t.has(name) || (here && 'transcript' in here && here.transcript === name)) continue
+      done.add(name)
+      out.push({ label: VIEW_WORDS.transcript(name), onSelect: () => t.open(name, id) })
     }
   }
   return out
